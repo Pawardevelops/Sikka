@@ -21,7 +21,7 @@ export function PrivacyPolicyScreen() {
         security: false,
     });
 
-    const toggleSection = (section) => {
+    const toggleSection = (section: 'collection' | 'permissions' | 'security') => {
         LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
         setExpanded(prev => ({ ...prev, [section]: !prev[section] }));
     };
@@ -36,7 +36,7 @@ export function PrivacyPolicyScreen() {
             </View>
 
             <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
-                
+
                 {/* Intro Card */}
                 <View style={styles.introCard}>
                     <View style={styles.iconCircle}>
@@ -57,9 +57,9 @@ export function PrivacyPolicyScreen() {
                             <Icon name={expanded.collection ? "expand-less" : "expand-more"} size={24} color={COLORS.textMuted} />
                         </View>
                     </TouchableOpacity>
-                    
+
                     <Text style={styles.paragraph} numberOfLines={expanded.collection ? undefined : 2}>
-                        Sikka is an <Text style={styles.highlight}>offline-first</Text> app. All your data stays <Text style={styles.highlight}>on your device</Text>. 
+                        Sikka is an <Text style={styles.highlight}>offline-first</Text> app. All your data stays <Text style={styles.highlight}>on your device</Text>.
                         We <Text style={styles.highlight}>do not use external servers</Text> or cloud sync.
                     </Text>
                     <TouchableOpacity onPress={() => toggleSection('collection')}>
@@ -76,9 +76,9 @@ export function PrivacyPolicyScreen() {
                             <Icon name={expanded.permissions ? "expand-less" : "expand-more"} size={24} color={COLORS.textMuted} />
                         </View>
                     </TouchableOpacity>
-                    
+
                     <Text style={styles.paragraph} numberOfLines={expanded.permissions ? undefined : 2}>
-                        We request <Text style={styles.highlight}>Notifications</Text> for reminders and <Text style={styles.highlight}>Storage access</Text> for manual backups. 
+                        We request <Text style={styles.highlight}>Notifications</Text> for reminders and <Text style={styles.highlight}>Storage access</Text> for manual backups.
                         Biometric data is <Text style={styles.highlight}>never accessible</Text> by Sikka; it is handled safely by your phone's system.
                     </Text>
                     <TouchableOpacity onPress={() => toggleSection('permissions')}>
@@ -95,9 +95,9 @@ export function PrivacyPolicyScreen() {
                             <Icon name={expanded.security ? "expand-less" : "expand-more"} size={24} color={COLORS.textMuted} />
                         </View>
                     </TouchableOpacity>
-                    
+
                     <Text style={styles.paragraph} numberOfLines={expanded.security ? undefined : 2}>
-                        Your database is <Text style={styles.highlight}>locally encrypted</Text>. Because data is offline, your security depends on your <Text style={styles.highlight}>device passcode</Text>. 
+                        Your database is <Text style={styles.highlight}>locally encrypted</Text>. Because data is offline, your security depends on your <Text style={styles.highlight}>device passcode</Text>.
                         Be careful when <Text style={styles.highlight}>sharing exported backup files</Text>.
                     </Text>
                     <TouchableOpacity onPress={() => toggleSection('security')}>

@@ -5,11 +5,13 @@ import { COLORS, SPACING } from '../../constants/theme';
 interface TransactionHeatmapProps {
     data: Record<string, number>; // date "YYYY-MM-DD" -> value
     onDayPress?: (date: string, value: number) => void;
+    colorScale?: string; // Hex color base
 }
 
 export function TransactionHeatmap({
     data,
-    onDayPress
+    onDayPress,
+    colorScale = COLORS.success // Default to Green
 }: TransactionHeatmapProps) {
     const scrollViewRef = useRef<ScrollView>(null);
 
@@ -86,16 +88,8 @@ export function TransactionHeatmap({
             currentWeek[dayOfWeek] = day;
 
             // Month Labels
-            // We identify the month label at the 1st of the month
-            let weekLabel = undefined;
-            if (day.obj.getDate() === 1) {
-                weekLabel = day.obj.toLocaleString('default', { month: 'short' });
-                // We store it to attach to the next pushed week.
-                // Actually, the label belongs to the COLUMN that contains the 1st.
-                // The currentWeek contains it.
-                // We can just attach it to the week object when we push it.
-                // BUT, if we split mid-week, the "new" week (start of month) gets it.
-            }
+            // The label belongs to the COLUMN that contains the 1st.
+            // We calculate it when pushing the week.
 
             // Push Week Logic:
             // 1. It's Saturday (day 6)
@@ -131,10 +125,17 @@ export function TransactionHeatmap({
         if (value === 0) return COLORS.surfaceLight;
 
         const ratio = value / maxValue;
-        if (ratio < 0.25) return '#86EFAC';
-        if (ratio < 0.50) return '#4ADE80';
-        if (ratio < 0.75) return '#22C55E';
-        return '#15803D';
+
+        // Dynamic opacity based on ratio
+        // 0.25 -> 40 (25%)
+        // 0.50 -> 80 (50%)
+        // 0.75 -> BF (75%)
+        // 1.00 -> FF (100%)
+
+        if (ratio < 0.25) return colorScale + '40'; // 25% opacity
+        if (ratio < 0.50) return colorScale + '80'; // 50% opacity
+        if (ratio < 0.75) return colorScale + 'BF'; // 75% opacity
+        return colorScale; // 100% opacity
     };
 
     return (

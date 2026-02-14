@@ -14,7 +14,6 @@ import {
     ScrollView,
     KeyboardAvoidingView,
     Platform,
-    Switch,
     Alert,
 } from 'react-native';
 import { COLORS, SPACING, FONT_SIZE, BORDER_RADIUS } from '../constants/theme';
@@ -23,6 +22,7 @@ import { Icon } from './Icon';
 import { TransactionCategory } from '../types';
 import { useAccounts } from '../context/AccountsContext';
 import { CATEGORY_ICONS, CATEGORY_LABELS } from '../context/TransactionsContext';
+import { SENTIMENT_LIST } from '../constants/sentiments';
 
 interface AddTransactionModalProps {
     visible: boolean;
@@ -34,7 +34,8 @@ interface AddTransactionModalProps {
         amount: number;
         notes?: string;
         isAuto: boolean;
-        isImpulse?: boolean;
+        sentimentIds?: string[];
+        isImpulse?: boolean; // Deprecated, kept for compat
     }) => void;
 }
 
@@ -52,8 +53,17 @@ export function AddTransactionModal({ visible, onClose, onAdd }: AddTransactionM
     const [notes, setNotes] = useState('');
     const [isExpense, setIsExpense] = useState(true);
 
-    const [isImpulse, setIsImpulse] = useState(false);
+    // Sentiments (Multi-select)
+    const [sentimentIds, setSentimentIds] = useState<string[]>([]);
     const safeTop = useSafeTop();
+
+    const toggleSentiment = (id: string) => {
+        setSentimentIds(prev =>
+            prev.includes(id)
+                ? prev.filter(s => s !== id)
+                : [...prev, id]
+        );
+    };
 
     const handleAdd = () => {
         if (!merchant.trim() || !amount.trim() || !accountId) return;
@@ -82,7 +92,8 @@ export function AddTransactionModal({ visible, onClose, onAdd }: AddTransactionM
             amount: isExpense ? -Math.abs(numAmount) : Math.abs(numAmount),
             notes: notes.trim() || undefined,
             isAuto: false,
-            isImpulse: isExpense ? isImpulse : undefined, // Only track impulse for expenses
+            sentimentIds: isExpense ? sentimentIds : [],
+            isImpulse: isExpense ? sentimentIds.includes('impulse') : undefined, // Backward compat
         });
 
         // Reset form
@@ -91,7 +102,7 @@ export function AddTransactionModal({ visible, onClose, onAdd }: AddTransactionM
         setCategory('other');
         setNotes('');
         setIsExpense(true);
-        setIsImpulse(false);
+        setSentimentIds([]);
         onClose();
     };
 
@@ -198,22 +209,38 @@ export function AddTransactionModal({ visible, onClose, onAdd }: AddTransactionM
                         ))}
                     </View>
 
-                    {/* Impulse Spending Toggle - Only show for expenses */}
+                    {/* Sentiment Selector - Only show for expenses */}
                     {isExpense && (
-                        <View style={styles.impulseCard}>
-                            <View style={styles.impulseIconContainer}>
-                                <Icon name="flash-on" size={20} color="#FBBF24" />
-                            </View>
-                            <View style={styles.impulseContent}>
-                                <Text style={styles.impulseTitle}>Is this a want?</Text>
-                                <Text style={styles.impulseSubtitle}>Track impulse spending</Text>
-                            </View>
-                            <Switch
-                                value={isImpulse}
-                                onValueChange={setIsImpulse}
-                                trackColor={{ false: COLORS.surfaceLight, true: COLORS.primaryMuted }}
-                                thumbColor={isImpulse ? COLORS.primary : COLORS.textMuted}
-                            />
+                        <View style={styles.sentimentSection}>
+                            <Text style={styles.inputLabel}>How did this spend feel?</Text>
+                            <ScrollView
+                                horizontal
+                                showsHorizontalScrollIndicator={false}
+                                style={styles.sentimentScroll}
+                                contentContainerStyle={styles.sentimentContainer}
+                            >
+                                {SENTIMENT_LIST.map((sentiment) => {
+                                    const isSelected = sentimentIds.includes(sentiment.id);
+                                    return (
+                                        <TouchableOpacity
+                                            key={sentiment.id}
+                                            style={[
+                                                styles.sentimentChip,
+                                                isSelected && { backgroundColor: sentiment.color + '20', borderColor: sentiment.color }
+                                            ]}
+                                            onPress={() => toggleSentiment(sentiment.id)}
+                                            activeOpacity={0.7}
+                                        >
+                                            <Text style={[
+                                                styles.sentimentLabel,
+                                                isSelected && { color: sentiment.color, fontWeight: '700' }
+                                            ]}>
+                                                {sentiment.label}
+                                            </Text>
+                                        </TouchableOpacity>
+                                    );
+                                })}
+                            </ScrollView>
                         </View>
                     )}
 
@@ -297,41 +324,31 @@ const styles = StyleSheet.create({
     categoryChipText: { fontSize: FONT_SIZE.sm, color: COLORS.textSecondary },
     categoryChipTextActive: { color: COLORS.background, fontWeight: '600' },
 
-    // Impulse Spending Card
-    impulseCard: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        backgroundColor: COLORS.surface,
-        borderRadius: BORDER_RADIUS.xl,
-        padding: SPACING.lg,
-        marginTop: SPACING.xl,
-        borderWidth: 1,
-        borderColor: COLORS.border,
+    // Sentiment Selector
+    sentimentSection: {
+        marginBottom: SPACING.xl,
     },
-    impulseIconContainer: {
-        width: 40,
-        height: 40,
-        borderRadius: BORDER_RADIUS.md,
-        backgroundColor: 'rgba(251, 191, 36, 0.15)',
+    sentimentScroll: {
+        maxHeight: 50,
+    },
+    sentimentContainer: {
+        paddingRight: SPACING.xl,
+        gap: SPACING.sm,
+    },
+    sentimentChip: {
+        paddingHorizontal: SPACING.lg,
+        paddingVertical: SPACING.sm + 4,
+        borderRadius: BORDER_RADIUS.full,
+        backgroundColor: COLORS.surface,
+        borderWidth: 1,
+        borderColor: COLORS.surfaceLight,
         alignItems: 'center',
         justifyContent: 'center',
-        marginRight: SPACING.md,
     },
-    impulseIcon: {
-        fontSize: 20,
-    },
-    impulseContent: {
-        flex: 1,
-    },
-    impulseTitle: {
-        fontSize: FONT_SIZE.md,
-        fontWeight: '600',
-        color: COLORS.text,
-    },
-    impulseSubtitle: {
+    sentimentLabel: {
         fontSize: FONT_SIZE.sm,
+        fontWeight: '500',
         color: COLORS.textSecondary,
-        marginTop: 2,
     },
 });
 

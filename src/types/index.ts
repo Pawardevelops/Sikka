@@ -67,7 +67,8 @@ export interface Transaction {
     notes?: string;
     timestamp: number; // Unix timestamp for easy sorting
     isAuto: boolean; // Auto-detected from SMS
-    isImpulse?: boolean; // Marked as impulse/want spending for analytics
+    isImpulse?: boolean; // Deprecated: use 'impulse' sentiment instead
+    sentimentIds?: string[]; // Array of Sentiment IDs (e.g. ['regret', 'impulse'])
     isDeleted?: boolean;
 }
 

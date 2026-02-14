@@ -6,7 +6,7 @@
 import React from 'react';
 import { StyleSheet, ScrollView, Text, View } from 'react-native';
 import { CategorySpends } from '../components/stats/CategorySpends';
-import { ImpulseSection } from '../components/stats/ImpulseSection';
+import { SentimentHeatmapSection } from '../components/stats/SentimentHeatmapSection';
 import { useSafeTop } from '../components/SafeScreen';
 import { COLORS, SPACING } from '../constants/theme';
 
@@ -21,7 +21,7 @@ export function StatsScreen() {
         >
             <Text style={styles.screenTitle}>Statistics</Text>
             <CategorySpends />
-            <ImpulseSection />
+            <SentimentHeatmapSection />
             {/* Bottom padding */}
             <View style={{ height: SPACING.xl }} />
         </ScrollView>
