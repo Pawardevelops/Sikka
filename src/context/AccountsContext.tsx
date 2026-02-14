@@ -100,37 +100,45 @@ export function AccountsProvider({ children }: AccountsProviderProps) {
             isDeleted: false,
             lastUpdated: 'Just now',
         };
-        const newAccounts = [...accounts, newAccount];
-        setAccounts(newAccounts);
-        await saveAccounts(newAccounts);
-    }, [accounts]);
+        setAccounts(prev => {
+            const newAccounts = [...prev, newAccount];
+            saveAccounts(newAccounts);
+            return newAccounts;
+        });
+    }, []);
 
     // Soft delete account
     const deleteAccount = useCallback(async (accountId: string) => {
-        const newAccounts = accounts.map(acc =>
-            acc.id === accountId ? { ...acc, isDeleted: true } : acc
-        );
-        setAccounts(newAccounts);
-        await saveAccounts(newAccounts);
-    }, [accounts]);
+        setAccounts(prev => {
+            const newAccounts = prev.map(acc =>
+                acc.id === accountId ? { ...acc, isDeleted: true } : acc
+            );
+            saveAccounts(newAccounts);
+            return newAccounts;
+        });
+    }, []);
 
     // Restore deleted account
     const restoreAccount = useCallback(async (accountId: string) => {
-        const newAccounts = accounts.map(acc =>
-            acc.id === accountId ? { ...acc, isDeleted: false } : acc
-        );
-        setAccounts(newAccounts);
-        await saveAccounts(newAccounts);
-    }, [accounts]);
+        setAccounts(prev => {
+            const newAccounts = prev.map(acc =>
+                acc.id === accountId ? { ...acc, isDeleted: false } : acc
+            );
+            saveAccounts(newAccounts);
+            return newAccounts;
+        });
+    }, []);
 
     // Update account
     const updateAccount = useCallback(async (accountId: string, updates: Partial<Account>) => {
-        const newAccounts = accounts.map(acc =>
-            acc.id === accountId ? { ...acc, ...updates, lastUpdated: 'Just now' } : acc
-        );
-        setAccounts(newAccounts);
-        await saveAccounts(newAccounts);
-    }, [accounts]);
+        setAccounts(prev => {
+            const newAccounts = prev.map(acc =>
+                acc.id === accountId ? { ...acc, ...updates, lastUpdated: 'Just now' } : acc
+            );
+            saveAccounts(newAccounts);
+            return newAccounts;
+        });
+    }, []);
 
     // Get single account
     const getAccount = useCallback((accountId: string) => {

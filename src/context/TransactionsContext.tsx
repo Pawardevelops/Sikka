@@ -120,30 +120,37 @@ export function TransactionsProvider({ children, onUpdateAccountBalance }: Trans
             timestamp: transactionData.timestamp || Date.now(),
             isDeleted: false,
         };
-        const newTransactions = [...transactions, newTransaction];
-        setTransactions(newTransactions);
-        await saveTransactions(newTransactions);
+
+        setTransactions(prev => {
+            const newTransactions = [...prev, newTransaction];
+            saveTransactions(newTransactions);
+            return newTransactions;
+        });
 
         // Update account balance for non-pending transactions
         if (newTransaction.status !== 'pending' && onUpdateAccountBalance) {
             onUpdateAccountBalance(newTransaction.accountId, newTransaction.amount);
         }
-    }, [transactions, onUpdateAccountBalance]);
+    }, [onUpdateAccountBalance]);
 
     // Soft delete transaction — reverses the balance if the transaction was active
     const deleteTransaction = useCallback(async (transactionId: string) => {
-        const target = transactions.find(tx => tx.id === transactionId);
-        const newTransactions = transactions.map(tx =>
-            tx.id === transactionId ? { ...tx, isDeleted: true } : tx
-        );
-        setTransactions(newTransactions);
-        await saveTransactions(newTransactions);
+        let target: Transaction | undefined;
+
+        setTransactions(prev => {
+            target = prev.find(tx => tx.id === transactionId);
+            const newTransactions = prev.map(tx =>
+                tx.id === transactionId ? { ...tx, isDeleted: true } : tx
+            );
+            saveTransactions(newTransactions);
+            return newTransactions;
+        });
 
         // Reverse balance only if the transaction was active and not pending
         if (target && !target.isDeleted && target.status !== 'pending' && onUpdateAccountBalance) {
             onUpdateAccountBalance(target.accountId, -target.amount);
         }
-    }, [transactions, onUpdateAccountBalance]);
+    }, [onUpdateAccountBalance]);
 
     // Get transactions by account
     const getTransactionsByAccount = useCallback((accountId: string) => {
@@ -164,19 +171,23 @@ export function TransactionsProvider({ children, onUpdateAccountBalance }: Trans
 
     // Approve a pending transaction — now affects account balance
     const approveTransaction = useCallback(async (id: string, updates?: Partial<Transaction>) => {
-        const target = transactions.find(tx => tx.id === id);
-        const newTransactions = transactions.map(tx =>
-            tx.id === id ? { ...tx, ...updates, status: 'approved' as const, isAuto: false } : tx
-        );
-        setTransactions(newTransactions);
-        await saveTransactions(newTransactions);
+        let target: Transaction | undefined;
+
+        setTransactions(prev => {
+            target = prev.find(tx => tx.id === id);
+            const newTransactions = prev.map(tx =>
+                tx.id === id ? { ...tx, ...updates, status: 'approved' as const, isAuto: false } : tx
+            );
+            saveTransactions(newTransactions);
+            return newTransactions;
+        });
 
         // Apply balance now that the transaction is approved
         if (target && onUpdateAccountBalance) {
             const finalAmount = updates?.amount ?? target.amount;
             onUpdateAccountBalance(target.accountId, finalAmount);
         }
-    }, [transactions, onUpdateAccountBalance]);
+    }, [onUpdateAccountBalance]);
 
     // Ignore (delete) a pending transaction
     const ignoreTransaction = useCallback(async (id: string) => {

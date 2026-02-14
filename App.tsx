@@ -71,7 +71,11 @@ function MainApp() {
 
   // Modals state
   const [showAddModal, setShowAddModal] = useState(false);
+  const [accountToEdit, setAccountToEdit] = useState<Account | null>(null);
+
   const [showAddTransactionModal, setShowAddTransactionModal] = useState(false);
+  const [initialTransactionProps, setInitialTransactionProps] = useState<{ type?: 'income' | 'expense' | 'transfer', accountId?: string } | null>(null);
+
   const [showAllTransactions, setShowAllTransactions] = useState(false);
   const [showNotifyCenter, setShowNotifyCenter] = useState(false);
   const [showAddSubscriptionModal, setShowAddSubscriptionModal] = useState(false);
@@ -84,7 +88,7 @@ function MainApp() {
 
   const fadeAnim = useRef(new Animated.Value(0)).current;
   const slideAnim = useRef(new Animated.Value(20)).current;
-  const { addAccount, deleteAccount } = useAccounts();
+  const { addAccount, deleteAccount, updateAccount } = useAccounts();
   const { addTransaction } = useTransactions();
   const { addSubscription } = useSubscriptions();
 
@@ -111,11 +115,23 @@ function MainApp() {
   const selectAccount = (account: Account) => setSelectedAccount(account);
   const goBack = () => setSelectedAccount(null);
 
-  const openAddModal = () => setShowAddModal(true);
-  const closeAddModal = () => setShowAddModal(false);
+  const openAddModal = (account?: Account) => {
+    setAccountToEdit(account || null);
+    setShowAddModal(true);
+  };
+  const closeAddModal = () => {
+    setShowAddModal(false);
+    setAccountToEdit(null);
+  };
 
-  const openAddTransactionModal = () => setShowAddTransactionModal(true);
-  const closeAddTransactionModal = () => setShowAddTransactionModal(false);
+  const openAddTransactionModal = (props?: { type?: 'income' | 'expense' | 'transfer', accountId?: string }) => {
+    setInitialTransactionProps(props || null);
+    setShowAddTransactionModal(true);
+  };
+  const closeAddTransactionModal = () => {
+    setShowAddTransactionModal(false);
+    setInitialTransactionProps(null);
+  };
 
   const openAllTransactions = () => setShowAllTransactions(true);
   const closeAllTransactions = () => setShowAllTransactions(false);
@@ -137,6 +153,10 @@ function MainApp() {
     addAccount(accountData);
   };
 
+  const handleUpdateAccount = (id: string, updates: Partial<Account>) => {
+    updateAccount(id, updates);
+  };
+
   const handleDeleteAccount = (accountId: string) => {
     deleteAccount(accountId);
     goBack();
@@ -150,6 +170,7 @@ function MainApp() {
     notes?: string;
     isAuto: boolean;
     isImpulse?: boolean;
+    sentimentIds?: string[];
     type?: 'credit' | 'debit';
   }) => {
     addTransaction({
@@ -205,12 +226,19 @@ function MainApp() {
       selectedAccount,
       selectAccount,
       goBack,
+
+      // Account Modal
       showAddModal,
+      accountToEdit,
       openAddModal,
       closeAddModal,
+
+      // Transaction Modal
       showAddTransactionModal,
+      initialTransactionProps,
       openAddTransactionModal,
       closeAddTransactionModal,
+
       showAllTransactions,
       openAllTransactions,
       closeAllTransactions,
@@ -244,11 +272,14 @@ function MainApp() {
         {/* Modals */}
         <AddAccountModal
           visible={showAddModal}
+          accountToEdit={accountToEdit}
           onClose={closeAddModal}
           onAdd={handleAddAccount}
+          onUpdate={handleUpdateAccount}
         />
         <AddTransactionModal
           visible={showAddTransactionModal}
+          initialProps={initialTransactionProps}
           onClose={closeAddTransactionModal}
           onAdd={handleAddTransaction}
         />

@@ -18,31 +18,60 @@ import {
 } from 'react-native';
 import { COLORS, SPACING, FONT_SIZE, BORDER_RADIUS } from '../constants/theme';
 import { Icon } from './Icon';
-import { AccountType } from '../types';
+import { AccountType, Account } from '../types';
 import { ACCOUNT_ICONS, ACCOUNT_TYPES } from '../context/AccountsContext';
 
 interface AddAccountModalProps {
     visible: boolean;
+    accountToEdit?: Account | null;
     onClose: () => void;
     onAdd: (account: { name: string; type: AccountType; icon: string; balance: number; color: string }) => void;
+    onUpdate?: (id: string, updates: Partial<Account>) => void;
 }
 
-export function AddAccountModal({ visible, onClose, onAdd }: AddAccountModalProps) {
+export function AddAccountModal({ visible, accountToEdit, onClose, onAdd, onUpdate }: AddAccountModalProps) {
     const [name, setName] = useState('');
     const [type, setType] = useState<AccountType>('bank');
     const [icon, setIcon] = useState('account-balance');
     const [balance, setBalance] = useState('');
 
-    const handleAdd = () => {
+    // Load account data when modal opens or accountToEdit changes
+    React.useEffect(() => {
+        if (visible) {
+            if (accountToEdit) {
+                setName(accountToEdit.name);
+                setType(accountToEdit.type);
+                setIcon(accountToEdit.icon);
+                setBalance(accountToEdit.balance.toString());
+            } else {
+                // Reset for add mode
+                setName('');
+                setType('bank');
+                setIcon('account-balance');
+                setBalance('');
+            }
+        }
+    }, [visible, accountToEdit]);
+
+    const handleSave = () => {
         if (!name.trim()) return;
 
-        onAdd({
-            name: name.trim(),
-            type,
-            icon,
-            balance: parseFloat(balance) || 0,
-            color: COLORS.primary,
-        });
+        if (accountToEdit && onUpdate) {
+            onUpdate(accountToEdit.id, {
+                name: name.trim(),
+                type,
+                icon,
+                balance: parseFloat(balance) || 0,
+            });
+        } else {
+            onAdd({
+                name: name.trim(),
+                type,
+                icon,
+                balance: parseFloat(balance) || 0,
+                color: COLORS.primary,
+            });
+        }
 
         // Reset form
         setName('');
@@ -80,15 +109,17 @@ export function AddAccountModal({ visible, onClose, onAdd }: AddAccountModalProp
                             <Icon name="close" size={20} color={COLORS.textSecondary} />
                             <Text style={styles.cancelBtn}>Cancel</Text>
                         </TouchableOpacity>
-                        <Text style={styles.modalTitle}>Add Account</Text>
+                        <Text style={styles.modalTitle}>{accountToEdit ? 'Edit Account' : 'Add Account'}</Text>
                         <TouchableOpacity
                             style={[styles.saveBtnContainer, !name.trim() && styles.saveBtnDisabled]}
-                            onPress={handleAdd}
+                            onPress={handleSave}
                             activeOpacity={0.7}
                             disabled={!name.trim()}
                         >
                             <Icon name="check" size={18} color={name.trim() ? COLORS.background : COLORS.textMuted} />
-                            <Text style={[styles.saveBtn, !name.trim() && styles.saveBtnTextDisabled]}>Add</Text>
+                            <Text style={[styles.saveBtn, !name.trim() && styles.saveBtnTextDisabled]}>
+                                {accountToEdit ? 'Save' : 'Add'}
+                            </Text>
                         </TouchableOpacity>
                     </View>
 

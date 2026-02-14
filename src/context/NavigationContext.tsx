@@ -11,12 +11,17 @@ export interface NavigationContextType {
     selectedAccount: Account | null;
     selectAccount: (account: Account) => void;
     goBack: () => void;
+    // Modals with Props
     showAddModal: boolean;
-    openAddModal: () => void;
+    accountToEdit: Account | null;
+    openAddModal: (account?: Account) => void;
     closeAddModal: () => void;
+
     showAddTransactionModal: boolean;
-    openAddTransactionModal: () => void;
+    initialTransactionProps: { type?: 'income' | 'expense' | 'transfer', accountId?: string } | null;
+    openAddTransactionModal: (props?: { type?: 'income' | 'expense' | 'transfer', accountId?: string }) => void;
     closeAddTransactionModal: () => void;
+
     showAllTransactions: boolean;
     openAllTransactions: () => void;
     closeAllTransactions: () => void;
@@ -28,8 +33,8 @@ export interface NavigationContextType {
     closeAddSubscriptionModal: () => void;
 
     // Subscription Editing
-    selectedSubscription: any | null;
-    selectSubscription: (subscription: any) => void;
+    selectedSubscription: Subscription | null;
+    selectSubscription: (subscription: Subscription) => void;
     closeSubscriptionDetail: () => void;
 
     // Privacy Policy

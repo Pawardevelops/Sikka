@@ -14,6 +14,7 @@ import {
 } from 'react-native';
 import { useCurrency } from '../context/CurrencyContext';
 import { useTransactions, CATEGORY_ICONS, formatTimeAgo } from '../context/TransactionsContext';
+import { useNavigation } from '../context/NavigationContext';
 import { Account } from '../types';
 import { COLORS, SPACING, FONT_SIZE, BORDER_RADIUS, SHADOWS } from '../constants/theme';
 import { useSafeTop } from '../components/SafeScreen';
@@ -28,6 +29,7 @@ interface AccountDetailScreenProps {
 export function AccountDetailScreen({ account, onBack, onDelete }: AccountDetailScreenProps) {
     const { formatAmount } = useCurrency();
     const { getTransactionsByAccount } = useTransactions();
+    const { openAddTransactionModal, openAddModal } = useNavigation();
     const transactions = getTransactionsByAccount(account.id);
     const safeTop = useSafeTop();
 
@@ -82,13 +84,19 @@ export function AccountDetailScreen({ account, onBack, onDelete }: AccountDetail
 
                 {/* Quick Actions */}
                 <View style={styles.actionsRow}>
-                    <TouchableOpacity style={styles.actionBtn}>
+                    <TouchableOpacity
+                        style={styles.actionBtn}
+                        onPress={() => openAddTransactionModal({ type: 'income', accountId: account.id })}
+                    >
                         <View style={styles.actionIcon}>
                             <Icon name="add" size={24} color={COLORS.text} />
                         </View>
                         <Text style={styles.actionLabel}>Add</Text>
                     </TouchableOpacity>
-                    <TouchableOpacity style={styles.actionBtn}>
+                    <TouchableOpacity
+                        style={styles.actionBtn}
+                        onPress={() => openAddTransactionModal({ type: 'transfer', accountId: account.id })}
+                    >
                         <View style={styles.actionIcon}>
                             <Icon name="swap-horiz" size={24} color={COLORS.text} />
                         </View>
@@ -100,7 +108,10 @@ export function AccountDetailScreen({ account, onBack, onDelete }: AccountDetail
                         </View>
                         <Text style={styles.actionLabel}>Stats</Text>
                     </TouchableOpacity>
-                    <TouchableOpacity style={styles.actionBtn}>
+                    <TouchableOpacity
+                        style={styles.actionBtn}
+                        onPress={() => openAddModal(account)}
+                    >
                         <View style={styles.actionIcon}>
                             <Icon name="edit" size={24} color={COLORS.text} />
                         </View>

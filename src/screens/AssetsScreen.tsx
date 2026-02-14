@@ -221,7 +221,7 @@ export function AssetsScreen() {
             ))}
 
             {/* Add Account Button */}
-            <TouchableOpacity style={styles.addBtn} activeOpacity={0.85} onPress={openAddModal}>
+            <TouchableOpacity style={styles.addBtn} activeOpacity={0.85} onPress={() => openAddModal()}>
                 <Icon name="add" size={20} color={COLORS.primary} style={{ marginRight: SPACING.sm }} />
                 <Text style={styles.addBtnText}>Add New Account</Text>
             </TouchableOpacity>

@@ -113,7 +113,7 @@ export function DashboardScreen() {
     // FAB items
     // FAB items
     const fabItems = [
-        { id: 'transaction', icon: 'attach-money', label: 'Add Transaction', onPress: openAddTransactionModal },
+        { id: 'transaction', icon: 'attach-money', label: 'Add Transaction', onPress: () => openAddTransactionModal() },
         { id: 'notify', icon: 'notifications', label: 'Notify Center', onPress: openNotifyCenter },
         { id: 'scan', icon: 'camera-alt', label: 'Scan Receipt', onPress: () => { } },
         { id: 'transfer', icon: 'swap-horiz', label: 'Transfer', onPress: () => { } },
