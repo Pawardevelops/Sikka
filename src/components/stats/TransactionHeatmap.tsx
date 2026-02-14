@@ -192,24 +192,24 @@ const styles = StyleSheet.create({
     },
     column: {
         flexDirection: 'column',
-        gap: 3,
+        gap: 4, // Increased vertical gap
     },
     labelContainer: {
-        height: 20, // Check height to ensure alignment
+        height: 24,
         justifyContent: 'flex-end',
-        marginBottom: 4,
-        width: 10, // Force width to match cell
-        overflow: 'visible', // Allow text to bleed out
+        marginBottom: 8,
+        width: 20, // Match new cell width (approx)
+        overflow: 'visible',
     },
     monthLabel: {
-        fontSize: 10,
+        fontSize: 12, // Larger font
         color: COLORS.textMuted,
         fontWeight: '600',
-        width: 40, // Allow text to be wider to render fully
+        width: 60,
     },
     cell: {
-        width: 10,
-        height: 10,
-        borderRadius: 2,
+        width: 18, // Increased size
+        height: 18,
+        borderRadius: 4, // Softer corners
     }
 });

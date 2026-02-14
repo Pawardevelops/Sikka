@@ -20,6 +20,7 @@ import RNAndroidNotificationListener from 'react-native-android-notification-lis
 import { useCurrency, CURRENCIES } from '../context/CurrencyContext';
 import { useSecurity } from '../context/SecurityContext';
 import { useOnboarding } from '../context/OnboardingContext';
+import { useNavigation } from '../context/NavigationContext';
 import { COLORS, SPACING, FONT_SIZE, BORDER_RADIUS } from '../constants/theme';
 import { useSafeTop } from '../components/SafeScreen';
 import { Icon } from '../components/Icon';
@@ -38,6 +39,7 @@ export function SettingsScreen() {
     const [editingName, setEditingName] = useState(false);
     const [tempName, setTempName] = useState(onboardingData.userName);
     const safeTop = useSafeTop();
+    const navigation = useNavigation();
 
     const handleNotificationSettings = () => {
         Alert.alert(
@@ -342,7 +344,7 @@ export function SettingsScreen() {
                     </View>
                     <Text style={styles.settingValue}>1.0.0</Text>
                 </View>
-                <TouchableOpacity style={[styles.settingRow, styles.lastRow]}>
+                <TouchableOpacity style={[styles.settingRow, styles.lastRow]} onPress={() => navigation.openPrivacyPolicy()}>
                     <View style={styles.settingInfo}>
                         <Icon name="policy" size={24} color={COLORS.text} style={{ marginRight: SPACING.md }} />
                         <Text style={styles.settingLabel}>Privacy Policy</Text>

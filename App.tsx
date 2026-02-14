@@ -34,7 +34,7 @@ import { EditSubscriptionModal } from './src/components/EditSubscriptionModal';
 import { BiometricLockScreen } from './src/components/BiometricLockScreen';
 
 // Screens
-import { DashboardScreen, AssetsScreen, StatsScreen, SettingsScreen, AccountDetailScreen, NotifyActionCenterScreen } from './src/screens';
+import { DashboardScreen, AssetsScreen, StatsScreen, SettingsScreen, AccountDetailScreen, NotifyActionCenterScreen, PrivacyPolicyScreen } from './src/screens';
 import { AllTransactionsScreen } from './src/screens/AllTransactionsScreen';
 import {
   WelcomeScreen,
@@ -78,6 +78,9 @@ function MainApp() {
 
   // Subscription Editing
   const [selectedSubscription, setSelectedSubscription] = useState<Subscription | null>(null);
+
+  // Privacy Policy
+  const [showPrivacyPolicy, setShowPrivacyPolicy] = useState(false);
 
   const fadeAnim = useRef(new Animated.Value(0)).current;
   const slideAnim = useRef(new Animated.Value(20)).current;
@@ -126,6 +129,9 @@ function MainApp() {
   const selectSubscription = (sub: Subscription) => setSelectedSubscription(sub);
   const closeSubscriptionDetail = () => setSelectedSubscription(null);
 
+  const openPrivacyPolicy = () => setShowPrivacyPolicy(true);
+  const closePrivacyPolicy = () => setShowPrivacyPolicy(false);
+
   // Data Handlers
   const handleAddAccount = (accountData: { name: string; type: any; icon: string; balance: number; color: string }) => {
     addAccount(accountData);
@@ -161,6 +167,10 @@ function MainApp() {
     // If showing all transactions
     if (showAllTransactions) {
       return <AllTransactionsScreen onBack={closeAllTransactions} />;
+    }
+
+    if (showPrivacyPolicy) {
+      return <PrivacyPolicyScreen />;
     }
 
     // If an account is selected, show account detail
@@ -210,10 +220,13 @@ function MainApp() {
       showAddSubscriptionModal,
       openAddSubscriptionModal,
       closeAddSubscriptionModal,
-      // Subscription Editing
       selectedSubscription,
       selectSubscription,
       closeSubscriptionDetail,
+      // Privacy Policy
+      showPrivacyPolicy,
+      openPrivacyPolicy,
+      closePrivacyPolicy,
     }}>
       <View style={styles.container}>
         <StatusBar style="light" />

@@ -28,9 +28,14 @@ export interface NavigationContextType {
     closeAddSubscriptionModal: () => void;
 
     // Subscription Editing
-    selectedSubscription: any | null; // Using any to avoid circular dependency if types not imported, but prefer generic or imported Type
+    selectedSubscription: any | null;
     selectSubscription: (subscription: any) => void;
     closeSubscriptionDetail: () => void;
+
+    // Privacy Policy
+    showPrivacyPolicy: boolean;
+    openPrivacyPolicy: () => void;
+    closePrivacyPolicy: () => void;
 }
 
 export const NavigationContext = createContext<NavigationContextType | undefined>(undefined);
