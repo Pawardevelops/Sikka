@@ -1,13 +1,30 @@
-import React from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity } from 'react-native';
+import React, { useState } from 'react';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, LayoutAnimation, Platform, UIManager } from 'react-native';
 import { useNavigation } from '../context/NavigationContext';
 import { COLORS, SPACING, FONT_SIZE, BORDER_RADIUS } from '../constants/theme';
 import { useSafeTop } from '../components/SafeScreen';
 import { Icon } from '../components/Icon';
 
+// Enable LayoutAnimation for smooth expansion on Android
+if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
+    UIManager.setLayoutAnimationEnabledExperimental(true);
+}
+
 export function PrivacyPolicyScreen() {
     const { closePrivacyPolicy } = useNavigation();
     const safeTop = useSafeTop();
+
+    // State to manage expanded sections
+    const [expanded, setExpanded] = useState({
+        collection: false,
+        permissions: false,
+        security: false,
+    });
+
+    const toggleSection = (section) => {
+        LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+        setExpanded(prev => ({ ...prev, [section]: !prev[section] }));
+    };
 
     return (
         <View style={[styles.container, { paddingTop: safeTop }]}>
@@ -18,63 +35,79 @@ export function PrivacyPolicyScreen() {
                 <Text style={styles.title}>Privacy Policy</Text>
             </View>
 
-            <ScrollView
-                contentContainerStyle={styles.content}
-                showsVerticalScrollIndicator={false}
-            >
+            <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
+                
+                {/* Intro Card */}
                 <View style={styles.introCard}>
                     <View style={styles.iconCircle}>
                         <Icon name="security" size={32} color={COLORS.primary} />
                     </View>
                     <Text style={styles.introTitle}>Your Privacy Matters</Text>
                     <Text style={styles.introText}>
-                        Sikka is designed to protect your financial data. We believe in transparency and security.
+                        At Sikka, your financial data is <Text style={styles.highlight}>yours and yours alone</Text>.
                     </Text>
                 </View>
 
+                {/* Data Collection Section */}
                 <View style={styles.sectionCard}>
-                    <View style={styles.cardHeader}>
-                        <Icon name="storage" size={20} color={COLORS.primary} style={styles.cardIcon} />
-                        <Text style={styles.sectionTitle}>Data Collection</Text>
-                    </View>
-                    <Text style={styles.paragraph}>
-                        We collect minimal data necessary to provide expense tracking services. Your transaction history is stored <Text style={styles.highlight}>locally on your device</Text>.
+                    <TouchableOpacity onPress={() => toggleSection('collection')} activeOpacity={0.7}>
+                        <View style={styles.cardHeader}>
+                            <Icon name="storage" size={20} color={COLORS.primary} style={styles.cardIcon} />
+                            <Text style={styles.sectionTitle}>Data Collection</Text>
+                            <Icon name={expanded.collection ? "expand-less" : "expand-more"} size={24} color={COLORS.textMuted} />
+                        </View>
+                    </TouchableOpacity>
+                    
+                    <Text style={styles.paragraph} numberOfLines={expanded.collection ? undefined : 2}>
+                        Sikka is an <Text style={styles.highlight}>offline-first</Text> app. All your data stays <Text style={styles.highlight}>on your device</Text>. 
+                        We <Text style={styles.highlight}>do not use external servers</Text> or cloud sync.
                     </Text>
+                    <TouchableOpacity onPress={() => toggleSection('collection')}>
+                        <Text style={styles.moreButton}>{expanded.collection ? "Show less" : "Read more"}</Text>
+                    </TouchableOpacity>
                 </View>
 
+                {/* Device Permissions Section */}
                 <View style={styles.sectionCard}>
-                    <View style={styles.cardHeader}>
-                        <Icon name="sms" size={20} color={COLORS.primary} style={styles.cardIcon} />
-                        <Text style={styles.sectionTitle}>SMS Access</Text>
-                    </View>
-                    <Text style={styles.paragraph}>
-                        Sikka processes transactional SMS messages on-device to automatically log expenses. We strictly <Text style={styles.highlight}>ignore personal messages</Text> (OTPs, personal chats).
+                    <TouchableOpacity onPress={() => toggleSection('permissions')} activeOpacity={0.7}>
+                        <View style={styles.cardHeader}>
+                            <Icon name="sms" size={20} color={COLORS.primary} style={styles.cardIcon} />
+                            <Text style={styles.sectionTitle}>Device Permissions</Text>
+                            <Icon name={expanded.permissions ? "expand-less" : "expand-more"} size={24} color={COLORS.textMuted} />
+                        </View>
+                    </TouchableOpacity>
+                    
+                    <Text style={styles.paragraph} numberOfLines={expanded.permissions ? undefined : 2}>
+                        We request <Text style={styles.highlight}>Notifications</Text> for reminders and <Text style={styles.highlight}>Storage access</Text> for manual backups. 
+                        Biometric data is <Text style={styles.highlight}>never accessible</Text> by Sikka; it is handled safely by your phone's system.
                     </Text>
+                    <TouchableOpacity onPress={() => toggleSection('permissions')}>
+                        <Text style={styles.moreButton}>{expanded.permissions ? "Show less" : "Read more"}</Text>
+                    </TouchableOpacity>
                 </View>
 
+                {/* Data Security Section */}
                 <View style={styles.sectionCard}>
-                    <View style={styles.cardHeader}>
-                        <Icon name="lock" size={20} color={COLORS.primary} style={styles.cardIcon} />
-                        <Text style={styles.sectionTitle}>Security</Text>
-                    </View>
-                    <Text style={styles.paragraph}>
-                        Your data is encrypted. We offer <Text style={styles.highlight}>biometric lock</Text> (Fingerprint/FaceID) to ensure only you can access your financial insights.
+                    <TouchableOpacity onPress={() => toggleSection('security')} activeOpacity={0.7}>
+                        <View style={styles.cardHeader}>
+                            <Icon name="lock" size={20} color={COLORS.primary} style={styles.cardIcon} />
+                            <Text style={styles.sectionTitle}>Data Security</Text>
+                            <Icon name={expanded.security ? "expand-less" : "expand-more"} size={24} color={COLORS.textMuted} />
+                        </View>
+                    </TouchableOpacity>
+                    
+                    <Text style={styles.paragraph} numberOfLines={expanded.security ? undefined : 2}>
+                        Your database is <Text style={styles.highlight}>locally encrypted</Text>. Because data is offline, your security depends on your <Text style={styles.highlight}>device passcode</Text>. 
+                        Be careful when <Text style={styles.highlight}>sharing exported backup files</Text>.
                     </Text>
-                </View>
-
-                <View style={styles.sectionCard}>
-                    <View style={styles.cardHeader}>
-                        <Icon name="share" size={20} color={COLORS.primary} style={styles.cardIcon} />
-                        <Text style={styles.sectionTitle}>Data Sharing</Text>
-                    </View>
-                    <Text style={styles.paragraph}>
-                        We do <Text style={styles.highlight}>NOT sell or share</Text> your personal data with third parties, advertisers, or financial institutions.
-                    </Text>
+                    <TouchableOpacity onPress={() => toggleSection('security')}>
+                        <Text style={styles.moreButton}>{expanded.security ? "Show less" : "Read more"}</Text>
+                    </TouchableOpacity>
                 </View>
 
                 <View style={styles.footer}>
                     <Text style={styles.footerText}>Last updated: February 14, 2026</Text>
-                    <Text style={styles.footerContact}>Contact: privacy@sikka.app</Text>
+                    <Text style={styles.footerContact}>pawardevelops@gmail.com</Text>
                 </View>
             </ScrollView>
         </View>
@@ -93,7 +126,6 @@ const styles = StyleSheet.create({
         paddingBottom: SPACING.md,
         borderBottomWidth: 1,
         borderBottomColor: COLORS.surfaceLight,
-        marginBottom: SPACING.md,
     },
     backButton: {
         marginRight: SPACING.md,
@@ -112,77 +144,78 @@ const styles = StyleSheet.create({
     },
     introCard: {
         alignItems: 'center',
-        marginBottom: SPACING.xl,
-        marginTop: SPACING.sm,
+        marginBottom: SPACING.lg,
         backgroundColor: COLORS.surface,
-        padding: SPACING.xl,
+        padding: SPACING.lg,
         borderRadius: BORDER_RADIUS.xl,
-        borderWidth: 1,
-        borderColor: COLORS.surfaceLight,
     },
     iconCircle: {
-        marginBottom: SPACING.md,
-        padding: 16,
+        marginBottom: SPACING.sm,
+        padding: 12,
         backgroundColor: COLORS.primaryMuted,
         borderRadius: BORDER_RADIUS.full,
-        borderWidth: 1,
-        borderColor: COLORS.primary,
     },
     introTitle: {
         fontSize: FONT_SIZE.lg,
         fontWeight: '700',
-        color: COLORS.primary, // Green title
-        marginBottom: SPACING.xs,
+        color: COLORS.primary,
+        marginBottom: 4,
     },
     introText: {
         fontSize: FONT_SIZE.md,
         color: COLORS.textSecondary,
         textAlign: 'center',
-        lineHeight: 22,
     },
     sectionCard: {
         backgroundColor: COLORS.surface,
         borderRadius: BORDER_RADIUS.lg,
-        padding: SPACING.lg,
-        marginBottom: SPACING.lg,
-        borderLeftWidth: 3, // Accent border
+        padding: SPACING.md,
+        marginBottom: SPACING.md,
+        borderLeftWidth: 4,
         borderLeftColor: COLORS.primary,
+        // Small height handled by padding and text lines
     },
     cardHeader: {
         flexDirection: 'row',
         alignItems: 'center',
-        marginBottom: SPACING.sm,
+        marginBottom: SPACING.xs,
     },
     cardIcon: {
         marginRight: SPACING.sm,
     },
     sectionTitle: {
+        flex: 1,
         fontSize: FONT_SIZE.md,
         fontWeight: '700',
         color: COLORS.text,
     },
     paragraph: {
         fontSize: FONT_SIZE.md,
-        color: COLORS.textMuted,
-        lineHeight: 24,
+        color: COLORS.textSecondary,
+        lineHeight: 22,
     },
     highlight: {
-        color: COLORS.primaryLight,
-        fontWeight: '500',
+        color: COLORS.primary,
+        fontWeight: '700',
+    },
+    moreButton: {
+        color: COLORS.primary,
+        fontSize: FONT_SIZE.sm,
+        fontWeight: '600',
+        marginTop: 8,
     },
     footer: {
-        marginTop: SPACING.lg,
+        marginTop: SPACING.xl,
         alignItems: 'center',
-        marginBottom: SPACING.xl,
     },
     footerText: {
-        fontSize: FONT_SIZE.sm,
+        fontSize: FONT_SIZE.xs,
         color: COLORS.textMuted,
-        marginBottom: 4,
     },
     footerContact: {
         fontSize: FONT_SIZE.sm,
         color: COLORS.primary,
         fontWeight: '600',
+        marginTop: 4,
     }
 });

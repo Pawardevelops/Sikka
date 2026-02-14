@@ -198,7 +198,7 @@ function MainApp() {
     }
   };
 
-  const showTabBar = !selectedAccount && !showAllTransactions && !showNotifyCenter;
+  const showTabBar = !selectedAccount && !showAllTransactions && !showNotifyCenter && !showPrivacyPolicy;
 
   return (
     <NavigationContext.Provider value={{
