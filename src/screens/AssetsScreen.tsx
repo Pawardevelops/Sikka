@@ -118,7 +118,7 @@ export function AssetsScreen() {
             toValue,
             friction: 10,
             tension: 60,
-            useNativeDriver: true,
+            useNativeDriver: false,
         }).start();
     };
 
