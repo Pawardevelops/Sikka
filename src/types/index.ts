@@ -72,17 +72,65 @@ export interface Transaction {
 }
 
 // ==================== SUBSCRIPTIONS ====================
+
+// Subscription roles: who pays the merchant?
+export type SubscriptionRole = 'admin' | 'member';
+//   admin  = I pay the full bill, others owe me
+//   member = someone else pays, I just pay my share
+
+// Lifecycle states
+export type SubscriptionStatus = 'active' | 'paused' | 'archived';
+
+// How to deduct on due date
+export type PaymentMode = 'default' | 'ask_every_time';
+
+// A person sharing the subscription cost (admin-only)
+export interface SplitMember {
+    name: string;
+    amount: number;
+    status: 'pending' | 'paid';
+}
+
+// Immutable event in the subscription's lifecycle
+export interface SubscriptionEvent {
+    type: 'created' | 'paused' | 'reactivated' | 'price_updated' | 'archived';
+    timestamp: number;
+    details?: string; // e.g. "Price: ₹199 → ₹299"
+}
+
 export interface Subscription {
     id: string;
     name: string;
-    icon: string;         // MaterialIcon name
-    iconColor: string;    // icon background color
-    amount: number;
-    dueDate: number;      // day of month (1-31)
+    icon: string;              // MaterialIcon name
+    iconColor: string;         // icon background color
+
+    // ── Amounts ──
+    totalAmount: number;       // full bill to merchant (₹800)
+    myShare: number;           // my actual cost     (₹200 if split)
+    amount: number;            // = myShare (backward-compat alias)
+
+    // ── Billing ──
+    dueDate: number;           // day of month (1-31)
     billingCycle: 'monthly' | 'yearly';
-    category: string;     // e.g. "streaming", "cloud", "fitness"
-    isPaid?: boolean;
-    isDeleted?: boolean;
+    category: string;          // e.g. "streaming", "cloud", "fitness"
+
+    // ── Role & Split ──
+    role: SubscriptionRole;
+    isSplit: boolean;
+    splitMembers: SplitMember[];
+
+    // ── Payment Source ──
+    paymentSourceId?: string;  // linked Account.id
+    paymentMode: PaymentMode;
+    payTo?: string;            // member-only: friend's name
+
+    // ── Lifecycle ──
+    status: SubscriptionStatus;
+    isPaid: boolean;           // paid THIS cycle?
+    eventLog: SubscriptionEvent[];
+
+    // ── Legacy ──
+    isDeleted?: boolean;       // mapped to status='archived' during migration
 }
 
 // ==================== STATS ====================

@@ -3,7 +3,7 @@
  * Clean architecture with separated concerns
  */
 
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { StyleSheet, View, Animated } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
@@ -12,13 +12,13 @@ import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { CurrencyProvider } from './src/context/CurrencyContext';
 import { AccountsProvider, useAccounts } from './src/context/AccountsContext';
 import { TransactionsProvider, useTransactions } from './src/context/TransactionsContext';
-import { SubscriptionsProvider, useSubscriptions } from './src/context/SubscriptionsContext';
+import { SubscriptionsProvider, useSubscriptions, OnSubscriptionPaidDetails } from './src/context/SubscriptionsContext';
 import { SecurityProvider, useSecurity } from './src/context/SecurityContext';
 import { OnboardingProvider, useOnboarding } from './src/context/OnboardingContext';
 import { NavigationContext, useNavigation } from './src/context/NavigationContext';
 
 // Types
-import { TabType, Account, TransactionCategory } from './src/types';
+import { TabType, Account, TransactionCategory, Subscription } from './src/types';
 
 // Theme
 import { COLORS } from './src/constants/theme';
@@ -30,6 +30,7 @@ export { useNavigation };
 import { TabBar, SplashScreen, AddAccountModal } from './src/components';
 import { AddTransactionModal } from './src/components/AddTransactionModal';
 import { AddSubscriptionModal } from './src/components/AddSubscriptionModal';
+import { EditSubscriptionModal } from './src/components/EditSubscriptionModal';
 import { BiometricLockScreen } from './src/components/BiometricLockScreen';
 
 // Screens
@@ -43,8 +44,7 @@ import {
   SecuritySetupScreen,
 } from './src/screens/onboarding';
 
-// ... (existing code)
-
+// ==================== ONBOARDING FLOW ====================
 function OnboardingFlow() {
   const { currentStep } = useOnboarding();
 
@@ -68,11 +68,16 @@ function OnboardingFlow() {
 function MainApp() {
   const [activeTab, setActiveTab] = useState<TabType>('dash');
   const [selectedAccount, setSelectedAccount] = useState<Account | null>(null);
+
+  // Modals state
   const [showAddModal, setShowAddModal] = useState(false);
   const [showAddTransactionModal, setShowAddTransactionModal] = useState(false);
   const [showAllTransactions, setShowAllTransactions] = useState(false);
   const [showNotifyCenter, setShowNotifyCenter] = useState(false);
   const [showAddSubscriptionModal, setShowAddSubscriptionModal] = useState(false);
+
+  // Subscription Editing
+  const [selectedSubscription, setSelectedSubscription] = useState<Subscription | null>(null);
 
   const fadeAnim = useRef(new Animated.Value(0)).current;
   const slideAnim = useRef(new Animated.Value(20)).current;
@@ -99,13 +104,9 @@ function MainApp() {
     ]).start();
   }, [activeTab, selectedAccount, showAllTransactions, showNotifyCenter]);
 
-  const selectAccount = (account: Account) => {
-    setSelectedAccount(account);
-  };
-
-  const goBack = () => {
-    setSelectedAccount(null);
-  };
+  // Navigation Handlers
+  const selectAccount = (account: Account) => setSelectedAccount(account);
+  const goBack = () => setSelectedAccount(null);
 
   const openAddModal = () => setShowAddModal(true);
   const closeAddModal = () => setShowAddModal(false);
@@ -122,6 +123,10 @@ function MainApp() {
   const openAddSubscriptionModal = () => setShowAddSubscriptionModal(true);
   const closeAddSubscriptionModal = () => setShowAddSubscriptionModal(false);
 
+  const selectSubscription = (sub: Subscription) => setSelectedSubscription(sub);
+  const closeSubscriptionDetail = () => setSelectedSubscription(null);
+
+  // Data Handlers
   const handleAddAccount = (accountData: { name: string; type: any; icon: string; balance: number; color: string }) => {
     addAccount(accountData);
   };
@@ -150,13 +155,7 @@ function MainApp() {
   const renderScreen = () => {
     // If showing notify center
     if (showNotifyCenter) {
-      return <NotifyActionCenterScreen />; // Removed onBack prop as it uses useNavigation().goBack() which might not work if not in stack. 
-      // check NotifyActionCenterScreen implementation. It uses useNavigation. 
-      // But here we are not in React Navigation.
-      // We need to pass onBack or provide context.
-      // Wait, NavigationContext provides goBack but that clears selectedAccount.
-      // NotifyActionCenter uses navigation.goBack(). which might fail.
-      // I should update NotifyActionCenter to use NavigationContext or receive props.
+      return <NotifyActionCenterScreen />;
     }
 
     // If showing all transactions
@@ -211,6 +210,10 @@ function MainApp() {
       showAddSubscriptionModal,
       openAddSubscriptionModal,
       closeAddSubscriptionModal,
+      // Subscription Editing
+      selectedSubscription,
+      selectSubscription,
+      closeSubscriptionDetail,
     }}>
       <View style={styles.container}>
         <StatusBar style="light" />
@@ -224,6 +227,8 @@ function MainApp() {
           {renderScreen()}
         </Animated.View>
         {showTabBar && <TabBar activeTab={activeTab} onTabChange={setActiveTab} />}
+
+        {/* Modals */}
         <AddAccountModal
           visible={showAddModal}
           onClose={closeAddModal}
@@ -238,6 +243,11 @@ function MainApp() {
           visible={showAddSubscriptionModal}
           onClose={closeAddSubscriptionModal}
           onAdd={addSubscription}
+        />
+        <EditSubscriptionModal
+          visible={!!selectedSubscription}
+          subscription={selectedSubscription}
+          onClose={closeSubscriptionDetail}
         />
       </View>
     </NavigationContext.Provider>
@@ -275,12 +285,10 @@ function SecureApp() {
 
 
 // ==================== TRANSACTIONS WITH BALANCE SYNC ====================
-// This wrapper connects TransactionsProvider to AccountsContext
-// so that transaction operations automatically update account balances.
 function TransactionsWithBalanceSync({ children }: { children: React.ReactNode }) {
   const { getAccount, updateAccount } = useAccounts();
 
-  const handleUpdateAccountBalance = React.useCallback(
+  const handleUpdateAccountBalance = useCallback(
     (accountId: string, delta: number) => {
       const account = getAccount(accountId);
       if (account) {
@@ -297,6 +305,43 @@ function TransactionsWithBalanceSync({ children }: { children: React.ReactNode }
   );
 }
 
+// ==================== SUBSCRIPTIONS WITH TRANSACTION SYNC ====================
+function SubscriptionsWithTransactionSync({ children }: { children: React.ReactNode }) {
+  const { addTransaction } = useTransactions();
+
+  // Safely map string category to TransactionCategory
+  const mapCategory = (cat: string): TransactionCategory => {
+    const valid: TransactionCategory[] = [
+      'groceries', 'dining', 'transport', 'shopping', 'entertainment',
+      'utilities', 'health', 'income', 'transfer', 'other'
+    ];
+    const normalized = cat.toLowerCase();
+    return valid.includes(normalized as any)
+      ? (normalized as TransactionCategory)
+      : 'utilities'; // Default for subscriptions
+  };
+
+  const handleSubscriptionPaid = useCallback((details: OnSubscriptionPaidDetails) => {
+    addTransaction({
+      accountId: details.paymentSourceId || 'unknown',
+      merchant: details.name,
+      amount: -details.amount,
+      timestamp: Date.now(),
+      category: mapCategory(details.category),
+      type: 'debit',
+      notes: 'Subscription Payment',
+      isAuto: true,
+      status: 'approved',
+    });
+  }, [addTransaction]);
+
+  return (
+    <SubscriptionsProvider onSubscriptionPaid={handleSubscriptionPaid}>
+      {children}
+    </SubscriptionsProvider>
+  );
+}
+
 export default function App() {
   const [showSplash, setShowSplash] = useState(true);
 
@@ -309,13 +354,13 @@ export default function App() {
       <OnboardingProvider>
         <CurrencyProvider>
           <AccountsProvider>
-            <SubscriptionsProvider>
-              <TransactionsWithBalanceSync>
+            <TransactionsWithBalanceSync>
+              <SubscriptionsWithTransactionSync>
                 <SecurityProvider>
                   <SecureApp />
                 </SecurityProvider>
-              </TransactionsWithBalanceSync>
-            </SubscriptionsProvider>
+              </SubscriptionsWithTransactionSync>
+            </TransactionsWithBalanceSync>
           </AccountsProvider>
         </CurrencyProvider>
       </OnboardingProvider>

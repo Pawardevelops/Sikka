@@ -4,7 +4,7 @@
  */
 
 import { createContext, useContext } from 'react';
-import { Account } from '../types';
+import { Account, Subscription } from '../types';
 
 // ==================== NAVIGATION CONTEXT ====================
 export interface NavigationContextType {
@@ -26,6 +26,11 @@ export interface NavigationContextType {
     showAddSubscriptionModal: boolean;
     openAddSubscriptionModal: () => void;
     closeAddSubscriptionModal: () => void;
+
+    // Subscription Editing
+    selectedSubscription: any | null; // Using any to avoid circular dependency if types not imported, but prefer generic or imported Type
+    selectSubscription: (subscription: any) => void;
+    closeSubscriptionDetail: () => void;
 }
 
 export const NavigationContext = createContext<NavigationContextType | undefined>(undefined);

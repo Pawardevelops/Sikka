@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import {
     StyleSheet,
     Text,
@@ -10,27 +10,40 @@ import {
     KeyboardAvoidingView,
     Platform,
     Switch,
+    Alert,
 } from 'react-native';
-import { COLORS, SPACING, FONT_SIZE, BORDER_RADIUS, FONT_WEIGHT } from '../constants/theme';
+import { COLORS, SPACING, FONT_SIZE, BORDER_RADIUS } from '../constants/theme';
 import { Icon } from './Icon';
 import {
     SUBSCRIPTION_ICONS,
     SUBSCRIPTION_COLORS,
+    useSubscriptions,
 } from '../context/SubscriptionsContext';
 import {
+    Subscription,
     SubscriptionRole,
     SplitMember,
     PaymentMode,
 } from '../types';
 import { useAccounts } from '../context/AccountsContext';
 
-interface AddSubscriptionModalProps {
+interface EditSubscriptionModalProps {
     visible: boolean;
+    subscription: Subscription | null;
     onClose: () => void;
-    onAdd: (subData: any) => void;
 }
 
-export function AddSubscriptionModal({ visible, onClose, onAdd }: AddSubscriptionModalProps) {
+export function EditSubscriptionModal({ visible, subscription, onClose }: EditSubscriptionModalProps) {
+    const {
+        updateSubscription,
+        pauseSubscription,
+        reactivateSubscription,
+        archiveSubscription,
+        markAsPaid,
+        markAsUnpaid
+    } = useSubscriptions();
+    const { activeAccounts } = useAccounts();
+
     // ── Form State ──
     const [name, setName] = useState('');
     const [icon, setIcon] = useState('movie');
@@ -42,9 +55,9 @@ export function AddSubscriptionModal({ visible, onClose, onAdd }: AddSubscriptio
     // Role & Amounts
     const [role, setRole] = useState<SubscriptionRole>('admin');
     const [totalAmount, setTotalAmount] = useState('');
-    const [myShareInput, setMyShareInput] = useState(''); // for manual override or member mode
+    const [myShareInput, setMyShareInput] = useState('');
 
-    // Split Logic (Admin only)
+    // Split Logic
     const [isSplit, setIsSplit] = useState(false);
     const [splitMembers, setSplitMembers] = useState<SplitMember[]>([]);
     const [newMemberName, setNewMemberName] = useState('');
@@ -54,9 +67,31 @@ export function AddSubscriptionModal({ visible, onClose, onAdd }: AddSubscriptio
     const [payTo, setPayTo] = useState('');
 
     // Payment Source
-    const { activeAccounts } = useAccounts();
     const [paymentSourceId, setPaymentSourceId] = useState<string>('');
     const [paymentMode, setPaymentMode] = useState<PaymentMode>('ask_every_time');
+
+    // ── Init State on Open ──
+    useEffect(() => {
+        if (subscription) {
+            setName(subscription.name);
+            setIcon(subscription.icon);
+            setIconColor(subscription.iconColor);
+            setCategory(subscription.category);
+            setBillingCycle(subscription.billingCycle);
+            setDueDate(subscription.dueDate.toString());
+            setRole(subscription.role);
+
+            setTotalAmount(subscription.totalAmount?.toString() || '');
+            setMyShareInput(subscription.myShare?.toString() || subscription.amount?.toString() || '');
+
+            setIsSplit(subscription.isSplit || false);
+            setSplitMembers(subscription.splitMembers || []);
+
+            setPayTo(subscription.payTo || '');
+            setPaymentSourceId(subscription.paymentSourceId || '');
+            setPaymentMode(subscription.paymentMode || 'ask_every_time');
+        }
+    }, [subscription, visible]);
 
     // ── Computed ──
     const displayMyShare = useMemo(() => {
@@ -67,10 +102,11 @@ export function AddSubscriptionModal({ visible, onClose, onAdd }: AddSubscriptio
         const total = parseFloat(totalAmount) || 0;
         if (!isSplit) return total;
 
-        // If split, my share = Total - (Sum of members)
         const membersSum = splitMembers.reduce((sum, m) => sum + m.amount, 0);
         return Math.max(0, total - membersSum);
     }, [role, totalAmount, myShareInput, isSplit, splitMembers]);
+
+    if (!subscription) return null;
 
     // ── Handlers ──
     const handleAddMember = () => {
@@ -93,17 +129,13 @@ export function AddSubscriptionModal({ visible, onClose, onAdd }: AddSubscriptio
         setSplitMembers(updated);
     };
 
-    const handleSave = () => {
+    const handleSave = async () => {
         if (!name.trim()) return;
 
         const total = parseFloat(totalAmount) || 0;
-        const myshare = displayMyShare; // trusted computed value
+        const myshare = displayMyShare;
 
-        // Validation
-        if (role === 'admin' && total <= 0) return;
-        if (role === 'member' && myshare <= 0) return;
-
-        onAdd({
+        await updateSubscription(subscription.id, {
             name: name.trim(),
             icon,
             iconColor,
@@ -111,34 +143,57 @@ export function AddSubscriptionModal({ visible, onClose, onAdd }: AddSubscriptio
             billingCycle,
             dueDate: parseInt(dueDate) || 1,
             role,
-            totalAmount: role === 'admin' ? total : 0, // member doesn't track total bill
+            totalAmount: role === 'admin' ? total : 0,
             myShare: myshare,
             isSplit: role === 'admin' && isSplit,
             splitMembers: role === 'admin' && isSplit ? splitMembers : [],
             payTo: role === 'member' ? payTo : undefined,
             paymentSourceId: paymentSourceId || undefined,
             paymentMode,
-            // legacy compat
-            amount: myshare,
         });
 
-        resetForm();
         onClose();
     };
 
-    const resetForm = () => {
-        setName('');
-        setTotalAmount('');
-        setMyShareInput('');
-        setRole('admin');
-        setIsSplit(false);
-        setSplitMembers([]);
-        setPayTo('');
-        setDueDate('1');
-        // keep icon/color/source/mode as they might be sticky prefs
+    const handlePause = () => {
+        Alert.alert(
+            "Pause Subscription",
+            "This will stop upcoming notifications but keep the history.",
+            [
+                { text: "Cancel", style: "cancel" },
+                {
+                    text: "Pause", style: "destructive", onPress: async () => {
+                        await pauseSubscription(subscription.id);
+                        onClose();
+                    }
+                }
+            ]
+        );
     };
 
-    const selectedAccount = activeAccounts.find(a => a.id === paymentSourceId);
+    const handleResume = async () => {
+        await reactivateSubscription(subscription.id);
+        onClose();
+    };
+
+    const handleArchive = () => {
+        Alert.alert(
+            "Archive Subscription",
+            "This will move it to the archives. You can always restore it later.",
+            [
+                { text: "Cancel", style: "cancel" },
+                {
+                    text: "Archive", style: "destructive", onPress: async () => {
+                        await archiveSubscription(subscription.id);
+                        onClose();
+                    }
+                }
+            ]
+        );
+    };
+
+    const isActive = subscription.status === 'active';
+    const isPaused = subscription.status === 'paused';
 
     return (
         <Modal
@@ -159,20 +214,26 @@ export function AddSubscriptionModal({ visible, onClose, onAdd }: AddSubscriptio
                             <TouchableOpacity onPress={onClose} style={styles.cancelBtn}>
                                 <Icon name="close" size={24} color={COLORS.text} />
                             </TouchableOpacity>
-                            <Text style={styles.title}>New Subscription</Text>
-                            <TouchableOpacity
-                                onPress={handleSave}
-                                disabled={!name}
-                            >
-                                <Text style={[styles.saveBtn, !name && styles.saveBtnDisabled]}>
-                                    Save
-                                </Text>
+                            <Text style={styles.title}>Edit Subscription</Text>
+                            <TouchableOpacity onPress={handleSave}>
+                                <Text style={styles.saveBtn}>Save</Text>
                             </TouchableOpacity>
                         </View>
                     </View>
 
                     <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
-                        {/* Identify */}
+                        {/* Status Alert */}
+                        {isPaused && (
+                            <View style={styles.pausedBanner}>
+                                <Icon name="pause-circle" size={20} color={COLORS.textSecondary} />
+                                <Text style={styles.pausedText}>This subscription is currently paused.</Text>
+                                <TouchableOpacity onPress={handleResume}>
+                                    <Text style={styles.resumeText}>RESUME</Text>
+                                </TouchableOpacity>
+                            </View>
+                        )}
+
+                        {/* Name & Icon */}
                         <View style={styles.section}>
                             <View style={styles.inputRow}>
                                 <TouchableOpacity style={[styles.iconPicker, { backgroundColor: iconColor + '20' }]}>
@@ -180,11 +241,8 @@ export function AddSubscriptionModal({ visible, onClose, onAdd }: AddSubscriptio
                                 </TouchableOpacity>
                                 <TextInput
                                     style={styles.nameInput}
-                                    placeholder="Netflix, Spotify..."
-                                    placeholderTextColor={COLORS.textMuted}
                                     value={name}
                                     onChangeText={setName}
-                                    autoFocus
                                 />
                             </View>
 
@@ -217,17 +275,13 @@ export function AddSubscriptionModal({ visible, onClose, onAdd }: AddSubscriptio
                                 style={[styles.roleBtn, role === 'admin' && styles.roleBtnActive]}
                                 onPress={() => setRole('admin')}
                             >
-                                <Text style={[styles.roleText, role === 'admin' && styles.roleTextActive]}>
-                                    I Pay the Bill
-                                </Text>
+                                <Text style={[styles.roleText, role === 'admin' && styles.roleTextActive]}>I Pay the Bill</Text>
                             </TouchableOpacity>
                             <TouchableOpacity
                                 style={[styles.roleBtn, role === 'member' && styles.roleBtnActive]}
                                 onPress={() => setRole('member')}
                             >
-                                <Text style={[styles.roleText, role === 'member' && styles.roleTextActive]}>
-                                    Someone Else Pays
-                                </Text>
+                                <Text style={[styles.roleText, role === 'member' && styles.roleTextActive]}>Someone Else Pays</Text>
                             </TouchableOpacity>
                         </View>
 
@@ -240,8 +294,6 @@ export function AddSubscriptionModal({ visible, onClose, onAdd }: AddSubscriptio
                                 <Text style={styles.currencySymbol}>₹</Text>
                                 <TextInput
                                     style={styles.moneyInput}
-                                    placeholder="0"
-                                    placeholderTextColor={COLORS.textMuted}
                                     keyboardType="numeric"
                                     value={role === 'admin' ? totalAmount : myShareInput}
                                     onChangeText={role === 'admin' ? setTotalAmount : setMyShareInput}
@@ -351,8 +403,6 @@ export function AddSubscriptionModal({ visible, onClose, onAdd }: AddSubscriptio
                                     <Text style={styles.label}>Due Date</Text>
                                     <TextInput
                                         style={styles.input}
-                                        placeholder="Day (1-31)"
-                                        placeholderTextColor={COLORS.textMuted}
                                         keyboardType="numeric"
                                         value={dueDate}
                                         onChangeText={setDueDate}
@@ -389,7 +439,6 @@ export function AddSubscriptionModal({ visible, onClose, onAdd }: AddSubscriptio
                                     </TouchableOpacity>
                                 ))}
                             </ScrollView>
-
                             {/* Payment Mode */}
                             {paymentSourceId ? (
                                 <View style={styles.modeRow}>
@@ -412,7 +461,62 @@ export function AddSubscriptionModal({ visible, onClose, onAdd }: AddSubscriptio
                             ) : null}
                         </View>
 
-                        <View style={{ height: 40 }} />
+                        {/* Payment Actions */}
+                        {isActive && (
+                            <View style={styles.section}>
+                                <Text style={styles.label}>Cycle Status</Text>
+                                {subscription.isPaid ? (
+                                    <View style={styles.paidContainer}>
+                                        <View style={styles.paidBadgeLarge}>
+                                            <Icon name="check-circle" size={24} color={COLORS.primary} />
+                                            <Text style={styles.paidTextLarge}>Marked as Paid</Text>
+                                        </View>
+                                        <TouchableOpacity
+                                            style={styles.outlineBtn}
+                                            onPress={async () => {
+                                                await markAsUnpaid(subscription.id);
+                                                onClose();
+                                            }}
+                                        >
+                                            <Text style={styles.outlineBtnText}>Mark as Unpaid</Text>
+                                        </TouchableOpacity>
+                                    </View>
+                                ) : (
+                                    <TouchableOpacity
+                                        style={styles.payBtn}
+                                        onPress={async () => {
+                                            await markAsPaid(subscription.id);
+                                            onClose();
+                                        }}
+                                    >
+                                        <Icon name="payments" size={24} color={COLORS.surface} />
+                                        <Text style={styles.payBtnText}>Mark as Paid</Text>
+                                    </TouchableOpacity>
+                                )}
+                            </View>
+                        )}
+
+                        {/* Danger Zone */}
+                        <View style={styles.dangerZone}>
+                            {isActive ? (
+                                <TouchableOpacity style={styles.dangerBtn} onPress={handlePause}>
+                                    <Icon name="pause" size={20} color={COLORS.textSecondary} />
+                                    <Text style={styles.dangerBtnText}>Pause Subscription</Text>
+                                </TouchableOpacity>
+                            ) : (
+                                <TouchableOpacity style={styles.primaryBtn} onPress={handleResume}>
+                                    <Icon name="play-arrow" size={20} color={COLORS.surface} />
+                                    <Text style={styles.primaryBtnText}>Resume Subscription</Text>
+                                </TouchableOpacity>
+                            )}
+
+                            <TouchableOpacity style={[styles.dangerBtn, { marginTop: SPACING.md }]} onPress={handleArchive}>
+                                <Icon name="archive" size={20} color={COLORS.error} />
+                                <Text style={[styles.dangerBtnText, { color: COLORS.error }]}>Archive Subscription</Text>
+                            </TouchableOpacity>
+                        </View>
+
+                        <View style={{ height: 60 }} />
                     </ScrollView>
                 </View>
             </KeyboardAvoidingView>
@@ -456,283 +560,206 @@ const styles = StyleSheet.create({
         fontSize: FONT_SIZE.lg,
         fontWeight: 'bold',
     },
-    cancelBtn: {
-        padding: SPACING.xs,
-    },
+    cancelBtn: { padding: SPACING.xs },
     saveBtn: {
         color: COLORS.primary,
         fontSize: FONT_SIZE.md,
         fontWeight: '600',
     },
-    saveBtnDisabled: {
-        color: COLORS.textMuted,
-    },
-    content: {
-        padding: SPACING.lg,
-    },
-    section: {
-        marginBottom: SPACING.xl,
-    },
-    // Input
-    inputRow: {
+    content: { padding: SPACING.lg },
+    section: { marginBottom: SPACING.xl },
+
+    // Banner
+    pausedBanner: {
         flexDirection: 'row',
         alignItems: 'center',
-        marginBottom: SPACING.md,
-    },
-    iconPicker: {
-        width: 48,
-        height: 48,
-        borderRadius: BORDER_RADIUS.full,
-        alignItems: 'center',
-        justifyContent: 'center',
-        marginRight: SPACING.md,
-    },
-    nameInput: {
-        flex: 1,
-        fontSize: FONT_SIZE.xl,
-        color: COLORS.text,
-        fontWeight: '600',
-    },
-    iconScroll: {
-        marginBottom: SPACING.md,
-    },
-    colorScroll: {
-        marginBottom: SPACING.xs,
-    },
-    miniIcon: {
-        width: 36,
-        height: 36,
-        borderRadius: BORDER_RADIUS.full,
         backgroundColor: COLORS.surfaceLight,
-        alignItems: 'center',
-        justifyContent: 'center',
-        marginRight: SPACING.sm,
+        padding: SPACING.md,
+        borderRadius: BORDER_RADIUS.md,
+        marginBottom: SPACING.lg,
+        borderWidth: 1,
+        borderColor: COLORS.border,
     },
-    miniIconActive: {
-        borderWidth: 2,
-        borderColor: COLORS.primary,
+    pausedText: {
+        flex: 1,
+        marginLeft: SPACING.sm,
+        color: COLORS.textSecondary,
+        fontSize: FONT_SIZE.sm,
     },
-    colorDot: {
-        width: 24,
-        height: 24,
-        borderRadius: BORDER_RADIUS.full,
-        marginRight: SPACING.md,
+    resumeText: {
+        color: COLORS.primary,
+        fontWeight: '700',
+        fontSize: FONT_SIZE.sm,
     },
-    colorDotActive: {
-        borderWidth: 2,
-        borderColor: COLORS.text,
+
+    // Input
+    inputRow: { flexDirection: 'row', alignItems: 'center', marginBottom: SPACING.md },
+    iconPicker: {
+        width: 48, height: 48, borderRadius: BORDER_RADIUS.full,
+        alignItems: 'center', justifyContent: 'center', marginRight: SPACING.md,
     },
+    nameInput: { flex: 1, fontSize: FONT_SIZE.xl, color: COLORS.text, fontWeight: '600' },
+    iconScroll: { marginBottom: SPACING.md },
+    colorScroll: { marginBottom: SPACING.xs },
+    miniIcon: {
+        width: 36, height: 36, borderRadius: BORDER_RADIUS.full,
+        backgroundColor: COLORS.surfaceLight,
+        alignItems: 'center', justifyContent: 'center', marginRight: SPACING.sm,
+    },
+    miniIconActive: { borderWidth: 2, borderColor: COLORS.primary },
+    colorDot: { width: 24, height: 24, borderRadius: BORDER_RADIUS.full, marginRight: SPACING.md },
+    colorDotActive: { borderWidth: 2, borderColor: COLORS.text },
+
     // Role
     roleContainer: {
-        flexDirection: 'row',
-        backgroundColor: COLORS.surfaceLight,
-        padding: 4,
-        borderRadius: BORDER_RADIUS.lg,
-        marginBottom: SPACING.xl,
+        flexDirection: 'row', backgroundColor: COLORS.surfaceLight,
+        padding: 4, borderRadius: BORDER_RADIUS.lg, marginBottom: SPACING.xl,
     },
-    roleBtn: {
-        flex: 1,
-        paddingVertical: SPACING.sm,
-        alignItems: 'center',
-        borderRadius: BORDER_RADIUS.md,
-    },
+    roleBtn: { flex: 1, paddingVertical: SPACING.sm, alignItems: 'center', borderRadius: BORDER_RADIUS.md },
     roleBtnActive: {
         backgroundColor: COLORS.surface,
-        // shadow
-        shadowColor: "#000",
-        shadowOffset: { width: 0, height: 1 },
-        shadowOpacity: 0.2,
-        shadowRadius: 1,
-        elevation: 2,
+        shadowColor: "#000", shadowOffset: { width: 0, height: 1 },
+        shadowOpacity: 0.2, shadowRadius: 1, elevation: 2,
     },
-    roleText: {
-        color: COLORS.textMuted,
-        fontWeight: '500',
-    },
-    roleTextActive: {
-        color: COLORS.text,
-        fontWeight: '600',
-    },
+    roleText: { color: COLORS.textMuted, fontWeight: '500' },
+    roleTextActive: { color: COLORS.text, fontWeight: '600' },
+
     // Money
-    label: {
-        fontSize: FONT_SIZE.sm,
-        color: COLORS.textSecondary,
-        marginBottom: SPACING.xs,
-    },
+    label: { fontSize: FONT_SIZE.sm, color: COLORS.textSecondary, marginBottom: SPACING.xs },
     moneyInputContainer: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        borderBottomWidth: 1,
-        borderBottomColor: COLORS.border,
-        paddingBottom: SPACING.xs,
+        flexDirection: 'row', alignItems: 'center',
+        borderBottomWidth: 1, borderBottomColor: COLORS.border, paddingBottom: SPACING.xs,
     },
-    currencySymbol: {
-        fontSize: FONT_SIZE.xxl,
-        color: COLORS.textSecondary,
-        marginRight: SPACING.sm,
-    },
-    moneyInput: {
-        flex: 1,
-        fontSize: FONT_SIZE.xxl,
-        color: COLORS.text,
-        fontWeight: '700',
-    },
+    currencySymbol: { fontSize: FONT_SIZE.xxl, color: COLORS.textSecondary, marginRight: SPACING.sm },
+    moneyInput: { flex: 1, fontSize: FONT_SIZE.xxl, color: COLORS.text, fontWeight: '700' },
+
     // Split
     splitSection: {
-        marginTop: SPACING.md,
-        backgroundColor: COLORS.cardDark,
-        padding: SPACING.md,
-        borderRadius: BORDER_RADIUS.md,
+        marginTop: SPACING.md, backgroundColor: COLORS.cardDark,
+        padding: SPACING.md, borderRadius: BORDER_RADIUS.md,
     },
-    rowBetween: {
-        flexDirection: 'row',
-        justifyContent: 'space-between',
-        alignItems: 'center',
-    },
-    subLabel: {
-        color: COLORS.text,
-        fontSize: FONT_SIZE.md,
-    },
-    membersContainer: {
-        marginTop: SPACING.md,
-        paddingTop: SPACING.md,
-        borderTopWidth: 1,
-        borderTopColor: COLORS.borderLight,
-    },
-    memberRow: {
-        flexDirection: 'row',
-        justifyContent: 'space-between',
-        alignItems: 'center',
-        marginBottom: SPACING.sm,
-    },
-    memberInfo: {
-        flexDirection: 'row',
-        alignItems: 'center',
-    },
-    memberName: {
-        color: COLORS.text,
-        marginLeft: SPACING.sm,
-    },
-    memberRight: {
-        flexDirection: 'row',
-        alignItems: 'center',
-    },
-    memberAmount: {
-        color: COLORS.text,
-        marginRight: SPACING.md,
-        fontWeight: '600',
-    },
-    addMemberRow: {
-        flexDirection: 'row',
-        marginTop: SPACING.sm,
-    },
+    rowBetween: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+    subLabel: { color: COLORS.text, fontSize: FONT_SIZE.md },
+    membersContainer: { marginTop: SPACING.md, paddingTop: SPACING.md, borderTopWidth: 1, borderTopColor: COLORS.borderLight },
+    memberRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: SPACING.sm },
+    memberInfo: { flexDirection: 'row', alignItems: 'center' },
+    memberName: { color: COLORS.text, marginLeft: SPACING.sm },
+    memberRight: { flexDirection: 'row', alignItems: 'center' },
+    memberAmount: { color: COLORS.text, marginRight: SPACING.md, fontWeight: '600' },
+    addMemberRow: { flexDirection: 'row', marginTop: SPACING.sm },
     smallInput: {
-        flex: 2,
-        backgroundColor: COLORS.surface,
-        borderRadius: BORDER_RADIUS.sm,
-        paddingHorizontal: SPACING.sm,
-        paddingVertical: 6,
-        color: COLORS.text,
-        marginRight: SPACING.sm,
+        flex: 2, backgroundColor: COLORS.surface, borderRadius: BORDER_RADIUS.sm,
+        paddingHorizontal: SPACING.sm, paddingVertical: 6, color: COLORS.text, marginRight: SPACING.sm,
     },
-    amountSmall: {
-        flex: 1,
-    },
+    amountSmall: { flex: 1 },
     addMemberBtn: {
-        width: 36,
-        height: 36,
-        backgroundColor: COLORS.surfaceLight,
-        borderRadius: BORDER_RADIUS.sm,
-        alignItems: 'center',
-        justifyContent: 'center',
+        width: 36, height: 36, backgroundColor: COLORS.surfaceLight,
+        borderRadius: BORDER_RADIUS.sm, alignItems: 'center', justifyContent: 'center',
     },
-    splitSummary: {
-        marginTop: SPACING.md,
-        alignItems: 'flex-end',
-    },
-    splitSummaryText: {
-        color: COLORS.textSecondary,
-        fontSize: FONT_SIZE.sm,
-    },
+    splitSummary: { marginTop: SPACING.md, alignItems: 'flex-end' },
+    splitSummaryText: { color: COLORS.textSecondary, fontSize: FONT_SIZE.sm },
+
     // Common
     input: {
-        backgroundColor: COLORS.surfaceLight,
+        backgroundColor: COLORS.surfaceLight, borderRadius: BORDER_RADIUS.md,
+        padding: SPACING.md, color: COLORS.text, fontSize: FONT_SIZE.md,
+    },
+    pillRow: { flexDirection: 'row' },
+    pill: {
+        paddingHorizontal: SPACING.md, paddingVertical: 8, borderRadius: BORDER_RADIUS.full,
+        borderWidth: 1, borderColor: COLORS.border, marginRight: SPACING.sm,
+    },
+    pillActive: { backgroundColor: COLORS.primaryMuted, borderColor: COLORS.primary },
+    pillText: { color: COLORS.textMuted, fontSize: FONT_SIZE.sm },
+    pillTextActive: { color: COLORS.primary, fontWeight: '600' },
+    pillSmall: {
+        paddingHorizontal: SPACING.md, paddingVertical: 4, borderRadius: BORDER_RADIUS.full,
+        borderWidth: 1, borderColor: COLORS.border, marginLeft: SPACING.sm,
+    },
+    pillTextSmall: { fontSize: FONT_SIZE.xs, color: COLORS.textMuted },
+
+    // Accounts
+    accountScroll: { marginBottom: SPACING.md },
+    accountCard: {
+        width: 80, padding: SPACING.sm, backgroundColor: COLORS.surfaceLight,
+        borderRadius: BORDER_RADIUS.md, marginRight: SPACING.sm, alignItems: 'center',
+        borderWidth: 1, borderColor: 'transparent',
+    },
+    accountCardActive: { borderColor: COLORS.primary, backgroundColor: COLORS.primaryMuted },
+    accountIcon: {
+        width: 32, height: 32, borderRadius: BORDER_RADIUS.full,
+        alignItems: 'center', justifyContent: 'center', marginBottom: SPACING.xs,
+    },
+    accountName: { fontSize: FONT_SIZE.xs, color: COLORS.textSecondary, textAlign: 'center' },
+    modeRow: { flexDirection: 'row', alignItems: 'center', marginTop: SPACING.sm },
+
+    // Payment Actions
+    paidContainer: {
+        backgroundColor: COLORS.primaryMuted + '20',
         borderRadius: BORDER_RADIUS.md,
         padding: SPACING.md,
-        color: COLORS.text,
-        fontSize: FONT_SIZE.md,
+        alignItems: 'center',
     },
-    pillRow: {
+    paidBadgeLarge: {
         flexDirection: 'row',
-    },
-    pill: {
-        paddingHorizontal: SPACING.md,
-        paddingVertical: 8,
-        borderRadius: BORDER_RADIUS.full,
-        borderWidth: 1,
-        borderColor: COLORS.border,
-        marginRight: SPACING.sm,
-    },
-    pillActive: {
-        backgroundColor: COLORS.primaryMuted,
-        borderColor: COLORS.primary,
-    },
-    pillText: {
-        color: COLORS.textMuted,
-        fontSize: FONT_SIZE.sm,
-    },
-    pillTextActive: {
-        color: COLORS.primary,
-        fontWeight: '600',
-    },
-    pillSmall: {
-        paddingHorizontal: SPACING.md,
-        paddingVertical: 4,
-        borderRadius: BORDER_RADIUS.full,
-        borderWidth: 1,
-        borderColor: COLORS.border,
-        marginLeft: SPACING.sm,
-    },
-    pillTextSmall: {
-        fontSize: FONT_SIZE.xs,
-        color: COLORS.textMuted,
-    },
-    // Accounts
-    accountScroll: {
+        alignItems: 'center',
         marginBottom: SPACING.md,
     },
-    accountCard: {
-        width: 80,
-        padding: SPACING.sm,
-        backgroundColor: COLORS.surfaceLight,
+    paidTextLarge: {
+        fontSize: FONT_SIZE.lg,
+        fontWeight: '700',
+        color: COLORS.primary,
+        marginLeft: SPACING.sm,
+    },
+    payBtn: {
+        backgroundColor: COLORS.primary,
         borderRadius: BORDER_RADIUS.md,
-        marginRight: SPACING.sm,
-        alignItems: 'center',
-        borderWidth: 1,
-        borderColor: 'transparent',
-    },
-    accountCardActive: {
-        borderColor: COLORS.primary,
-        backgroundColor: COLORS.primaryMuted,
-    },
-    accountIcon: {
-        width: 32,
-        height: 32,
-        borderRadius: BORDER_RADIUS.full,
-        alignItems: 'center',
-        justifyContent: 'center',
-        marginBottom: SPACING.xs,
-    },
-    accountName: {
-        fontSize: FONT_SIZE.xs,
-        color: COLORS.textSecondary,
-        textAlign: 'center',
-    },
-    modeRow: {
+        padding: SPACING.lg,
         flexDirection: 'row',
         alignItems: 'center',
-        marginTop: SPACING.sm,
+        justifyContent: 'center',
     },
-});
+    payBtnText: {
+        color: COLORS.surface,
+        fontSize: FONT_SIZE.lg,
+        fontWeight: '700',
+        marginLeft: SPACING.sm,
+    },
+    outlineBtn: {
+        paddingVertical: SPACING.sm,
+        paddingHorizontal: SPACING.xl,
+        borderWidth: 1,
+        borderColor: COLORS.border,
+        borderRadius: BORDER_RADIUS.md,
+    },
+    outlineBtnText: {
+        color: COLORS.textMuted,
+        fontWeight: '600',
+    },
 
-export default AddSubscriptionModal;
+    // Danger Zone
+    dangerZone: {
+        marginTop: SPACING.lg,
+        borderTopWidth: 1,
+        borderTopColor: COLORS.borderLight,
+        paddingTop: SPACING.xl,
+    },
+    dangerBtn: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'center',
+        padding: SPACING.md,
+        backgroundColor: COLORS.surfaceLight,
+        borderRadius: BORDER_RADIUS.md,
+    },
+    dangerBtnText: { color: COLORS.textSecondary, marginLeft: SPACING.sm, fontWeight: '600' },
+    primaryBtn: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'center',
+        padding: SPACING.md,
+        backgroundColor: COLORS.primary,
+        borderRadius: BORDER_RADIUS.md,
+    },
+    primaryBtnText: { color: COLORS.surface, marginLeft: SPACING.sm, fontWeight: '600' },
+});

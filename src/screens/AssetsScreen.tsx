@@ -19,7 +19,7 @@ import { useAccounts } from '../context/AccountsContext';
 import { useSubscriptions } from '../context/SubscriptionsContext';
 import { COLORS, SPACING, FONT_SIZE, BORDER_RADIUS } from '../constants/theme';
 import { useSafeTop } from '../components/SafeScreen';
-import { Account } from '../types';
+import { Account, Subscription } from '../types';
 import { useNavigation } from '../context/NavigationContext';
 import { Icon } from '../components/Icon';
 
@@ -88,13 +88,14 @@ const ACCOUNT_TYPE_ICONS: Record<string, string> = {
 export function AssetsScreen() {
     const { formatAmount } = useCurrency();
     const { activeAccounts, totalBalance } = useAccounts();
-    const { activeSubscriptions, monthlyTotal } = useSubscriptions();
-    const { selectAccount, openAddModal, openAddSubscriptionModal } = useNavigation();
+    const { activeSubscriptions, pausedSubscriptions, monthlyTotal } = useSubscriptions();
+    const { selectAccount, openAddModal, openAddSubscriptionModal, selectSubscription } = useNavigation();
     const safeTop = useSafeTop();
 
     const [activeTab, setActiveTab] = useState<'accounts' | 'subscriptions'>('accounts');
     const [hideBalance, setHideBalance] = useState(false);
     const [subSort, setSubSort] = useState<'date' | 'amount'>('date');
+    const [showPastSubs, setShowPastSubs] = useState(false);
 
     // Animations
     const fadeAnim = useRef(new Animated.Value(0)).current;
@@ -150,12 +151,16 @@ export function AssetsScreen() {
 
     // Sort subscriptions
     const sortedSubscriptions = [...activeSubscriptions].sort((a, b) => {
+        // Use myShare or amount fallback
+        const amountA = a.myShare ?? a.amount ?? 0;
+        const amountB = b.myShare ?? b.amount ?? 0;
+
         if (subSort === 'date') {
             const aDays = a.isPaid ? 999 : getDaysUntilDue(a.dueDate);
             const bDays = b.isPaid ? 999 : getDaysUntilDue(b.dueDate);
             return aDays - bDays;
         }
-        return b.amount - a.amount;
+        return amountB - amountA;
     });
 
     const handleAccountPress = (account: Account) => {
@@ -224,11 +229,79 @@ export function AssetsScreen() {
     );
 
     // ==================== SUBSCRIPTIONS TAB ====================
+    const renderSubscriptionCard = (sub: Subscription) => {
+        const daysUntil = getDaysUntilDue(sub.dueDate);
+        const progress = getDueProgress(sub.dueDate);
+        const progressColor = sub.isPaid ? COLORS.primary : getProgressColor(daysUntil);
+        const isSplit = sub.isSplit && sub.role === 'admin';
+        const isMember = sub.role === 'member';
+
+        // Use myShare, fallback to amount
+        const displayAmount = sub.myShare ?? sub.amount ?? 0;
+
+        return (
+            <TouchableOpacity
+                key={sub.id}
+                style={styles.subCard}
+                activeOpacity={0.95}
+                onPress={() => selectSubscription(sub)}
+            >
+                <View style={styles.subCardTop}>
+                    <View style={[styles.subIcon, { backgroundColor: sub.iconColor + '20' }]}>
+                        <Icon name={sub.icon as any} size={20} color={sub.iconColor} />
+                    </View>
+                    <View style={styles.subContent}>
+                        <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                            <Text style={styles.subName}>{sub.name}</Text>
+                            {/* Badges */}
+                            {isSplit && (
+                                <View style={styles.splitBadge}>
+                                    <Icon name="call-split" size={10} color={COLORS.textSecondary} />
+                                    <Text style={styles.splitBadgeText}>Split</Text>
+                                </View>
+                            )}
+                            {isMember && (
+                                <View style={styles.memberBadge}>
+                                    <Icon name="person" size={10} color={COLORS.textSecondary} />
+                                    <Text style={styles.splitBadgeText}>Member</Text>
+                                </View>
+                            )}
+                        </View>
+                        <Text style={styles.subDueText}>
+                            Due {formatDueDate(sub.dueDate)}
+                            {isMember && sub.payTo ? ` • Pay ${sub.payTo}` : ''}
+                        </Text>
+                    </View>
+                    <View style={styles.subRight}>
+                        <Text style={styles.subAmount}>{formatAmount(displayAmount)}</Text>
+                        <View style={[styles.dueBadge, sub.isPaid && styles.paidBadge]}>
+                            <Text style={[styles.dueBadgeText, sub.isPaid && styles.paidBadgeText]}>
+                                {sub.isPaid ? 'PAID' : `DUE IN ${daysUntil} DAYS`}
+                            </Text>
+                        </View>
+                    </View>
+                </View>
+                {/* Progress Bar */}
+                <View style={styles.progressTrack}>
+                    <View
+                        style={[
+                            styles.progressFill,
+                            {
+                                width: `${(sub.isPaid ? 100 : progress * 100)}%`,
+                                backgroundColor: progressColor,
+                            },
+                        ]}
+                    />
+                </View>
+            </TouchableOpacity>
+        );
+    };
+
     const renderSubscriptionsTab = () => (
         <Animated.View style={{ opacity: fadeAnim }}>
             {/* Monthly Commitment Header */}
             <View style={styles.netWorthSection}>
-                <Text style={styles.netWorthLabel}>MONTHLY COMMITMENT</Text>
+                <Text style={styles.netWorthLabel}>MONTHLY SHARE</Text>
                 <View style={styles.commitmentRow}>
                     <Text style={styles.netWorthAmount}>{formatAmount(monthlyTotal)}</Text>
                     <Text style={styles.perMonth}> / mo</Text>
@@ -253,47 +326,39 @@ export function AssetsScreen() {
                     <Text style={styles.emptySubtext}>Track your recurring bills here</Text>
                 </View>
             ) : (
-                sortedSubscriptions.map((sub) => {
-                    const daysUntil = getDaysUntilDue(sub.dueDate);
-                    const progress = getDueProgress(sub.dueDate);
-                    const progressColor = sub.isPaid ? COLORS.primary : getProgressColor(daysUntil);
+                sortedSubscriptions.map(renderSubscriptionCard)
+            )}
 
-                    return (
-                        <View key={sub.id} style={styles.subCard}>
+            {/* Past Subscriptions (Collapsed) */}
+            {pausedSubscriptions.length > 0 && (
+                <View style={{ marginTop: SPACING.xl }}>
+                    <TouchableOpacity
+                        style={styles.pastSubsHeader}
+                        onPress={() => setShowPastSubs(!showPastSubs)}
+                    >
+                        <Text style={styles.groupLabel}>PAST SUBSCRIPTIONS ({pausedSubscriptions.length})</Text>
+                        <Icon name={showPastSubs ? 'expand-less' : 'expand-more'} size={20} color={COLORS.textMuted} />
+                    </TouchableOpacity>
+
+                    {showPastSubs && pausedSubscriptions.map(sub => (
+                        <View key={sub.id} style={[styles.subCard, { opacity: 0.6 }]}>
                             <View style={styles.subCardTop}>
-                                <View style={[styles.subIcon, { backgroundColor: sub.iconColor + '20' }]}>
-                                    <Icon name={sub.icon as any} size={20} color={sub.iconColor} />
+                                <View style={[styles.subIcon, { backgroundColor: COLORS.surfaceLight }]}>
+                                    <Icon name={sub.icon as any} size={20} color={COLORS.textMuted} />
                                 </View>
                                 <View style={styles.subContent}>
-                                    <Text style={styles.subName}>{sub.name}</Text>
-                                    <Text style={styles.subDueText}>
-                                        Due {formatDueDate(sub.dueDate)}
-                                    </Text>
+                                    <Text style={[styles.subName, { color: COLORS.textMuted }]}>{sub.name}</Text>
+                                    <Text style={styles.subDueText}>Paused</Text>
                                 </View>
                                 <View style={styles.subRight}>
-                                    <Text style={styles.subAmount}>{formatAmount(sub.amount)}</Text>
-                                    <View style={[styles.dueBadge, sub.isPaid && styles.paidBadge]}>
-                                        <Text style={[styles.dueBadgeText, sub.isPaid && styles.paidBadgeText]}>
-                                            {sub.isPaid ? 'PAID' : `DUE IN ${daysUntil} DAYS`}
-                                        </Text>
-                                    </View>
+                                    <Text style={[styles.subAmount, { color: COLORS.textMuted }]}>
+                                        {formatAmount(sub.myShare ?? sub.amount ?? 0)}
+                                    </Text>
                                 </View>
                             </View>
-                            {/* Progress Bar */}
-                            <View style={styles.progressTrack}>
-                                <View
-                                    style={[
-                                        styles.progressFill,
-                                        {
-                                            width: `${(sub.isPaid ? 100 : progress * 100)}%`,
-                                            backgroundColor: progressColor,
-                                        },
-                                    ]}
-                                />
-                            </View>
                         </View>
-                    );
-                })
+                    ))}
+                </View>
             )}
 
             {/* Add Subscription Button */}
@@ -591,6 +656,12 @@ const styles = StyleSheet.create({
         fontWeight: '600',
         color: COLORS.primary,
     },
+    pastSubsHeader: {
+        flexDirection: 'row',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+        marginBottom: SPACING.sm,
+    },
 
     // Subscription Card
     subCard: {
@@ -598,12 +669,10 @@ const styles = StyleSheet.create({
         borderRadius: BORDER_RADIUS.lg,
         padding: SPACING.lg,
         marginBottom: SPACING.md,
-        borderLeftWidth: 3,
-        borderLeftColor: COLORS.primaryMuted,
     },
     subCardTop: {
         flexDirection: 'row',
-        alignItems: 'center',
+        justifyContent: 'space-between',
         marginBottom: SPACING.md,
     },
     subIcon: {
@@ -616,9 +685,10 @@ const styles = StyleSheet.create({
     },
     subContent: {
         flex: 1,
+        justifyContent: 'center',
     },
     subName: {
-        fontSize: FONT_SIZE.lg,
+        fontSize: FONT_SIZE.md,
         fontWeight: '600',
         color: COLORS.text,
         marginBottom: 2,
@@ -629,6 +699,7 @@ const styles = StyleSheet.create({
     },
     subRight: {
         alignItems: 'flex-end',
+        justifyContent: 'center',
     },
     subAmount: {
         fontSize: FONT_SIZE.lg,
@@ -637,52 +708,59 @@ const styles = StyleSheet.create({
         marginBottom: 4,
     },
     dueBadge: {
-        backgroundColor: 'rgba(34, 197, 94, 0.15)',
-        paddingHorizontal: SPACING.sm,
+        paddingHorizontal: 6,
         paddingVertical: 2,
-        borderRadius: BORDER_RADIUS.sm,
-    },
-    dueBadgeText: {
-        fontSize: 10,
-        fontWeight: '700',
-        color: COLORS.primary,
-        letterSpacing: 0.5,
+        borderRadius: 4,
+        backgroundColor: COLORS.surfaceLight,
     },
     paidBadge: {
         backgroundColor: COLORS.primaryMuted,
     },
+    dueBadgeText: {
+        fontSize: 10,
+        fontWeight: '700',
+        color: COLORS.textMuted,
+    },
     paidBadgeText: {
         color: COLORS.primary,
     },
-
-    // Progress Bar
-    progressTrack: {
-        height: 4,
+    splitBadge: {
+        flexDirection: 'row',
+        alignItems: 'center',
         backgroundColor: COLORS.surfaceLight,
-        borderRadius: 2,
+        paddingHorizontal: 4,
+        paddingVertical: 1,
+        borderRadius: 4,
+        marginLeft: 6,
+    },
+    memberBadge: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        backgroundColor: COLORS.surfaceLight,
+        paddingHorizontal: 4,
+        paddingVertical: 1,
+        borderRadius: 4,
+        marginLeft: 6,
+    },
+    splitBadgeText: {
+        fontSize: 9,
+        fontWeight: '600',
+        color: COLORS.textSecondary,
+        marginLeft: 2,
+    },
+
+    // Progress
+    progressTrack: {
+        height: 6,
+        backgroundColor: COLORS.surfaceLight,
+        borderRadius: 3,
         overflow: 'hidden',
     },
     progressFill: {
         height: '100%',
-        borderRadius: 2,
+        borderRadius: 3,
     },
-
-    // Empty State
-    emptyState: {
-        alignItems: 'center',
-        paddingVertical: SPACING.xxxl * 2,
-    },
-    emptyText: {
-        fontSize: FONT_SIZE.lg,
-        fontWeight: '600',
-        color: COLORS.textSecondary,
-        marginTop: SPACING.lg,
-    },
-    emptySubtext: {
-        fontSize: FONT_SIZE.md,
-        color: COLORS.textMuted,
-        marginTop: SPACING.xs,
-    },
+    emptyState: { alignItems: 'center', paddingVertical: SPACING.xl * 2 },
+    emptyText: { fontSize: FONT_SIZE.lg, fontWeight: '600', color: COLORS.text, marginTop: SPACING.md },
+    emptySubtext: { fontSize: FONT_SIZE.sm, color: COLORS.textMuted, marginTop: SPACING.sm },
 });
-
-export default AssetsScreen;
