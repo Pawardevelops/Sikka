@@ -162,7 +162,7 @@ export function DashboardScreen() {
                         <View style={styles.statItem}>
                             <Text style={styles.statLabel}>TODAY'S SPEND</Text>
                             <Text style={styles.statValue}>
-                                {formatAmount(Math.abs(todayTransactions.filter(t => t.amount < 0).reduce((s, t) => s + t.amount, 0)))}
+                                {formatAmount(Math.abs(todayTransactions.filter(t => t.amount < 0).reduce((s, t) => s + t.amount, 0)), true)}
                             </Text>
                         </View>
                         <View style={styles.statItem}>
@@ -274,7 +274,7 @@ export function DashboardScreen() {
                                             styles.txAmountText,
                                             tx.amount >= 0 ? styles.incomeText : styles.expenseText
                                         ]}>
-                                            {tx.amount >= 0 ? '+' : ''}{formatAmount(tx.amount)}
+                                            {tx.amount >= 0 ? '+' : ''}{formatAmount(tx.amount, true)}
                                         </Text>
                                     </View>
                                 </View>

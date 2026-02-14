@@ -125,7 +125,7 @@ export function SentimentHeatmapSection() {
                                     <Text style={styles.txCategory}>{tx.category}</Text>
                                 </View>
                                 <Text style={[styles.txAmount, { color: activeSentiment.color }]}>
-                                    {formatAmount(tx.amount)}
+                                    {formatAmount(tx.amount, true)}
                                 </Text>
                             </View>
                         ))

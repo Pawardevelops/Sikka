@@ -26,7 +26,7 @@ export function CategorySpends() {
                 <DonutChart data={categoryStats} size={220} strokeWidth={24} />
                 <View style={styles.totalContainer}>
                     <Text style={styles.totalLabel}>Total</Text>
-                    <Text style={styles.totalAmount}>{formatAmount(totalExpense)}</Text>
+                    <Text style={styles.totalAmount}>{formatAmount(totalExpense, true)}</Text>
                 </View>
             </View>
 
@@ -39,7 +39,7 @@ export function CategorySpends() {
                         <View style={styles.itemContent}>
                             <View style={styles.itemTop}>
                                 <Text style={styles.itemName}>{item.name}</Text>
-                                <Text style={styles.itemAmount}>{formatAmount(item.amount)}</Text>
+                                <Text style={styles.itemAmount}>{formatAmount(item.amount, true)}</Text>
                             </View>
                             <View style={styles.progressBg}>
                                 <View

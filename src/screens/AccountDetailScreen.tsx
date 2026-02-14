@@ -147,7 +147,7 @@ export function AccountDetailScreen({ account, onBack, onDelete }: AccountDetail
                             </View>
                             <View style={styles.txAmount}>
                                 <Text style={[styles.txAmountText, tx.amount > 0 && styles.incomeAmount]}>
-                                    {tx.amount > 0 ? '+' : ''}{formatAmount(tx.amount)}
+                                    {tx.amount > 0 ? '+' : ''}{formatAmount(tx.amount, true)}
                                 </Text>
                             </View>
                         </View>

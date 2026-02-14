@@ -127,7 +127,7 @@ export function AllTransactionsScreen({ onBack }: AllTransactionsScreenProps) {
                                                     styles.txAmountText,
                                                     tx.amount >= 0 ? styles.incomeText : styles.expenseText
                                                 ]}>
-                                                    {tx.amount >= 0 ? '+' : ''}{formatAmount(tx.amount)}
+                                                    {tx.amount >= 0 ? '+' : ''}{formatAmount(tx.amount, true)}
                                                 </Text>
                                             </View>
                                         </View>

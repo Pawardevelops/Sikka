@@ -6,6 +6,7 @@
 import React, { createContext, useContext, useState, useCallback, useEffect, ReactNode } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Currency } from '../types';
+import { useOnboarding } from './OnboardingContext';
 
 const CURRENCY_KEY = '@sikka_currency';
 const ONBOARDING_KEY = '@sikka_onboarding';
@@ -26,7 +27,7 @@ const DEFAULT_CURRENCY = CURRENCIES.find(c => c.code === 'INR') || CURRENCIES[0]
 interface CurrencyContextType {
     currency: Currency;
     setCurrency: (currency: Currency) => void;
-    formatAmount: (amount: number) => string;
+    formatAmount: (amount: number, forceShow?: boolean) => string;
     isLoading: boolean;
 }
 
@@ -40,41 +41,52 @@ interface CurrencyProviderProps {
 export function CurrencyProvider({ children }: CurrencyProviderProps) {
     const [currency, setCurrencyState] = useState<Currency>(DEFAULT_CURRENCY);
     const [isLoading, setIsLoading] = useState(true);
+    const [hideBalances, setHideBalances] = useState(false);
 
-    // Load currency from storage on mount
+    // Initial load
     useEffect(() => {
-        const loadCurrency = async () => {
+        const loadSettings = async () => {
             try {
-                // First check if there's a saved currency preference
+                // Currency
                 let savedCurrencyCode = await AsyncStorage.getItem(CURRENCY_KEY);
-
-                // If not, check onboarding data for initial currency
                 if (!savedCurrencyCode) {
-                    const onboardingData = await AsyncStorage.getItem(ONBOARDING_KEY);
-                    if (onboardingData) {
-                        const parsed = JSON.parse(onboardingData);
-                        if (parsed.currency) {
-                            savedCurrencyCode = parsed.currency;
-                        }
+                    const obData = await AsyncStorage.getItem(ONBOARDING_KEY);
+                    if (obData) {
+                        const parsed = JSON.parse(obData);
+                        savedCurrencyCode = parsed.currency;
                     }
                 }
-
                 if (savedCurrencyCode) {
-                    const foundCurrency = CURRENCIES.find(c => c.code === savedCurrencyCode);
-                    if (foundCurrency) {
-                        setCurrencyState(foundCurrency);
+                    const found = CURRENCIES.find(c => c.code === savedCurrencyCode);
+                    if (found) setCurrencyState(found);
+                }
+
+                // Hide Balances (Sync with Onboarding Data)
+                // We read directly from storage here to ensure we have the value even if OnboardingContext updates slightly later
+                const obDataStr = await AsyncStorage.getItem(ONBOARDING_KEY);
+                if (obDataStr) {
+                    const parsed = JSON.parse(obDataStr);
+                    if (parsed.hideBalances !== undefined) {
+                        setHideBalances(parsed.hideBalances);
                     }
                 }
             } catch (error) {
-                console.error('Error loading currency:', error);
+                console.error('Error loading currency settings:', error);
             } finally {
                 setIsLoading(false);
             }
         };
-        loadCurrency();
+        loadSettings();
     }, []);
 
-    const setCurrency = useCallback(async (newCurrency: Currency) => {
+    // Listen for external updates to onboarding data (hacky but effective for simple apps without global store)
+    // Ideally we would consume OnboardingContext here, but that might create a circular dependency
+    // if OnboardingContext uses CurrencyContext.
+    // Let's assume OnboardingContext -> CurrencyContext is safe?
+    // Checking imports: OnboardingContext imports types. CurrencyContext imports types.
+    // App.tsx: CurrencyProvider is INSIDE OnboardingProvider. So we CAN use useOnboarding!
+
+    const handleSetCurrency = useCallback(async (newCurrency: Currency) => {
         setCurrencyState(newCurrency);
         try {
             await AsyncStorage.setItem(CURRENCY_KEY, newCurrency.code);
@@ -83,20 +95,57 @@ export function CurrencyProvider({ children }: CurrencyProviderProps) {
         }
     }, []);
 
-    const formatAmount = useCallback((amount: number): string => {
+    const formatAmount = useCallback((amount: number, forceShow: boolean = false): string => {
+        // If hidden and not forced to show
+        if (hideBalances && !forceShow) {
+            return `***`;
+        }
+
         const formatted = Math.abs(amount).toLocaleString('en-IN', {
             minimumFractionDigits: 2,
             maximumFractionDigits: 2,
         });
         const sign = amount < 0 ? '-' : '';
         return `${sign}${currency.symbol}${formatted}`;
-    }, [currency]);
+    }, [currency, hideBalances]);
 
     return (
-        <CurrencyContext.Provider value={{ currency, setCurrency, formatAmount, isLoading }}>
-            {children}
+        <CurrencyContext.Provider value={{
+            currency,
+            setCurrency: handleSetCurrency,
+            formatAmount,
+            isLoading,
+            // Expose a setter for hideBalances so SettingsScreen can update it directly if needed,
+            // or we use a listener. For now, let's expose it.
+            // Actually, best to just expose setHideBalances so OnboardingContext can sync it?
+            // Or better: Let's read from OnboardingContext directly inside the components?
+            // No, the requirement is "use *** notation".
+            // Let's rely on useOnboarding() hook inside the Provider.
+        }}>
+            <ContextLogicChild setHideBalances={setHideBalances}>
+                {children}
+            </ContextLogicChild>
         </CurrencyContext.Provider>
     );
+}
+
+// Separate component to safely use useOnboarding defined in parent provider
+// This avoids "Context is undefined" errors if we tried to use it in the main body above
+// (though strictly speaking, since CurrencyProvider is inside OnboardingProvider in App.tsx, it should be fine).
+// BUT... `CurrencyProvider` is exported and used in App.tsx. The hook is safe ONLY if the provider is rendered inside OnboardingProvider.
+// App.tsx structure:
+// <OnboardingProvider>
+//   <CurrencyProvider> ...
+// So it is safe!
+
+function ContextLogicChild({ children, setHideBalances }: { children: ReactNode, setHideBalances: (v: boolean) => void }) {
+    const { data } = useOnboarding();
+
+    useEffect(() => {
+        setHideBalances(data.hideBalances ?? false);
+    }, [data.hideBalances]);
+
+    return <>{children}</>;
 }
 
 // ==================== HOOK ====================
