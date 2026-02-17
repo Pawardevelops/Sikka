@@ -1,14 +1,12 @@
 /**
  * Sikka - Onboarding Context
- * Manages first-time user onboarding flow and preferences
+ * Manages first-time user onboarding flow and preference's
  */
 
 import React, { createContext, useContext, useState, useCallback, useEffect, ReactNode } from 'react';
-import AsyncStorage from '@react-native-async-storage/async-storage';
 import { OnboardingData, OnboardingStep, Language, NumberSystem } from '../types';
-
-const ONBOARDING_KEY = '@sikka_onboarding';
-const ONBOARDING_COMPLETE_KEY = '@sikka_onboarding_complete';
+import database from '../database';
+import User from '../database/models/User';
 
 // ==================== DEFAULT VALUES ====================
 const DEFAULT_ONBOARDING_DATA: OnboardingData = {
@@ -20,6 +18,7 @@ const DEFAULT_ONBOARDING_DATA: OnboardingData = {
     hideBalances: false,
     notificationPermissionGranted: false,
     biometricEnabled: false,
+    autoBackupEnabled: false,
     backupLocation: undefined,
 };
 
@@ -42,6 +41,7 @@ interface OnboardingContextType {
     // Completion
     completeOnboarding: () => Promise<void>;
     resetOnboarding: () => Promise<void>;
+    resetPreferences: () => Promise<void>;
 }
 
 const OnboardingContext = createContext<OnboardingContextType | undefined>(undefined);
@@ -61,13 +61,19 @@ export function OnboardingProvider({ children }: OnboardingProviderProps) {
     useEffect(() => {
         const loadOnboardingStatus = async () => {
             try {
-                const completeFlag = await AsyncStorage.getItem(ONBOARDING_COMPLETE_KEY);
-                if (completeFlag === 'true') {
-                    setIsOnboardingComplete(true);
-                    // Load saved data
-                    const savedData = await AsyncStorage.getItem(ONBOARDING_KEY);
-                    if (savedData) {
-                        setData(JSON.parse(savedData));
+                const usersCollection = database.get<User>('users');
+                const users = await usersCollection.query().fetch();
+
+                if (users.length > 0) {
+                    const user = users[0];
+                    if (user.onboardingCompleted) {
+                        setIsOnboardingComplete(true);
+                        // Restore preferences
+                        setData({
+                            ...DEFAULT_ONBOARDING_DATA,
+                            ...user.preferences,
+                            userName: user.name,
+                        });
                     }
                 }
             } catch (error) {
@@ -102,14 +108,54 @@ export function OnboardingProvider({ children }: OnboardingProviderProps) {
 
     // Update onboarding data
     const updateData = useCallback((updates: Partial<OnboardingData>) => {
-        setData((prev) => ({ ...prev, ...updates }));
-    }, []);
+        setData((prev) => {
+            const newData = { ...prev, ...updates };
+
+            // If onboarding is complete, persist to DB immediately
+            if (isOnboardingComplete) {
+                // Fire and forget persistence
+                database.write(async () => {
+                    const usersCollection = database.get<User>('users');
+                    const users = await usersCollection.query().fetch();
+                    if (users.length > 0) {
+                        await users[0].update(user => {
+                            user.preferences = newData;
+                            if (updates.userName !== undefined) {
+                                user.name = updates.userName;
+                            }
+                        });
+                    }
+                }).catch(error => {
+                    console.error('Failed to persist settings:', error);
+                });
+            }
+
+            return newData;
+        });
+    }, [isOnboardingComplete]);
 
     // Complete onboarding and save all data
     const completeOnboarding = useCallback(async () => {
         try {
-            await AsyncStorage.setItem(ONBOARDING_KEY, JSON.stringify(data));
-            await AsyncStorage.setItem(ONBOARDING_COMPLETE_KEY, 'true');
+            await database.write(async () => {
+                const usersCollection = database.get<User>('users');
+                const users = await usersCollection.query().fetch();
+
+                if (users.length > 0) {
+                    await users[0].update(user => {
+                        user.name = data.userName;
+                        user.onboardingCompleted = true;
+                        user.preferences = data;
+                    });
+                } else {
+                    await usersCollection.create(user => {
+                        user.name = data.userName;
+                        user.onboardingCompleted = true;
+                        user.preferences = data;
+                        user.email = ''; // Optional
+                    });
+                }
+            });
             setIsOnboardingComplete(true);
         } catch (error) {
             console.error('Error completing onboarding:', error);
@@ -120,8 +166,18 @@ export function OnboardingProvider({ children }: OnboardingProviderProps) {
     // Reset onboarding (for testing)
     const resetOnboarding = useCallback(async () => {
         try {
-            await AsyncStorage.removeItem(ONBOARDING_KEY);
-            await AsyncStorage.removeItem(ONBOARDING_COMPLETE_KEY);
+            await database.write(async () => {
+                const usersCollection = database.get<User>('users');
+                const users = await usersCollection.query().fetch();
+                if (users.length > 0) {
+                    // In a real app, maybe don't delete, just reset flag?
+                    // For now, let's just reset the flag and preferences
+                    await users[0].update(user => {
+                        user.onboardingCompleted = false;
+                        user.preferences = {};
+                    });
+                }
+            });
             setIsOnboardingComplete(false);
             setCurrentStep(1);
             setData(DEFAULT_ONBOARDING_DATA);
@@ -129,6 +185,28 @@ export function OnboardingProvider({ children }: OnboardingProviderProps) {
             console.error('Error resetting onboarding:', error);
         }
     }, []);
+
+    const resetPreferences = useCallback(async () => {
+        const defaults: Partial<OnboardingData> = {
+            currency: 'INR',
+            biometricEnabled: false,
+            hideBalances: false,
+        };
+
+        setData(prev => ({ ...prev, ...defaults }));
+
+        if (isOnboardingComplete) {
+            await database.write(async () => {
+                const usersCollection = database.get<User>('users');
+                const users = await usersCollection.query().fetch();
+                if (users.length > 0) {
+                    await users[0].update(user => {
+                        user.preferences = { ...user.preferences, ...defaults };
+                    });
+                }
+            });
+        }
+    }, [isOnboardingComplete]);
 
     return (
         <OnboardingContext.Provider value={{
@@ -142,6 +220,7 @@ export function OnboardingProvider({ children }: OnboardingProviderProps) {
             updateData,
             completeOnboarding,
             resetOnboarding,
+            resetPreferences,
         }}>
             {children}
         </OnboardingContext.Provider>

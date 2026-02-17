@@ -11,19 +11,22 @@ import {
     ScrollView,
     TouchableOpacity,
     Switch,
-    Alert,
     TextInput,
-    Platform,
 } from 'react-native';
-// @ts-ignore
-import RNAndroidNotificationListener from 'react-native-android-notification-listener';
+
 import { useCurrency, CURRENCIES } from '../context/CurrencyContext';
 import { useSecurity } from '../context/SecurityContext';
 import { useOnboarding } from '../context/OnboardingContext';
 import { useNavigation } from '../context/NavigationContext';
+import { useBackup } from '../hooks/useBackup';
+import { ActivityIndicator } from 'react-native';
 import { COLORS, SPACING, FONT_SIZE, BORDER_RADIUS } from '../constants/theme';
 import { useSafeTop } from '../components/SafeScreen';
 import { Icon } from '../components/Icon';
+import { CustomModal, ModalAction, ModalType } from '../components/CustomModal';
+
+import { wipeDatabase } from '../database';
+import { useAppLifecycle } from '../context/AppLifecycleContext';
 
 export function SettingsScreen() {
     const { currency, setCurrency } = useCurrency();
@@ -33,38 +36,68 @@ export function SettingsScreen() {
         hasBiometricHardware,
         biometricType
     } = useSecurity();
-    const { data: onboardingData, updateData, resetOnboarding } = useOnboarding();
+    const { data: onboardingData, updateData, resetPreferences } = useOnboarding();
     const [isToggling, setIsToggling] = useState(false);
     const [showCurrencyPicker, setShowCurrencyPicker] = useState(false);
     const [editingName, setEditingName] = useState(false);
     const [tempName, setTempName] = useState(onboardingData.userName);
     const safeTop = useSafeTop();
     const navigation = useNavigation();
+    const { resetApp } = useAppLifecycle();
+
+    // Modal State
+    const [modalVisible, setModalVisible] = useState(false);
+    const [modalConfig, setModalConfig] = useState<{
+        title: string;
+        message: string;
+        icon?: string;
+        type?: ModalType;
+        actions: ModalAction[];
+    }>({
+        title: '',
+        message: '',
+        actions: [],
+    });
+
+    const showModal = (
+        title: string,
+        message: string,
+        actions: ModalAction[],
+        type: ModalType = 'default',
+        icon?: string
+    ) => {
+        setModalConfig({ title, message, actions, type, icon });
+        setModalVisible(true);
+    };
 
     const handleNotificationSettings = () => {
-        Alert.alert(
+        showModal(
             "Notification Access",
             "To change notification access, please go to your device settings > Apps > Special App Access > Notification Access > Sikka.",
-            [{ text: "OK" }]
+            [{ text: "OK", onPress: () => setModalVisible(false), style: 'primary' }],
+            'info'
         );
     };
+
     const handleBiometricToggle = async () => {
         if (isToggling) return;
 
         if (!hasBiometricHardware) {
-            Alert.alert(
+            showModal(
                 'Not Available',
                 'Your device does not support biometric authentication.',
-                [{ text: 'OK' }]
+                [{ text: 'OK', onPress: () => setModalVisible(false), style: 'primary' }],
+                'warning'
             );
             return;
         }
 
         if (biometricType === 'Not Set Up') {
-            Alert.alert(
+            showModal(
                 'Not Enrolled',
                 'Please set up fingerprint or face recognition in your device settings first.',
-                [{ text: 'OK' }]
+                [{ text: 'OK', onPress: () => setModalVisible(false), style: 'primary' }],
+                'warning'
             );
             return;
         }
@@ -74,10 +107,11 @@ export function SettingsScreen() {
         setIsToggling(false);
 
         if (!success && !biometricEnabled) {
-            Alert.alert(
+            showModal(
                 'Authentication Failed',
                 'Could not enable biometric lock. Please try again.',
-                [{ text: 'OK' }]
+                [{ text: 'OK', onPress: () => setModalVisible(false), style: 'primary' }],
+                'error'
             );
         }
     };
@@ -96,24 +130,73 @@ export function SettingsScreen() {
         updateData({ numberSystem: newSystem });
     };
 
-    const handleResetOnboarding = () => {
-        Alert.alert(
-            'Reset App',
-            'This will reset all your preferences and show the onboarding flow again. Your accounts and transactions will NOT be deleted.',
+    const handleResetPreferences = () => {
+        showModal(
+            'Reset Preferences',
+            'This will reset settings like currency, balance visibility, and biometrics. Your data will NOT be deleted.',
             [
-                { text: 'Cancel', style: 'cancel' },
+                { text: 'Cancel', onPress: () => setModalVisible(false), style: 'cancel' },
                 {
                     text: 'Reset',
                     style: 'destructive',
                     onPress: async () => {
-                        await resetOnboarding();
+                        await resetPreferences();
+                        setModalVisible(false);
+                        // Brief delay for modal animation
+                        setTimeout(() => {
+                            showModal('Success', 'Preferences have been reset.', [{ text: 'OK', onPress: () => setModalVisible(false), style: 'primary' }], 'success');
+                        }, 300);
                     }
                 }
-            ]
+            ],
+            'warning'
         );
     };
 
-
+    const handleNuclearDelete = () => {
+        showModal(
+            'Nuclear Delete',
+            '⚠️ ARE YOU SURE? ⚠️\n\nThis will PERMANENTLY DELETE ALL your transactions, accounts, and settings. This action CANNOT be undone.',
+            [
+                { text: 'Cancel', onPress: () => setModalVisible(false), style: 'cancel' },
+                {
+                    text: 'DELETE EVERYTHING',
+                    style: 'destructive',
+                    onPress: () => {
+                        setModalVisible(false);
+                        setTimeout(() => {
+                            showModal(
+                                'Final Confirmation',
+                                'Type "DELETE" to confirm (just kidding, press Confirm to wipe).',
+                                [
+                                    { text: 'Cancel', onPress: () => setModalVisible(false), style: 'cancel' },
+                                    {
+                                        text: 'Confirm Wipe',
+                                        style: 'destructive',
+                                        onPress: async () => {
+                                            try {
+                                                setModalVisible(false);
+                                                await wipeDatabase();
+                                                resetApp(); // Remount app to clear all state
+                                            } catch (error) {
+                                                setModalVisible(false);
+                                                console.error('Wipe failed:', error);
+                                                setTimeout(() => {
+                                                    showModal('Error', 'Failed to wipe data.', [{ text: 'OK', onPress: () => setModalVisible(false) }], 'error');
+                                                }, 300);
+                                            }
+                                        }
+                                    }
+                                ],
+                                'error'
+                            );
+                        }, 300);
+                    }
+                }
+            ],
+            'error'
+        );
+    };
 
     const getUserInitials = () => {
         if (!onboardingData.userName) return <Icon name="person" size={24} color={COLORS.background} />;
@@ -305,34 +388,7 @@ export function SettingsScreen() {
 
             {/* Data & Backup */}
             <Text style={styles.sectionTitle}>DATA & BACKUP</Text>
-            <View style={styles.settingsCard}>
-                <TouchableOpacity style={styles.settingRow}>
-                    <View style={styles.settingInfo}>
-                        <Icon name="file-upload" size={24} color={COLORS.text} style={{ marginRight: SPACING.md }} />
-                        <Text style={styles.settingLabel}>Export Data</Text>
-                    </View>
-                    <Icon name="chevron-right" size={24} color={COLORS.textMuted} />
-                </TouchableOpacity>
-                <TouchableOpacity style={styles.settingRow}>
-                    <View style={styles.settingInfo}>
-                        <Icon name="file-download" size={24} color={COLORS.text} style={{ marginRight: SPACING.md }} />
-                        <Text style={styles.settingLabel}>Import Data</Text>
-                    </View>
-                    <Icon name="chevron-right" size={24} color={COLORS.textMuted} />
-                </TouchableOpacity>
-                <TouchableOpacity style={[styles.settingRow, styles.lastRow]}>
-                    <View style={styles.settingInfo}>
-                        <Icon name="cloud-upload" size={24} color={COLORS.text} style={{ marginRight: SPACING.md }} />
-                        <View style={styles.settingTextContainer}>
-                            <Text style={styles.settingLabel}>Backup Location</Text>
-                            <Text style={styles.settingSubtitle}>
-                                {onboardingData.backupLocation || 'Not configured'}
-                            </Text>
-                        </View>
-                    </View>
-                    <Icon name="chevron-right" size={24} color={COLORS.textMuted} />
-                </TouchableOpacity>
-            </View>
+            <BackupSection />
 
             {/* About Section */}
             <Text style={styles.sectionTitle}>ABOUT</Text>
@@ -344,6 +400,13 @@ export function SettingsScreen() {
                     </View>
                     <Text style={styles.settingValue}>1.0.0</Text>
                 </View>
+                <TouchableOpacity style={styles.settingRow} onPress={() => navigation.openAboutUs()}>
+                    <View style={styles.settingInfo}>
+                        <Icon name="info-outline" size={24} color={COLORS.text} style={{ marginRight: SPACING.md }} />
+                        <Text style={styles.settingLabel}>About Us</Text>
+                    </View>
+                    <Icon name="chevron-right" size={24} color={COLORS.textMuted} />
+                </TouchableOpacity>
                 <TouchableOpacity style={[styles.settingRow, styles.lastRow]} onPress={() => navigation.openPrivacyPolicy()}>
                     <View style={styles.settingInfo}>
                         <Icon name="policy" size={24} color={COLORS.text} style={{ marginRight: SPACING.md }} />
@@ -357,18 +420,39 @@ export function SettingsScreen() {
             <Text style={styles.sectionTitle}>DANGER ZONE</Text>
             <View style={styles.settingsCard}>
                 <TouchableOpacity
-                    style={[styles.settingRow, styles.dangerRow, styles.lastRow]}
-                    onPress={handleResetOnboarding}
+                    style={[styles.settingRow, styles.dangerRow]}
+                    onPress={handleResetPreferences}
                 >
                     <View style={styles.settingInfo}>
-                        <Icon name="restore" size={24} color={COLORS.error} style={{ marginRight: SPACING.md }} />
-                        <Text style={styles.dangerLabel}>Reset App Preferences</Text>
+                        <Icon name="restore" size={24} color={COLORS.secondary} style={{ marginRight: SPACING.md }} />
+                        <Text style={[styles.dangerLabel, { color: COLORS.secondary }]}>Reset App Preferences</Text>
+                    </View>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                    style={[styles.settingRow, styles.dangerRow, styles.lastRow]}
+                    onPress={handleNuclearDelete}
+                >
+                    <View style={styles.settingInfo}>
+                        <Icon name="delete-forever" size={24} color={COLORS.error} style={{ marginRight: SPACING.md }} />
+                        <Text style={styles.dangerLabel}>NUCLEAR DELETE (Wipe Data)</Text>
                     </View>
                 </TouchableOpacity>
             </View>
 
             {/* Bottom Spacing */}
             <View style={styles.bottomSpacer} />
+
+            {/* Custom Modal */}
+            <CustomModal
+                visible={modalVisible}
+                title={modalConfig.title}
+                message={modalConfig.message}
+                icon={modalConfig.icon}
+                type={modalConfig.type}
+                actions={modalConfig.actions}
+                onClose={() => setModalVisible(false)}
+            />
         </ScrollView>
     );
 }
@@ -544,5 +628,73 @@ const styles = StyleSheet.create({
         height: 100,
     },
 });
+
+function BackupSection() {
+    const {
+        isSyncing,
+        lastBackup,
+        user,
+        autoBackupEnabled,
+        toggleDriveBackup,
+        manualBackup,
+        restoreBackup
+    } = useBackup();
+
+    return (
+        <View style={styles.settingsCard}>
+            {/* Auto Backup Toggle */}
+            <View style={styles.settingRow}>
+                <View style={styles.settingInfo}>
+                    <Icon name="cloud-queue" size={24} color={COLORS.text} style={{ marginRight: SPACING.md }} />
+                    <View style={styles.settingTextContainer}>
+                        <Text style={styles.settingLabel}>Google Drive Backup</Text>
+                        <Text style={styles.settingSubtitle}>
+                            {user ? `Signed in as ${user.user.name}` : 'Sign in to sync data'}
+                        </Text>
+                    </View>
+                </View>
+                {isSyncing ? (
+                    <ActivityIndicator size="small" color={COLORS.primary} />
+                ) : (
+                    <Switch
+                        value={autoBackupEnabled}
+                        onValueChange={toggleDriveBackup}
+                        trackColor={{ false: COLORS.border, true: COLORS.primaryMuted }}
+                        thumbColor={autoBackupEnabled ? COLORS.primary : COLORS.textMuted}
+                    />
+                )}
+            </View>
+
+            {/* Manual Actions (Only if signed in) */}
+            {autoBackupEnabled && (
+                <>
+                    <TouchableOpacity style={styles.settingRow} onPress={manualBackup} disabled={isSyncing}>
+                        <View style={styles.settingInfo}>
+                            <Icon name="backup" size={24} color={COLORS.text} style={{ marginRight: SPACING.md }} />
+                            <View style={styles.settingTextContainer}>
+                                <Text style={styles.settingLabel}>Backup Now</Text>
+                                <Text style={styles.settingSubtitle}>
+                                    Last backup: {lastBackup || 'Never'}
+                                </Text>
+                            </View>
+                        </View>
+                        <Icon name="chevron-right" size={24} color={COLORS.textMuted} />
+                    </TouchableOpacity>
+
+                    <TouchableOpacity style={[styles.settingRow, styles.lastRow]} onPress={restoreBackup} disabled={isSyncing}>
+                        <View style={styles.settingInfo}>
+                            <Icon name="settings-backup-restore" size={24} color={COLORS.error} style={{ marginRight: SPACING.md }} />
+                            <View style={styles.settingTextContainer}>
+                                <Text style={[styles.settingLabel, { color: COLORS.error }]}>Restore Data</Text>
+                                <Text style={styles.settingSubtitle}>Overwrite local data</Text>
+                            </View>
+                        </View>
+                        <Icon name="warning" size={24} color={COLORS.error} />
+                    </TouchableOpacity>
+                </>
+            )}
+        </View>
+    );
+}
 
 export default SettingsScreen;

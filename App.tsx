@@ -12,10 +12,12 @@ import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { CurrencyProvider } from './src/context/CurrencyContext';
 import { AccountsProvider, useAccounts } from './src/context/AccountsContext';
 import { TransactionsProvider, useTransactions } from './src/context/TransactionsContext';
-import { SubscriptionsProvider, useSubscriptions, OnSubscriptionPaidDetails } from './src/context/SubscriptionsContext';
+import { SubscriptionsProvider, useSubscriptions } from './src/context/SubscriptionsContext';
 import { SecurityProvider, useSecurity } from './src/context/SecurityContext';
 import { OnboardingProvider, useOnboarding } from './src/context/OnboardingContext';
 import { NavigationContext, useNavigation } from './src/context/NavigationContext';
+import { GoogleDriveService } from './src/services/GoogleDriveService';
+import { AppLifecycleProvider } from './src/context/AppLifecycleContext';
 
 // Types
 import { TabType, Account, TransactionCategory, Subscription } from './src/types';
@@ -34,7 +36,7 @@ import { EditSubscriptionModal } from './src/components/EditSubscriptionModal';
 import { BiometricLockScreen } from './src/components/BiometricLockScreen';
 
 // Screens
-import { DashboardScreen, AssetsScreen, StatsScreen, SettingsScreen, AccountDetailScreen, NotifyActionCenterScreen, PrivacyPolicyScreen } from './src/screens';
+import { DashboardScreen, AssetsScreen, StatsScreen, SettingsScreen, AccountDetailScreen, NotifyActionCenterScreen, PrivacyPolicyScreen, AboutUsScreen } from './src/screens';
 import { AllTransactionsScreen } from './src/screens/AllTransactionsScreen';
 import {
   WelcomeScreen,
@@ -179,6 +181,11 @@ function MainApp() {
     });
   };
 
+  // About Us
+  const [showAboutUs, setShowAboutUs] = useState(false);
+  const openAboutUs = () => setShowAboutUs(true);
+  const closeAboutUs = () => setShowAboutUs(false);
+
   const renderScreen = () => {
     // If showing notify center
     if (showNotifyCenter) {
@@ -192,6 +199,10 @@ function MainApp() {
 
     if (showPrivacyPolicy) {
       return <PrivacyPolicyScreen />;
+    }
+
+    if (showAboutUs) {
+      return <AboutUsScreen />;
     }
 
     // If an account is selected, show account detail
@@ -219,7 +230,7 @@ function MainApp() {
     }
   };
 
-  const showTabBar = !selectedAccount && !showAllTransactions && !showNotifyCenter && !showPrivacyPolicy;
+  const showTabBar = !selectedAccount && !showAllTransactions && !showNotifyCenter && !showPrivacyPolicy && !showAboutUs;
 
   return (
     <NavigationContext.Provider value={{
@@ -255,6 +266,10 @@ function MainApp() {
       showPrivacyPolicy,
       openPrivacyPolicy,
       closePrivacyPolicy,
+      // About Us
+      showAboutUs,
+      openAboutUs,
+      closeAboutUs,
     }}>
       <View style={styles.container}>
         <StatusBar style="light" />
@@ -327,87 +342,60 @@ function SecureApp() {
   return <MainApp />;
 }
 
-
-// ==================== TRANSACTIONS WITH BALANCE SYNC ====================
-function TransactionsWithBalanceSync({ children }: { children: React.ReactNode }) {
-  const { getAccount, updateAccount } = useAccounts();
-
-  const handleUpdateAccountBalance = useCallback(
-    (accountId: string, delta: number) => {
-      const account = getAccount(accountId);
-      if (account) {
-        updateAccount(accountId, { balance: account.balance + delta });
-      }
-    },
-    [getAccount, updateAccount]
-  );
-
-  return (
-    <TransactionsProvider onUpdateAccountBalance={handleUpdateAccountBalance}>
-      {children}
-    </TransactionsProvider>
-  );
-}
-
-// ==================== SUBSCRIPTIONS WITH TRANSACTION SYNC ====================
-function SubscriptionsWithTransactionSync({ children }: { children: React.ReactNode }) {
-  const { addTransaction } = useTransactions();
-
-  // Safely map string category to TransactionCategory
-  const mapCategory = (cat: string): TransactionCategory => {
-    const valid: TransactionCategory[] = [
-      'groceries', 'dining', 'transport', 'shopping', 'entertainment',
-      'utilities', 'health', 'income', 'transfer', 'other'
-    ];
-    const normalized = cat.toLowerCase();
-    return valid.includes(normalized as any)
-      ? (normalized as TransactionCategory)
-      : 'utilities'; // Default for subscriptions
-  };
-
-  const handleSubscriptionPaid = useCallback((details: OnSubscriptionPaidDetails) => {
-    addTransaction({
-      accountId: details.paymentSourceId || 'unknown',
-      merchant: details.name,
-      amount: -details.amount,
-      timestamp: Date.now(),
-      category: mapCategory(details.category),
-      type: 'debit',
-      notes: 'Subscription Payment',
-      isAuto: true,
-      status: 'approved',
-    });
-  }, [addTransaction]);
-
-  return (
-    <SubscriptionsProvider onSubscriptionPaid={handleSubscriptionPaid}>
-      {children}
-    </SubscriptionsProvider>
-  );
-}
+import database from './src/database';
+import { seedDatabase } from './src/database/seed';
 
 export default function App() {
   const [showSplash, setShowSplash] = useState(true);
+  const [isDbReady, setIsDbReady] = useState(false);
+  const [appKey, setAppKey] = useState(0);
 
-  if (showSplash) {
+
+
+  const initDatabase = useCallback(async () => {
+    try {
+      await GoogleDriveService.configure();
+      await seedDatabase(database);
+    } catch (e) {
+      console.error('Initialization failed:', e);
+    } finally {
+      setIsDbReady(true);
+    }
+  }, []);
+
+  const resetApp = useCallback(() => {
+    setIsDbReady(false);
+    setAppKey(prev => prev + 1);
+    initDatabase();
+  }, [initDatabase]);
+
+  useEffect(() => {
+    initDatabase();
+  }, [initDatabase]);
+
+  if (showSplash || !isDbReady) {
     return <SplashScreen onFinish={() => setShowSplash(false)} />;
   }
 
   return (
     <SafeAreaProvider>
-      <OnboardingProvider>
-        <CurrencyProvider>
-          <AccountsProvider>
-            <TransactionsWithBalanceSync>
-              <SubscriptionsWithTransactionSync>
-                <SecurityProvider>
-                  <SecureApp />
-                </SecurityProvider>
-              </SubscriptionsWithTransactionSync>
-            </TransactionsWithBalanceSync>
-          </AccountsProvider>
-        </CurrencyProvider>
-      </OnboardingProvider>
+      <AppLifecycleProvider onReset={resetApp}>
+        <View style={{ flex: 1 }} key={appKey}>
+          <OnboardingProvider>
+            <CurrencyProvider>
+              <AccountsProvider>
+                <TransactionsProvider>
+                  <SubscriptionsProvider>
+                    <SecurityProvider>
+                      <SecureApp />
+                    </SecurityProvider>
+                  </SubscriptionsProvider>
+                </TransactionsProvider>
+              </AccountsProvider>
+            </CurrencyProvider>
+          </OnboardingProvider>
+        </View>
+      </AppLifecycleProvider>
     </SafeAreaProvider>
   );
 }

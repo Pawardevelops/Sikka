@@ -3,15 +3,22 @@
  * Financial statistics with modular components
  */
 
-import React from 'react';
+import React, { useEffect } from 'react';
 import { StyleSheet, ScrollView, Text, View } from 'react-native';
 import { CategorySpends } from '../components/stats/CategorySpends';
 import { SentimentHeatmapSection } from '../components/stats/SentimentHeatmapSection';
 import { useSafeTop } from '../components/SafeScreen';
 import { COLORS, SPACING } from '../constants/theme';
 
+import { useTransactions } from '../context/TransactionsContext';
+
 export function StatsScreen() {
     const safeTop = useSafeTop();
+    const { refreshTransactions } = useTransactions();
+
+    useEffect(() => {
+        refreshTransactions();
+    }, []);
 
     return (
         <ScrollView

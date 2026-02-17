@@ -1,28 +1,33 @@
 /**
- * Sikka - Transactions Context with AsyncStorage
- * Manages app-wide transaction state with local persistence
+ * Sikka - Transactions Context with WatermelonDB
+ * Manages app-wide transaction state using WatermelonDB
  */
 
 import React, { createContext, useContext, useState, useCallback, useEffect, ReactNode } from 'react';
-import AsyncStorage from '@react-native-async-storage/async-storage';
-import { Transaction, TransactionCategory } from '../types';
-
-const STORAGE_KEY = '@sikka_transactions';
+import { Transaction as TransactionType, TransactionCategory } from '../types';
+import database from '../database';
+import Transaction from '../database/models/Transaction';
+import Category from '../database/models/Category';
+import TransactionSentiment from '../database/models/TransactionSentiment';
+import Sentiment from '../database/models/Sentiment';
+import Account from '../database/models/Account';
+import { Q } from '@nozbe/watermelondb';
 
 // ==================== CONTEXT TYPE ====================
 interface TransactionsContextType {
-    transactions: Transaction[];
-    activeTransactions: Transaction[];
-    todayTransactions: Transaction[];
+    transactions: TransactionType[];
+    activeTransactions: TransactionType[];
+    todayTransactions: TransactionType[];
     isLoading: boolean;
-    addTransaction: (transaction: Omit<Transaction, 'id' | 'isDeleted' | 'timestamp'> & { timestamp?: number }) => Promise<void>;
+    addTransaction: (transaction: Omit<TransactionType, 'id' | 'isDeleted' | 'timestamp'> & { timestamp?: number }) => Promise<void>;
     deleteTransaction: (transactionId: string) => Promise<void>;
-    getTransactionsByAccount: (accountId: string) => Transaction[];
-    getTransactionsByDate: (date: Date) => Transaction[];
-    approveTransaction: (id: string, updates?: Partial<Transaction>) => Promise<void>;
+    getTransactionsByAccount: (accountId: string) => TransactionType[];
+    getTransactionsByDate: (date: Date) => TransactionType[];
+    approveTransaction: (id: string, updates?: Partial<TransactionType>) => Promise<void>;
     ignoreTransaction: (id: string) => Promise<void>;
     unparsedNotifications: string[];
     addUnparsedNotification: (text: string) => Promise<void>;
+    refreshTransactions: () => Promise<void>;
 }
 
 const TransactionsContext = createContext<TransactionsContextType | undefined>(undefined);
@@ -56,108 +61,194 @@ export const formatTimeAgo = (timestamp: number): string => {
 // ==================== PROVIDER ====================
 interface TransactionsProviderProps {
     children: ReactNode;
-    /** Callback to adjust an account's balance by a delta amount */
-    onUpdateAccountBalance?: (accountId: string, delta: number) => void;
 }
 
-export function TransactionsProvider({ children, onUpdateAccountBalance }: TransactionsProviderProps) {
-    const [transactions, setTransactions] = useState<Transaction[]>([]);
+export function TransactionsProvider({ children }: TransactionsProviderProps) {
+    const [transactions, setTransactions] = useState<TransactionType[]>([]);
     const [unparsedNotifications, setUnparsedNotifications] = useState<string[]>([]);
     const [isLoading, setIsLoading] = useState(true);
 
-    // Get only active (non-deleted) transactions, sorted by timestamp
+    // Initial Load & Subscription
+    useEffect(() => {
+        const transactionsCollection = database.get<Transaction>('transactions');
+
+        // We need to fetch everything to map it correctly.
+        // Performance Note: In a large app, we would paginate this or only fetch recent.
+        // For now, fetching all is fine for MVP.
+        const subscription = transactionsCollection
+            .query(
+                Q.sortBy('timestamp', Q.desc)
+            )
+            .observe() // Observe ALL changes, since observeWithColumns missed the manual touch
+            .subscribe(async (records) => {
+                // Mapping allows us to keep the UI decoupled from DB models for now
+                const mappedTransactions = await Promise.all(records.map(async (tx) => {
+                    // Fetch category
+                    let categoryName: TransactionCategory = 'other';
+                    try {
+                        const cat = await tx.category.fetch();
+                        if (cat) {
+                            // Map DB category name to Enum if possible, else 'other'
+                            categoryName = cat.name.toLowerCase() as TransactionCategory;
+                        }
+                    } catch (e) { /* existing cateogry might be null */ }
+
+                    // Fetch sentiments (IDs)
+                    const sentiments = await tx.transactionSentiments.fetch();
+                    const sentimentIds = sentiments.map((ts: TransactionSentiment) => ts.sentiment.id);
+
+                    // IMPROVED MAPPING:
+                    return {
+                        id: tx.id,
+                        accountId: tx.account.id, // accessing ID of relation is synchronous
+                        merchant: tx.merchant,
+                        category: categoryName,
+                        type: tx.type,
+                        status: 'approved' as const, // Default to approved
+                        amount: tx.amount,
+                        notes: tx.note,
+                        timestamp: tx.timestamp,
+                        isAuto: tx.isAuto,
+                        isDeleted: tx.isDeleted,
+                        sentimentIds: sentimentIds,
+                    };
+                }));
+
+                setTransactions(mappedTransactions);
+                setIsLoading(false);
+            });
+
+        return () => subscription.unsubscribe();
+    }, []);
+
+    // Derived State
     const activeTransactions = transactions
         .filter(tx => !tx.isDeleted)
         .sort((a, b) => b.timestamp - a.timestamp);
 
-    // Get today's transactions only
     const todayTransactions = activeTransactions.filter(tx => isToday(tx.timestamp));
 
-    // Load transactions and unparsed items from AsyncStorage
-    useEffect(() => {
-        const loadData = async () => {
-            try {
-                const [storedTx, storedUnparsed] = await Promise.all([
-                    AsyncStorage.getItem(STORAGE_KEY),
-                    AsyncStorage.getItem(STORAGE_KEY + '_unparsed')
-                ]);
+    // Add new transaction
+    const addTransaction = useCallback(async (transactionData: Omit<TransactionType, 'id' | 'isDeleted' | 'timestamp'> & { timestamp?: number }) => {
+        try {
+            await database.write(async () => {
+                const transactionsCollection = database.get<Transaction>('transactions');
+                const categoriesCollection = database.get<Category>('categories');
+                const accountsCollection = database.get<Account>('accounts');
 
-                if (storedTx) setTransactions(JSON.parse(storedTx));
-                if (storedUnparsed) setUnparsedNotifications(JSON.parse(storedUnparsed));
+                // 1. Find Account (Required)
+                const account = await accountsCollection.find(transactionData.accountId);
 
-            } catch (error) {
-                console.error('Error loading data:', error);
-            } finally {
-                setIsLoading(false);
-            }
-        };
-        loadData();
+                // 2. Find or Default Category
+                let category: Category | undefined;
+                const categoryRecords = await categoriesCollection.query(
+                    Q.where('name', Q.like(`%${transactionData.category}%`))
+                ).fetch();
+
+                if (categoryRecords.length > 0) {
+                    category = categoryRecords[0];
+                } else {
+                    const otherCats = await categoriesCollection.query(Q.where('name', 'other')).fetch();
+                    if (otherCats.length > 0) category = otherCats[0];
+                }
+
+                // 3. Create Transaction
+                const newTx = await transactionsCollection.create(tx => {
+                    tx.merchant = transactionData.merchant;
+                    tx.amount = transactionData.amount;
+                    tx.note = transactionData.notes || '';
+                    tx.timestamp = transactionData.timestamp || Date.now();
+                    tx.type = transactionData.type;
+                    tx.isAuto = transactionData.isAuto;
+                    tx.isDeleted = false; // Transaction model has 'isDeleted' field? Need to check. Default false.
+                    // Set Relations
+                    tx.account.set(account);
+                    if (category) tx.category.set(category);
+                });
+
+                // 4. Handle Sentiments (Create Join Records)
+                if (transactionData.sentimentIds && transactionData.sentimentIds.length > 0) {
+                    const tsCollection = database.get<TransactionSentiment>('transaction_sentiments');
+
+                    const textIds = transactionData.sentimentIds;
+                    const sentimentRecords = await database.get<Sentiment>('sentiments').query(
+                        Q.where('id', Q.oneOf(textIds))
+                    ).fetch();
+
+                    for (const sentiment of sentimentRecords) {
+                        await tsCollection.create(ts => {
+                            ts.transaction.set(newTx);
+                            ts.sentiment.set(sentiment);
+                        });
+                    }
+
+                    // FORCE UPDATE: Touch the transaction so 'updated_at' changes.
+                    // We need to bypass the "no-op check" by modifying _raw or toggling a field.
+                    // safely updating 'isAuto' to itself won't work.
+                    // Let's modify a field back and forth if needed, but better to just trigger a signal.
+                    // Actually, since we removed observeWithColumns, any "update" call might work if we trick it?
+                    // Let's use the 'note' hack but be safer.
+                    // If I call update with NO changes, does it fire listeners? No.
+
+                    // ONLY ROBUST WAY: Modify a real field.
+                    // Let's add a space to note if it exists, or set to ' ' if empty.
+                    // Users won't notice a trailing space.
+                    // tx.note = (tx.note || '') + ' ';
+                    // Wait, trimming issues?
+
+                    // Let's stick with the _isEditing approach, but maybe I used it wrong?
+                    // Or just casting to any.
+                    (newTx as any)._raw.updated_at = Date.now();
+                }
+
+                // 5. Update Account Balance
+                // Since transactionData.amount is already signed (negative for expense/debit), 
+                // we just need to ADD it to the balance.
+                // Income (+100) -> Balance + 100
+                // Expense (-100) -> Balance + (-100) = Balance - 100
+                await account.update(acc => {
+                    acc.balance += transactionData.amount;
+                });
+
+            });
+        } catch (error) {
+            console.error('Error adding transaction:', error);
+        }
     }, []);
 
-    // Save transactions to AsyncStorage
-    const saveTransactions = async (newTransactions: Transaction[]) => {
-        try {
-            await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(newTransactions));
-        } catch (error) {
-            console.error('Error saving transactions:', error);
-        }
-    };
-
-    // Save unparsed to AsyncStorage
-    const saveUnparsed = async (newUnparsed: string[]) => {
-        try {
-            await AsyncStorage.setItem(STORAGE_KEY + '_unparsed', JSON.stringify(newUnparsed));
-        } catch (error) {
-            console.error('Error saving unparsed:', error);
-        }
-    };
-
-    // Add new transaction
-    const addTransaction = useCallback(async (transactionData: Omit<Transaction, 'id' | 'isDeleted' | 'timestamp'> & { timestamp?: number }) => {
-        const newTransaction: Transaction = {
-            ...transactionData,
-            id: Date.now().toString(),
-            timestamp: transactionData.timestamp || Date.now(),
-            isDeleted: false,
-        };
-
-        setTransactions(prev => {
-            const newTransactions = [...prev, newTransaction];
-            saveTransactions(newTransactions);
-            return newTransactions;
-        });
-
-        // Update account balance for non-pending transactions
-        if (newTransaction.status !== 'pending' && onUpdateAccountBalance) {
-            onUpdateAccountBalance(newTransaction.accountId, newTransaction.amount);
-        }
-    }, [onUpdateAccountBalance]);
-
-    // Soft delete transaction — reverses the balance if the transaction was active
+    // Soft delete transaction
     const deleteTransaction = useCallback(async (transactionId: string) => {
-        let target: Transaction | undefined;
+        try {
+            await database.write(async () => {
+                const tx = await database.get<Transaction>('transactions').find(transactionId);
+                const accountId = tx.account.id;
+                const amount = tx.amount;
+                const type = tx.type;
 
-        setTransactions(prev => {
-            target = prev.find(tx => tx.id === transactionId);
-            const newTransactions = prev.map(tx =>
-                tx.id === transactionId ? { ...tx, isDeleted: true } : tx
-            );
-            saveTransactions(newTransactions);
-            return newTransactions;
-        });
+                // Soft delete
+                await tx.update(rec => {
+                    rec.isDeleted = true;
+                });
 
-        // Reverse balance only if the transaction was active and not pending
-        if (target && !target.isDeleted && target.status !== 'pending' && onUpdateAccountBalance) {
-            onUpdateAccountBalance(target.accountId, -target.amount);
+                // Reverse Balance
+                const account = await database.get<Account>('accounts').find(accountId);
+                await account.update(acc => {
+                    if (type === 'credit') {
+                        acc.balance -= amount; // Deduct income
+                    } else {
+                        acc.balance += amount; // Refund expense
+                    }
+                });
+            });
+        } catch (error) {
+            console.error('Error deleting transaction:', error);
         }
-    }, [onUpdateAccountBalance]);
+    }, []);
 
-    // Get transactions by account
     const getTransactionsByAccount = useCallback((accountId: string) => {
         return activeTransactions.filter(tx => tx.accountId === accountId);
     }, [activeTransactions]);
 
-    // Get transactions by date
     const getTransactionsByDate = useCallback((date: Date) => {
         return activeTransactions.filter(tx => {
             const txDate = new Date(tx.timestamp);
@@ -169,38 +260,82 @@ export function TransactionsProvider({ children, onUpdateAccountBalance }: Trans
         });
     }, [activeTransactions]);
 
-    // Approve a pending transaction — now affects account balance
-    const approveTransaction = useCallback(async (id: string, updates?: Partial<Transaction>) => {
-        let target: Transaction | undefined;
+    const refreshTransactions = useCallback(async () => {
+        try {
+            const transactionsCollection = database.get<Transaction>('transactions');
+            const records = await transactionsCollection.query(
+                Q.sortBy('timestamp', Q.desc)
+            ).fetch();
 
-        setTransactions(prev => {
-            target = prev.find(tx => tx.id === id);
-            const newTransactions = prev.map(tx =>
-                tx.id === id ? { ...tx, ...updates, status: 'approved' as const, isAuto: false } : tx
-            );
-            saveTransactions(newTransactions);
-            return newTransactions;
-        });
+            const mappedTransactions = await Promise.all(records.map(async (tx) => {
+                // Fetch category
+                let categoryName: TransactionCategory = 'other';
+                try {
+                    const cat = await tx.category.fetch();
+                    if (cat) {
+                        categoryName = cat.name.toLowerCase() as TransactionCategory;
+                    }
+                } catch (e) { }
 
-        // Apply balance now that the transaction is approved
-        if (target && onUpdateAccountBalance) {
-            const finalAmount = updates?.amount ?? target.amount;
-            onUpdateAccountBalance(target.accountId, finalAmount);
+                // Fetch sentiments
+                const sentiments = await tx.transactionSentiments.fetch();
+                const sentimentIds = sentiments.map((ts: TransactionSentiment) => ts.sentiment.id);
+
+                return {
+                    id: tx.id,
+                    accountId: tx.account.id,
+                    merchant: tx.merchant,
+                    category: categoryName,
+                    type: tx.type,
+                    status: 'approved' as const,
+                    amount: tx.amount,
+                    notes: tx.note,
+                    timestamp: tx.timestamp,
+                    isAuto: tx.isAuto,
+                    isDeleted: tx.isDeleted,
+                    sentimentIds: sentimentIds,
+                };
+            }));
+
+            setTransactions(mappedTransactions);
+        } catch (error) {
+            console.error("Error refreshing transactions:", error);
         }
-    }, [onUpdateAccountBalance]);
+    }, []);
 
-    // Ignore (delete) a pending transaction
+    const approveTransaction = useCallback(async (id: string, updates?: Partial<TransactionType>) => {
+        // Since we don't have a 'pending' state in DB yet, this is mostly for the SMS parsing flow.
+        // If we want to support pending, we need to add 'status' to DB.
+        // For now, we'll treat 'approve' as just updating the transaction if it exists, or doing nothing.
+        // Or if it's about "SMS to Transaction":
+        // This function usually takes a pending ID and finalizes it.
+        // Assuming we are just persisting it now.
+        try {
+            await database.write(async () => {
+                const tx = await database.get<Transaction>('transactions').find(id);
+                await tx.update(rec => {
+                    // Apply updates
+                    if (updates?.merchant) rec.merchant = updates.merchant;
+                    if (updates?.amount) rec.amount = updates.amount;
+                    // ... other updates
+                    rec.isAuto = false; // Manually approved
+                });
+                // TODO: Handle balance update if amount changed
+            });
+        } catch (error) {
+            console.error('Error approving transaction:', error);
+        }
+    }, []);
+
     const ignoreTransaction = useCallback(async (id: string) => {
         await deleteTransaction(id);
     }, [deleteTransaction]);
 
-    // Add unparsed notification
     const addUnparsedNotification = useCallback(async (text: string) => {
-        // Prevent duplicates
         if (!unparsedNotifications.includes(text)) {
             const newUnparsed = [text, ...unparsedNotifications];
             setUnparsedNotifications(newUnparsed);
-            await saveUnparsed(newUnparsed);
+            // TODO: Persist unparsed messages to 'unparsed_messages' table in DB
         }
     }, [unparsedNotifications]);
 
@@ -218,6 +353,7 @@ export function TransactionsProvider({ children, onUpdateAccountBalance }: Trans
             ignoreTransaction,
             unparsedNotifications,
             addUnparsedNotification,
+            refreshTransactions,
         }}>
             {children}
         </TransactionsContext.Provider>

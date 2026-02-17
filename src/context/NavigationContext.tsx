@@ -41,6 +41,11 @@ export interface NavigationContextType {
     showPrivacyPolicy: boolean;
     openPrivacyPolicy: () => void;
     closePrivacyPolicy: () => void;
+
+    // About Us
+    showAboutUs: boolean;
+    openAboutUs: () => void;
+    closeAboutUs: () => void;
 }
 
 export const NavigationContext = createContext<NavigationContextType | undefined>(undefined);

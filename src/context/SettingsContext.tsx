@@ -3,7 +3,10 @@
  * Provides app-wide settings including currency configuration
  */
 
-import React, { createContext, useContext, useState, useCallback, ReactNode } from 'react';
+import React, { createContext, useContext, useState, useCallback, useEffect, ReactNode } from 'react';
+import database from '../database';
+import Setting from '../database/models/Setting';
+import { Q } from '@nozbe/watermelondb';
 
 // Available currencies
 export interface CurrencyOption {
@@ -23,11 +26,13 @@ export const CURRENCIES: CurrencyOption[] = [
 
 interface SettingsContextType {
     currency: CurrencyOption;
-    setCurrency: (currency: CurrencyOption) => void;
+    setCurrency: (currency: CurrencyOption) => Promise<void>;
     formatCurrency: (amount: number) => string;
+    isLoading: boolean;
 }
 
 const defaultCurrency = CURRENCIES[0]; // USD as default
+const CURRENCY_KEY = 'currency';
 
 const SettingsContext = createContext<SettingsContextType | undefined>(undefined);
 
@@ -37,10 +42,53 @@ interface SettingsProviderProps {
 
 export function SettingsProvider({ children }: SettingsProviderProps) {
     const [currency, setCurrencyState] = useState<CurrencyOption>(defaultCurrency);
+    const [isLoading, setIsLoading] = useState(true);
 
-    const setCurrency = useCallback((newCurrency: CurrencyOption) => {
+    // Load settings on mount
+    useEffect(() => {
+        const loadSettings = async () => {
+            try {
+                const settingsCollection = database.get<Setting>('settings');
+                const currencyRecord = await settingsCollection.query(
+                    Q.where('key', CURRENCY_KEY)
+                ).fetch();
+
+                if (currencyRecord.length > 0) {
+                    const storedCurrency = JSON.parse(currencyRecord[0].value);
+                    setCurrencyState(storedCurrency);
+                }
+            } catch (error) {
+                console.error('Error loading settings:', error);
+            } finally {
+                setIsLoading(false);
+            }
+        };
+        loadSettings();
+    }, []);
+
+    const setCurrency = useCallback(async (newCurrency: CurrencyOption) => {
         setCurrencyState(newCurrency);
-        // TODO: Persist to AsyncStorage
+        try {
+            await database.write(async () => {
+                const settingsCollection = database.get<Setting>('settings');
+                const currencyRecords = await settingsCollection.query(
+                    Q.where('key', CURRENCY_KEY)
+                ).fetch();
+
+                if (currencyRecords.length > 0) {
+                    await currencyRecords[0].update(record => {
+                        record.value = JSON.stringify(newCurrency);
+                    });
+                } else {
+                    await settingsCollection.create(record => {
+                        record.key = CURRENCY_KEY;
+                        record.value = JSON.stringify(newCurrency);
+                    });
+                }
+            });
+        } catch (error) {
+            console.error('Error saving currency:', error);
+        }
     }, []);
 
     const formatCurrency = useCallback((amount: number): string => {
@@ -53,7 +101,7 @@ export function SettingsProvider({ children }: SettingsProviderProps) {
     }, [currency]);
 
     return (
-        <SettingsContext.Provider value={{ currency, setCurrency, formatCurrency }}>
+        <SettingsContext.Provider value={{ currency, setCurrency, formatCurrency, isLoading }}>
             {children}
         </SettingsContext.Provider>
     );

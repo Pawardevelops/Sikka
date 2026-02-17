@@ -119,17 +119,18 @@ export function AddTransactionModal({ visible, initialProps, onClose, onAdd }: A
             // Add IN transaction (Credit)
             // Note: onAdd currently only adds one. The parent needs to handle this or we call it twice.
             // Since onAdd adds to context, calling it twice is fine.
-            setTimeout(() => {
-                onAdd({
-                    accountId: toAccountId,
-                    merchant: 'Transfer In',
-                    category: 'transfer',
-                    amount: Math.abs(numAmount),
-                    notes: notes ? `From: ${activeAccounts.find(a => a.id === accountId)?.name}. ${notes}` : `From: ${activeAccounts.find(a => a.id === accountId)?.name}`,
-                    isAuto: false,
-                    type: 'credit',
-                });
-            }, 100);
+            // Add IN transaction (Credit)
+            // Note: onAdd currently only adds one. The parent needs to handle this or we call it twice.
+            // Since onAdd adds to context, calling it twice is fine.
+            onAdd({
+                accountId: toAccountId,
+                merchant: 'Transfer In',
+                category: 'transfer',
+                amount: Math.abs(numAmount),
+                notes: notes ? `From: ${activeAccounts.find(a => a.id === accountId)?.name}. ${notes}` : `From: ${activeAccounts.find(a => a.id === accountId)?.name}`,
+                isAuto: false,
+                type: 'credit',
+            });
 
         } else {
             // Regular Expense/Income

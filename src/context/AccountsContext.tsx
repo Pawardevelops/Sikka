@@ -1,37 +1,29 @@
 /**
- * Sikka - Accounts Context with AsyncStorage
- * Manages app-wide account state with local persistence
+ * Sikka - Accounts Context with WatermelonDB
+ * Manages app-wide account state using WatermelonDB
  */
 
 import React, { createContext, useContext, useState, useCallback, useEffect, ReactNode } from 'react';
-import AsyncStorage from '@react-native-async-storage/async-storage';
-import { Account, AccountType } from '../types';
-
-const STORAGE_KEY = '@sikka_accounts';
-
-// Migration map for backward compatibility
-const ICON_MIGRATION: Record<string, string> = {
-    '💵': 'payments',
-    '🏦': 'account-balance',
-    '💳': 'credit-card',
-    '💸': 'money-off',
-    '📈': 'trending-up',
-    '₿': 'currency-bitcoin',
-    '📱': 'account-balance-wallet',
-    '💰': 'savings',
-};
+import { Account as AccountType, AccountType as AccountTypeEnum } from '../types';
+import database from '../database';
+import Account from '../database/models/Account';
+import { Q } from '@nozbe/watermelondb';
 
 // ==================== CONTEXT TYPE ====================
 interface AccountsContextType {
-    accounts: Account[];
-    activeAccounts: Account[];
+    accounts: AccountType[]; // We expose the plain JS object or the Model? Let's expose Model or map it?
+    // For compatibility with components, let's map it to AccountType for now, 
+    // but ideally we should expose Models + Observables in the future.
+    // To keep migration simple, we'll map to JS objects in state for now.
+    activeAccounts: AccountType[];
     totalBalance: number;
     isLoading: boolean;
-    addAccount: (account: Omit<Account, 'id' | 'isDeleted' | 'lastUpdated'>) => Promise<void>;
+    addAccount: (account: Omit<AccountType, 'id' | 'isDeleted' | 'lastUpdated'>) => Promise<void>;
     deleteAccount: (accountId: string) => Promise<void>;
     restoreAccount: (accountId: string) => Promise<void>;
-    updateAccount: (accountId: string, updates: Partial<Account>) => Promise<void>;
-    getAccount: (accountId: string) => Account | undefined;
+    updateAccount: (accountId: string, updates: Partial<AccountType>) => Promise<void>;
+    getAccount: (accountId: string) => AccountType | undefined;
+    refreshAccounts: () => Promise<void>;
 }
 
 const AccountsContext = createContext<AccountsContextType | undefined>(undefined);
@@ -41,106 +33,122 @@ interface AccountsProviderProps {
     children: ReactNode;
 }
 
+// Helper: Convert WatermelonDB Model to Plain JS Object (AccountType)
+const mapModelToType = (acc: Account): AccountType => ({
+    id: acc.id,
+    name: acc.name,
+    type: acc.type as AccountTypeEnum,
+    balance: acc.balance,
+    icon: acc.icon,
+    color: acc.color,
+    isDeleted: acc.isDeleted,
+    lastUpdated: new Date(acc.updatedAt).toLocaleDateString(), // Approximate
+});
+
 export function AccountsProvider({ children }: AccountsProviderProps) {
-    const [accounts, setAccounts] = useState<Account[]>([]);
+    const [accounts, setAccounts] = useState<AccountType[]>([]);
     const [isLoading, setIsLoading] = useState(true);
 
-    // Get only active (non-deleted) accounts
-    const activeAccounts = accounts.filter(acc => !acc.isDeleted);
-
-    // Calculate total balance from active accounts only
-    const totalBalance = activeAccounts.reduce((sum, acc) => sum + acc.balance, 0);
-
-    // Load accounts from AsyncStorage with migration
+    // Initial Load & Subscription
     useEffect(() => {
-        const loadAccounts = async () => {
-            try {
-                const stored = await AsyncStorage.getItem(STORAGE_KEY);
-                if (stored) {
-                    let parsedAccounts: Account[] = JSON.parse(stored);
+        const accountsCollection = database.get<Account>('accounts');
 
-                    // Migrate legacy icons
-                    const migratedAccounts = parsedAccounts.map(acc => {
-                        if (ICON_MIGRATION[acc.icon]) {
-                            return { ...acc, icon: ICON_MIGRATION[acc.icon] };
-                        }
-                        return acc;
-                    });
-
-                    // If changes were made, save back to storage
-                    if (JSON.stringify(migratedAccounts) !== stored) {
-                        await saveAccounts(migratedAccounts);
-                    }
-
-                    setAccounts(migratedAccounts);
-                }
-            } catch (error) {
-                console.error('Error loading accounts:', error);
-            } finally {
+        // Observe ALL accounts
+        const subscription = accountsCollection
+            .query()
+            .observeWithColumns(['balance', 'updated_at', 'is_deleted'])
+            .subscribe(records => {
+                const mapped = records.map(mapModelToType);
+                setAccounts(mapped);
                 setIsLoading(false);
-            }
-        };
-        loadAccounts();
+            });
+
+        return () => subscription.unsubscribe();
     }, []);
 
-    // Save accounts to AsyncStorage
-    const saveAccounts = async (newAccounts: Account[]) => {
+    // Manual Refresh (for useFocusEffect)
+    const refreshAccounts = useCallback(async () => {
         try {
-            await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(newAccounts));
+            const accountsCollection = database.get<Account>('accounts');
+            const records = await accountsCollection.query().fetch();
+            const mapped = records.map(mapModelToType);
+            setAccounts(mapped);
         } catch (error) {
-            console.error('Error saving accounts:', error);
+            console.error("Error refreshing accounts:", error);
         }
-    };
+    }, []);
+
+    // Derived State
+    const activeAccounts = accounts.filter(acc => !acc.isDeleted);
+    const totalBalance = activeAccounts.reduce((sum, acc) => sum + acc.balance, 0);
 
     // Add new account
-    const addAccount = useCallback(async (accountData: Omit<Account, 'id' | 'isDeleted' | 'lastUpdated'>) => {
-        const newAccount: Account = {
-            ...accountData,
-            id: Date.now().toString(),
-            isDeleted: false,
-            lastUpdated: 'Just now',
-        };
-        setAccounts(prev => {
-            const newAccounts = [...prev, newAccount];
-            saveAccounts(newAccounts);
-            return newAccounts;
-        });
+    const addAccount = useCallback(async (accountData: Omit<AccountType, 'id' | 'isDeleted' | 'lastUpdated'>) => {
+        try {
+            await database.write(async () => {
+                const accountsCollection = database.get<Account>('accounts');
+                await accountsCollection.create(account => {
+                    account.name = accountData.name;
+                    account.type = accountData.type;
+                    account.balance = accountData.balance;
+                    account.icon = accountData.icon;
+                    account.color = accountData.color;
+                    account.isDeleted = false;
+                });
+            });
+        } catch (error) {
+            console.error('Error adding account:', error);
+        }
     }, []);
 
     // Soft delete account
     const deleteAccount = useCallback(async (accountId: string) => {
-        setAccounts(prev => {
-            const newAccounts = prev.map(acc =>
-                acc.id === accountId ? { ...acc, isDeleted: true } : acc
-            );
-            saveAccounts(newAccounts);
-            return newAccounts;
-        });
+        try {
+            await database.write(async () => {
+                const account = await database.get<Account>('accounts').find(accountId);
+                await account.update(rec => {
+                    rec.isDeleted = true;
+                });
+            });
+        } catch (error) {
+            console.error('Error deleting account:', error);
+        }
     }, []);
 
     // Restore deleted account
     const restoreAccount = useCallback(async (accountId: string) => {
-        setAccounts(prev => {
-            const newAccounts = prev.map(acc =>
-                acc.id === accountId ? { ...acc, isDeleted: false } : acc
-            );
-            saveAccounts(newAccounts);
-            return newAccounts;
-        });
+        try {
+            await database.write(async () => {
+                const account = await database.get<Account>('accounts').find(accountId);
+                await account.update(rec => {
+                    rec.isDeleted = false;
+                });
+            });
+        } catch (error) {
+            console.error('Error restoring account:', error);
+        }
     }, []);
 
     // Update account
-    const updateAccount = useCallback(async (accountId: string, updates: Partial<Account>) => {
-        setAccounts(prev => {
-            const newAccounts = prev.map(acc =>
-                acc.id === accountId ? { ...acc, ...updates, lastUpdated: 'Just now' } : acc
-            );
-            saveAccounts(newAccounts);
-            return newAccounts;
-        });
+    const updateAccount = useCallback(async (accountId: string, updates: Partial<AccountType>) => {
+        try {
+            await database.write(async () => {
+                const account = await database.get<Account>('accounts').find(accountId);
+                await account.update(rec => {
+                    if (updates.name !== undefined) rec.name = updates.name;
+                    if (updates.type !== undefined) rec.type = updates.type as string;
+                    if (updates.balance !== undefined) rec.balance = updates.balance;
+                    if (updates.icon !== undefined) rec.icon = updates.icon;
+                    if (updates.color !== undefined) rec.color = updates.color;
+                    if (updates.isDeleted !== undefined) rec.isDeleted = updates.isDeleted;
+                });
+            });
+        } catch (error) {
+            console.error('Error updating account:', error);
+        }
     }, []);
 
-    // Get single account
+    // Get single account (Sync helper from local state for performance/simplicity in render)
     const getAccount = useCallback((accountId: string) => {
         return accounts.find(acc => acc.id === accountId);
     }, [accounts]);
@@ -156,6 +164,7 @@ export function AccountsProvider({ children }: AccountsProviderProps) {
             restoreAccount,
             updateAccount,
             getAccount,
+            refreshAccounts,
         }}>
             {children}
         </AccountsContext.Provider>
@@ -177,7 +186,7 @@ export const ACCOUNT_ICONS = [
 ];
 
 // ==================== ACCOUNT TYPES ====================
-export const ACCOUNT_TYPES: { value: AccountType; label: string }[] = [
+export const ACCOUNT_TYPES: { value: AccountTypeEnum; label: string }[] = [
     { value: 'bank', label: 'Bank Account' },
     { value: 'cash', label: 'Cash' },
     { value: 'wallet', label: 'Wallet' },

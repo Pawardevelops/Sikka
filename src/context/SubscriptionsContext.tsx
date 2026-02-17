@@ -1,12 +1,6 @@
 /**
- * Sikka - Subscriptions Context
- * Manages subscription state with AsyncStorage persistence.
- *
- * Supports:
- *   - Admin / Member roles with split payments
- *   - Lifecycle: Active → Paused → Archived (with reactivation)
- *   - Event log for analytics
- *   - Auto-migration of legacy data (pre-split format)
+ * Sikka - Subscriptions Context with WatermelonDB
+ * Manages subscription state with WatermelonDB persistence.
  */
 
 import React, {
@@ -18,13 +12,19 @@ import React, {
     useMemo,
     ReactNode,
 } from 'react';
-import AsyncStorage from '@react-native-async-storage/async-storage';
 import {
-    Subscription,
-    SubscriptionStatus,
-    SubscriptionEvent,
-    SplitMember,
+    Subscription as SubscriptionType,
+    SubscriptionEvent as SubscriptionEventType,
+    TransactionCategory,
 } from '../types';
+import database from '../database';
+import Subscription from '../database/models/Subscription';
+import SubscriptionMember from '../database/models/SubscriptionMember';
+import SubscriptionEvent from '../database/models/SubscriptionEvent';
+import Account from '../database/models/Account';
+import Category from '../database/models/Category';
+import Transaction from '../database/models/Transaction';
+import { Q } from '@nozbe/watermelondb';
 
 export interface OnSubscriptionPaidDetails {
     subscriptionId: string;
@@ -34,15 +34,13 @@ export interface OnSubscriptionPaidDetails {
     paymentSourceId?: string;
 }
 
-const STORAGE_KEY = '@sikka_subscriptions';
-
 // ─── Context Type ─────────────────────────────────────────────────────
 interface SubscriptionsContextType {
     // Data
-    subscriptions: Subscription[];
-    activeSubscriptions: Subscription[];
-    pausedSubscriptions: Subscription[];
-    archivedSubscriptions: Subscription[];
+    subscriptions: SubscriptionType[];
+    activeSubscriptions: SubscriptionType[];
+    pausedSubscriptions: SubscriptionType[];
+    archivedSubscriptions: SubscriptionType[];
     monthlyTotal: number;         // sum of myShare for active subs
     isLoading: boolean;
 
@@ -62,16 +60,16 @@ interface SubscriptionsContextType {
     updateSplitMemberStatus: (subId: string, memberName: string, status: 'pending' | 'paid') => Promise<void>;
 
     // Analytics
-    getEventLog: (id: string) => SubscriptionEvent[];
+    getEventLog: (id: string) => SubscriptionEventType[];
 }
 
 // Fields accepted when creating a new subscription
-type NewSubscriptionData = Omit<Subscription,
+type NewSubscriptionData = Omit<SubscriptionType,
     'id' | 'status' | 'isPaid' | 'eventLog' | 'isDeleted' | 'amount'
 >;
 
 // Fields that can be updated on an existing subscription
-type UpdatableFields = Pick<Subscription,
+type UpdatableFields = Pick<SubscriptionType,
     'name' | 'icon' | 'iconColor' | 'totalAmount' | 'myShare' |
     'dueDate' | 'billingCycle' | 'category' | 'role' | 'isSplit' |
     'splitMembers' | 'paymentSourceId' | 'paymentMode' | 'payTo'
@@ -79,71 +77,74 @@ type UpdatableFields = Pick<Subscription,
 
 const SubscriptionsContext = createContext<SubscriptionsContextType | undefined>(undefined);
 
-// ─── Migration ────────────────────────────────────────────────────────
-/**
- * Migrates legacy subscriptions (pre-split format) to the new schema.
- * Safe to run on already-migrated data (idempotent).
- */
-function migrateSubscription(raw: any): Subscription {
-    return {
-        // Identity
-        id: raw.id,
-        name: raw.name || 'Untitled',
-        icon: raw.icon || 'receipt-long',
-        iconColor: raw.iconColor || '#3B82F6',
-
-        // Amounts — legacy subs only have `amount`
-        totalAmount: raw.totalAmount ?? raw.amount ?? 0,
-        myShare: raw.myShare ?? raw.amount ?? 0,
-        amount: raw.myShare ?? raw.amount ?? 0,
-
-        // Billing
-        dueDate: raw.dueDate ?? 1,
-        billingCycle: raw.billingCycle || 'monthly',
-        category: raw.category || 'general',
-
-        // Role & Split — default to admin, no split
-        role: raw.role || 'admin',
-        isSplit: raw.isSplit ?? false,
-        splitMembers: raw.splitMembers ?? [],
-
-        // Payment
-        paymentSourceId: raw.paymentSourceId,
-        paymentMode: raw.paymentMode || 'ask_every_time',
-        payTo: raw.payTo,
-
-        // Lifecycle — map legacy isDeleted to status
-        status: raw.status || (raw.isDeleted ? 'archived' : 'active'),
-        isPaid: raw.isPaid ?? false,
-        eventLog: raw.eventLog ?? [
-            { type: 'created' as const, timestamp: Date.now() },
-        ],
-
-        // Legacy
-        isDeleted: raw.isDeleted,
-    };
-}
-
-// ─── Helpers ──────────────────────────────────────────────────────────
-function addEvent(sub: Subscription, type: SubscriptionEvent['type'], details?: string): Subscription {
-    return {
-        ...sub,
-        eventLog: [
-            ...sub.eventLog,
-            { type, timestamp: Date.now(), details },
-        ],
-    };
-}
-
 // ─── Provider ─────────────────────────────────────────────────────────
 interface ProviderProps {
     children: ReactNode;
-    onSubscriptionPaid?: (details: OnSubscriptionPaidDetails) => void;
 }
 
-export function SubscriptionsProvider({ children, onSubscriptionPaid }: ProviderProps) {
-    const [subscriptions, setSubscriptions] = useState<Subscription[]>([]);
+export function SubscriptionsProvider({ children }: ProviderProps) {
+    const [subscriptions, setSubscriptions] = useState<SubscriptionType[]>([]);
     const [isLoading, setIsLoading] = useState(true);
+
+    // Initial Load & Subscription
+    useEffect(() => {
+        const subscriptionsCollection = database.get<Subscription>('subscriptions');
+
+        const subscription = subscriptionsCollection
+            .query()
+            .observeWithColumns(['status', 'is_paid', 'updated_at'])
+            .subscribe(async (records) => {
+                const mapped = await Promise.all(records.map(async (sub) => {
+                    // Fetch relations
+                    const members = await sub.members.fetch();
+                    const events = await sub.events.fetch();
+
+                    // Fetch category name
+                    let categoryName: TransactionCategory = 'other';
+                    try {
+                        const cat = await sub.category.fetch();
+                        if (cat) categoryName = cat.name.toLowerCase() as TransactionCategory;
+                    } catch (e) { }
+
+                    // Map to Type
+                    return {
+                        id: sub.id,
+                        name: sub.name,
+                        icon: sub.icon,
+                        iconColor: sub.iconColor,
+                        totalAmount: sub.totalAmount,
+                        myShare: sub.myShare,
+                        amount: sub.myShare, // Alias
+                        dueDate: sub.dueDate,
+                        billingCycle: sub.billingCycle,
+                        category: categoryName,
+                        role: sub.role,
+                        isSplit: sub.isSplit,
+                        splitMembers: members.map((m: SubscriptionMember) => ({
+                            name: m.name,
+                            amount: m.amount,
+                            status: m.status
+                        })),
+                        paymentSourceId: sub.account.id, // ID access is sync
+                        paymentMode: sub.paymentMode,
+                        payTo: sub.payTo,
+                        status: sub.status,
+                        isPaid: sub.isPaid,
+                        eventLog: events.map((e: SubscriptionEvent) => ({
+                            type: e.type,
+                            timestamp: e.timestamp,
+                            details: e.details
+                        })).sort((a: any, b: any) => b.timestamp - a.timestamp), // Sort desc
+                        isDeleted: sub.status === 'archived', // Dependent on status
+                    } as SubscriptionType;
+                }));
+
+                setSubscriptions(mapped);
+                setIsLoading(false);
+            });
+
+        return () => subscription.unsubscribe();
+    }, []);
 
     // ── Derived lists ──
     const activeSubscriptions = useMemo(
@@ -159,7 +160,7 @@ export function SubscriptionsProvider({ children, onSubscriptionPaid }: Provider
         [subscriptions],
     );
 
-    // Monthly total uses myShare (your actual cost, not the full bill)
+    // Monthly total using myShare
     const monthlyTotal = useMemo(
         () => activeSubscriptions.reduce((sum, s) => {
             const share = s.myShare ?? s.amount ?? 0;
@@ -168,170 +169,310 @@ export function SubscriptionsProvider({ children, onSubscriptionPaid }: Provider
         [activeSubscriptions],
     );
 
-    // ── Persistence ──
-    useEffect(() => {
-        (async () => {
-            try {
-                const stored = await AsyncStorage.getItem(STORAGE_KEY);
-                if (stored) {
-                    const parsed = JSON.parse(stored) as any[];
-                    setSubscriptions(parsed.map(migrateSubscription));
-                }
-            } catch (err) {
-                console.error('[Subscriptions] Load error:', err);
-            } finally {
-                setIsLoading(false);
-            }
-        })();
-    }, []);
-
-    const persist = useCallback(async (next: Subscription[]) => {
-        try {
-            await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(next));
-        } catch (err) {
-            console.error('[Subscriptions] Save error:', err);
-        }
-    }, []);
-
-    /** Apply a transform to the list, persist, and set state. */
-    const update = useCallback(async (fn: (prev: Subscription[]) => Subscription[]) => {
-        setSubscriptions(prev => {
-            const next = fn(prev);
-            persist(next); // fire-and-forget
-            return next;
-        });
-    }, [persist]);
-
     // ── CRUD ──────────────────────────────────────────────────────────
 
     const addSubscription = useCallback(async (data: NewSubscriptionData) => {
-        const newSub: Subscription = {
-            ...data,
-            id: Date.now().toString(),
-            amount: data.myShare,           // backward-compat alias
-            status: 'active',
-            isPaid: false,
-            eventLog: [{ type: 'created', timestamp: Date.now() }],
-        };
-        await update(prev => [...prev, newSub]);
-    }, [update]);
+        try {
+            await database.write(async () => {
+                const subCollection = database.get<Subscription>('subscriptions');
+                const membersCollection = database.get<SubscriptionMember>('subscription_members');
+                const eventsCollection = database.get<SubscriptionEvent>('subscription_events');
+                const categoriesCollection = database.get<Category>('categories');
+                const accountsCollection = database.get<Account>('accounts');
+
+                // Resolve Relations
+                let category: Category | undefined;
+                const cats = await categoriesCollection.query(Q.where('name', Q.like(`%${data.category}%`))).fetch();
+                if (cats.length > 0) category = cats[0];
+                else {
+                    const other = await categoriesCollection.query(Q.where('name', 'other')).fetch();
+                    if (other.length > 0) category = other[0];
+                }
+
+                let account: Account | undefined;
+                if (data.paymentSourceId) {
+                    account = await accountsCollection.find(data.paymentSourceId);
+                }
+
+                // Create Subscription
+                const newSub = await subCollection.create(sub => {
+                    sub.name = data.name;
+                    sub.icon = data.icon;
+                    sub.iconColor = data.iconColor;
+                    sub.totalAmount = data.totalAmount;
+                    sub.myShare = data.myShare;
+                    sub.dueDate = data.dueDate;
+                    sub.billingCycle = data.billingCycle;
+                    sub.role = data.role;
+                    sub.isSplit = data.isSplit;
+                    sub.status = 'active';
+                    sub.isPaid = false;
+                    sub.paymentMode = data.paymentMode;
+                    sub.payTo = data.payTo || '';
+                    if (account) sub.account.set(account);
+                    if (category) sub.category.set(category);
+                });
+
+                // Create Members
+                if (data.isSplit && data.splitMembers) {
+                    for (const member of data.splitMembers) {
+                        await membersCollection.create(m => {
+                            m.subscription.set(newSub);
+                            m.name = member.name;
+                            m.amount = member.amount;
+                            m.status = member.status;
+                        });
+                    }
+                }
+
+                // Create Initial Event
+                await eventsCollection.create(e => {
+                    e.subscription.set(newSub);
+                    e.type = 'created';
+                    e.timestamp = Date.now();
+                    e.details = '';
+                });
+            });
+        } catch (error) {
+            console.error('Error adding subscription:', error);
+        }
+    }, []);
 
     const updateSubscription = useCallback(async (
         id: string,
         updates: Partial<UpdatableFields>,
     ) => {
-        await update(prev => prev.map(s => {
-            if (s.id !== id) return s;
+        try {
+            await database.write(async () => {
+                const sub = await database.get<Subscription>('subscriptions').find(id);
 
-            let updated = { ...s, ...updates };
+                let account: Account | undefined;
+                if (updates.paymentSourceId) {
+                    account = await database.get<Account>('accounts').find(updates.paymentSourceId);
+                }
 
-            // Keep amount alias in sync
-            if (updates.myShare !== undefined) {
-                updated.amount = updates.myShare;
-            }
+                let category: Category | undefined;
+                if (updates.category) {
+                    const categoriesCollection = database.get<Category>('categories');
+                    const cats = await categoriesCollection.query(Q.where('name', Q.like(`%${updates.category}%`))).fetch();
+                    if (cats.length > 0) category = cats[0];
+                }
 
-            // Log price changes
-            if (updates.totalAmount !== undefined && updates.totalAmount !== s.totalAmount) {
-                updated = addEvent(updated, 'price_updated',
-                    `Total: ${s.totalAmount} → ${updates.totalAmount}`);
-            }
-            if (updates.myShare !== undefined && updates.myShare !== s.myShare) {
-                updated = addEvent(updated, 'price_updated',
-                    `My share: ${s.myShare} → ${updates.myShare}`);
-            }
+                await sub.update(s => {
+                    if (updates.name) s.name = updates.name;
+                    if (updates.icon) s.icon = updates.icon;
+                    if (updates.iconColor) s.iconColor = updates.iconColor;
+                    if (updates.totalAmount !== undefined) s.totalAmount = updates.totalAmount;
+                    if (updates.myShare !== undefined) s.myShare = updates.myShare;
+                    if (updates.dueDate !== undefined) s.dueDate = updates.dueDate;
+                    if (updates.billingCycle) s.billingCycle = updates.billingCycle;
+                    if (updates.role) s.role = updates.role;
+                    if (updates.isSplit !== undefined) s.isSplit = updates.isSplit;
+                    if (updates.paymentMode) s.paymentMode = updates.paymentMode;
+                    if (updates.payTo !== undefined) s.payTo = updates.payTo;
+                    if (account) s.account.set(account);
+                    if (category) s.category.set(category);
+                });
 
-            return updated;
-        }));
-    }, [update]);
+                // Handle Split Members (Full Replace just for simplicity in this MVP)
+                if (updates.isSplit && updates.splitMembers) {
+                    // Delete existing members
+                    const existingMembers = await sub.members.fetch();
+                    for (const m of existingMembers) {
+                        await m.destroyPermanently();
+                    }
+                    // Create new
+                    const membersCollection = database.get<SubscriptionMember>('subscription_members');
+                    for (const member of updates.splitMembers) {
+                        await membersCollection.create(m => {
+                            m.subscription.set(sub);
+                            m.name = member.name;
+                            m.amount = member.amount;
+                            m.status = member.status;
+                        });
+                    }
+                }
+
+                // Log events (simplified)
+                if (updates.totalAmount !== undefined || updates.myShare !== undefined) {
+                    await database.get<SubscriptionEvent>('subscription_events').create(e => {
+                        e.subscription.set(sub);
+                        e.type = 'price_updated';
+                        e.timestamp = Date.now();
+                        e.details = 'Price updated';
+                    });
+                }
+            });
+        } catch (error) {
+            console.error('Error updating subscription:', error);
+        }
+    }, []);
 
     const deleteSubscriptionPermanently = useCallback(async (id: string) => {
-        await update(prev => prev.filter(s => s.id !== id));
-    }, [update]);
+        try {
+            await database.write(async () => {
+                const sub = await database.get<Subscription>('subscriptions').find(id);
+                // await sub.markAsDeleted(); // WatermelonDB syncable delete
+                // For this app, we hard delete for "Permanently" or soft delete via Archive
+                await sub.destroyPermanently();
+            });
+        } catch (error) {
+            console.error('Error deleting subscription:', error);
+        }
+    }, []);
 
     // ── Lifecycle ─────────────────────────────────────────────────────
 
     const pauseSubscription = useCallback(async (id: string) => {
-        await update(prev => prev.map(s => {
-            if (s.id !== id) return s;
-            return addEvent({ ...s, status: 'paused' }, 'paused');
-        }));
-    }, [update]);
+        try {
+            await database.write(async () => {
+                const sub = await database.get<Subscription>('subscriptions').find(id);
+                await sub.update(s => {
+                    s.status = 'paused';
+                });
+                await database.get<SubscriptionEvent>('subscription_events').create(e => {
+                    e.subscription.set(sub);
+                    e.type = 'paused';
+                    e.timestamp = Date.now();
+                    e.details = 'Subscription paused';
+                });
+            });
+        } catch (error) {
+            console.error('Error pausing subscription:', error);
+        }
+    }, []);
 
     const archiveSubscription = useCallback(async (id: string) => {
-        await update(prev => prev.map(s => {
-            if (s.id !== id) return s;
-            return addEvent({ ...s, status: 'archived', isDeleted: true }, 'archived');
-        }));
-    }, [update]);
+        try {
+            await database.write(async () => {
+                const sub = await database.get<Subscription>('subscriptions').find(id);
+                await sub.update(s => {
+                    s.status = 'archived';
+                });
+                await database.get<SubscriptionEvent>('subscription_events').create(e => {
+                    e.subscription.set(sub);
+                    e.type = 'archived';
+                    e.timestamp = Date.now();
+                    e.details = 'Subscription archived';
+                });
+            });
+        } catch (error) {
+            console.error('Error archiving subscription:', error);
+        }
+    }, []);
 
     const reactivateSubscription = useCallback(async (
         id: string,
         updates?: Partial<UpdatableFields>,
     ) => {
-        await update(prev => prev.map(s => {
-            if (s.id !== id) return s;
-            let reactivated: Subscription = {
-                ...s,
-                ...updates,
-                status: 'active',
-                isPaid: false,
-                isDeleted: false,
-            };
-            if (updates?.myShare !== undefined) {
-                reactivated.amount = updates.myShare;
-            }
-            return addEvent(reactivated, 'reactivated');
-        }));
-    }, [update]);
+        try {
+            await database.write(async () => {
+                const sub = await database.get<Subscription>('subscriptions').find(id);
+                await sub.update(s => {
+                    s.status = 'active';
+                    s.isPaid = false;
+                    if (updates?.myShare !== undefined) s.myShare = updates.myShare;
+                    // Apply other updates if needed
+                });
+                await database.get<SubscriptionEvent>('subscription_events').create(e => {
+                    e.subscription.set(sub);
+                    e.type = 'reactivated';
+                    e.timestamp = Date.now();
+                    e.details = 'Subscription reactivated';
+                });
+            });
+        } catch (error) {
+            console.error('Error reactivating subscription:', error);
+        }
+    }, []);
 
     // ── Payment Cycle ─────────────────────────────────────────────────
 
     const markAsPaid = useCallback(async (id: string) => {
-        let targetSub: Subscription | undefined;
-        await update(prev => prev.map(s => {
-            if (s.id === id) {
-                targetSub = s;
-                return { ...s, isPaid: true };
-            }
-            return s;
-        }));
+        try {
+            await database.write(async () => {
+                const sub = await database.get<Subscription>('subscriptions').find(id);
+                const transactionsCollection = database.get<Transaction>('transactions');
 
-        if (targetSub && onSubscriptionPaid) {
-            onSubscriptionPaid({
-                subscriptionId: targetSub.id,
-                name: targetSub.name,
-                amount: targetSub.role === 'admin' ? targetSub.totalAmount : (targetSub.myShare ?? 0),
-                category: targetSub.category,
-                paymentSourceId: targetSub.paymentSourceId,
+                await sub.update(s => {
+                    s.isPaid = true;
+                });
+
+                // Create Transaction Record automatically
+                const account = await sub.account.fetch();
+                const category = await sub.category.fetch();
+
+                if (account) {
+                    await transactionsCollection.create(tx => {
+                        tx.amount = sub.role === 'admin' ? sub.totalAmount : sub.myShare;
+                        tx.note = `Subscription: ${sub.name}`;
+                        tx.timestamp = Date.now();
+                        tx.type = 'debit'; // Subscriptions are expenses (debit)
+                        tx.isAuto = true;
+
+                        tx.account.set(account);
+                        if (category) tx.category.set(category);
+
+                        // Update Account Balance
+                        // Note: We are inside a write block, so we can update account too.
+                        // However, logic might be better placed in a shared service if complex.
+                        // For now, simple decrement.
+                        // account.update is async, but we are in write block? 
+                        // You can call update inside write.
+                    });
+
+                    // Update balance
+                    await account.update(acc => {
+                        acc.balance -= (sub.role === 'admin' ? sub.totalAmount : sub.myShare);
+                    });
+                }
             });
+        } catch (error) {
+            console.error('Error marking as paid:', error);
         }
-    }, [update, onSubscriptionPaid]);
+    }, []);
 
     const markAsUnpaid = useCallback(async (id: string) => {
-        await update(prev => prev.map(s =>
-            s.id === id ? { ...s, isPaid: false } : s
-        ));
-    }, [update]);
+        try {
+            await database.write(async () => {
+                const sub = await database.get<Subscription>('subscriptions').find(id);
+                await sub.update(s => {
+                    s.isPaid = false;
+                });
+            });
+        } catch (error) {
+            console.error('Error marking as unpaid:', error);
+        }
+    }, []);
 
     const updateSplitMemberStatus = useCallback(async (
         subId: string,
         memberName: string,
         status: 'pending' | 'paid',
     ) => {
-        await update(prev => prev.map(s => {
-            if (s.id !== subId) return s;
-            return {
-                ...s,
-                splitMembers: s.splitMembers.map(m =>
-                    m.name === memberName ? { ...m, status } : m
-                ),
-            };
-        }));
-    }, [update]);
+        try {
+            await database.write(async () => {
+                // Find the member record
+                const membersCollection = database.get<SubscriptionMember>('subscription_members');
+                const members = await membersCollection.query(
+                    Q.where('subscription_id', subId),
+                    Q.where('name', memberName)
+                ).fetch();
+
+                if (members.length > 0) {
+                    await members[0].update(m => {
+                        m.status = status;
+                    });
+                }
+            });
+        } catch (error) {
+            console.error('Error updating member status:', error);
+        }
+    }, []);
 
     // ── Analytics ─────────────────────────────────────────────────────
 
-    const getEventLog = useCallback((id: string): SubscriptionEvent[] => {
+    const getEventLog = useCallback((id: string): SubscriptionEventType[] => {
         return subscriptions.find(s => s.id === id)?.eventLog ?? [];
     }, [subscriptions]);
 

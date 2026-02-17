@@ -185,6 +185,7 @@ export interface OnboardingData {
     hideBalances: boolean;
     notificationPermissionGranted: boolean;
     biometricEnabled: boolean;
+    autoBackupEnabled: boolean;
     backupLocation?: string;
 }
 

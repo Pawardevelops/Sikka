@@ -1,14 +1,15 @@
 /**
  * Sikka - Security Context
- * Manages biometric authentication settings and state
+ * Manages biometric authentication settings and state using WatermelonDB
  */
 
 import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
 import * as LocalAuthentication from 'expo-local-authentication';
-import AsyncStorage from '@react-native-async-storage/async-storage';
+import database from '../database';
+import Setting from '../database/models/Setting';
+import { Q } from '@nozbe/watermelondb';
 
-const SECURITY_KEY = '@sikka_security_settings';
-const ONBOARDING_KEY = '@sikka_onboarding';
+const SECURITY_KEY = 'security_settings';
 
 interface SecuritySettings {
     biometricEnabled: boolean;
@@ -41,6 +42,39 @@ export function SecurityProvider({ children }: { children: React.ReactNode }) {
     const [isAuthenticated, setIsAuthenticated] = useState(false);
     const [isLoading, setIsLoading] = useState(true);
 
+    // Helper to get/set settings
+    const getSettings = async (): Promise<SecuritySettings | null> => {
+        try {
+            const settingsCollection = database.get<Setting>('settings');
+            const records = await settingsCollection.query(Q.where('key', SECURITY_KEY)).fetch();
+            if (records.length > 0) {
+                return JSON.parse(records[0].value);
+            }
+        } catch (e) { console.error(e); }
+        return null;
+    };
+
+    const saveSettings = async (settings: SecuritySettings) => {
+        try {
+            await database.write(async () => {
+                const settingsCollection = database.get<Setting>('settings');
+                const records = await settingsCollection.query(Q.where('key', SECURITY_KEY)).fetch();
+                if (records.length > 0) {
+                    await records[0].update(s => {
+                        s.value = JSON.stringify(settings);
+                    });
+                } else {
+                    await settingsCollection.create(s => {
+                        s.key = SECURITY_KEY;
+                        s.value = JSON.stringify(settings);
+                    });
+                }
+            });
+        } catch (e) {
+            console.error('Error saving security settings', e);
+        }
+    };
+
     // Check device capabilities on mount
     useEffect(() => {
         const initSecurity = async () => {
@@ -68,33 +102,18 @@ export function SecurityProvider({ children }: { children: React.ReactNode }) {
                 }
 
                 // Load saved settings
-                const savedSettings = await AsyncStorage.getItem(SECURITY_KEY);
+                const savedSettings = await getSettings();
+
                 if (savedSettings) {
-                    const settings: SecuritySettings = JSON.parse(savedSettings);
-                    setBiometricEnabledState(settings.biometricEnabled);
+                    setBiometricEnabledState(savedSettings.biometricEnabled);
 
                     // If biometric is not enabled, auto-authenticate
-                    if (!settings.biometricEnabled) {
+                    if (!savedSettings.biometricEnabled) {
                         setIsAuthenticated(true);
                     }
                 } else {
-                    // No saved settings - check onboarding data for initial biometric preference
-                    const onboardingData = await AsyncStorage.getItem(ONBOARDING_KEY);
-                    if (onboardingData) {
-                        const parsed = JSON.parse(onboardingData);
-                        if (parsed.biometricEnabled) {
-                            // User enabled biometric during onboarding - save to security settings
-                            const newSettings: SecuritySettings = { biometricEnabled: true };
-                            await AsyncStorage.setItem(SECURITY_KEY, JSON.stringify(newSettings));
-                            setBiometricEnabledState(true);
-                            // Don't auto-authenticate since biometric is enabled
-                        } else {
-                            setIsAuthenticated(true);
-                        }
-                    } else {
-                        // First time - no lock enabled
-                        setIsAuthenticated(true);
-                    }
+                    // Default: Disable biometric, auto-authenticate
+                    setIsAuthenticated(true);
                 }
             } catch (error) {
                 console.error('Security init error:', error);
@@ -132,7 +151,7 @@ export function SecurityProvider({ children }: { children: React.ReactNode }) {
     const setBiometricEnabled = useCallback(async (enabled: boolean) => {
         try {
             const newSettings: SecuritySettings = { biometricEnabled: enabled };
-            await AsyncStorage.setItem(SECURITY_KEY, JSON.stringify(newSettings));
+            await saveSettings(newSettings);
             setBiometricEnabledState(enabled);
         } catch (error) {
             console.error('Set biometric error:', error);
@@ -157,24 +176,20 @@ export function SecurityProvider({ children }: { children: React.ReactNode }) {
                 });
 
                 if (result.success) {
-                    const newSettings: SecuritySettings = { biometricEnabled: true };
-                    await AsyncStorage.setItem(SECURITY_KEY, JSON.stringify(newSettings));
-                    setBiometricEnabledState(true);
+                    await setBiometricEnabled(true);
                     return true;
                 }
                 return false;
             } else {
                 // Turning OFF
-                const newSettings: SecuritySettings = { biometricEnabled: false };
-                await AsyncStorage.setItem(SECURITY_KEY, JSON.stringify(newSettings));
-                setBiometricEnabledState(false);
+                await setBiometricEnabled(false);
                 return true;
             }
         } catch (error) {
             console.error('Toggle biometric error:', error);
             return false;
         }
-    }, [biometricEnabled]);
+    }, [biometricEnabled, setBiometricEnabled]);
 
     return (
         <SecurityContext.Provider value={{
