@@ -27,7 +27,7 @@ import { Icon } from '../components/Icon';
 
 export function DashboardScreen() {
     const { formatAmount } = useCurrency();
-    const { activeAccounts, totalBalance, getAccount } = useAccounts();
+    const { activeAccounts, netWorth, getAccount } = useAccounts();
     const { todayTransactions, transactions } = useTransactions();
     const { data: onboardingData } = useOnboarding();
     const safeTop = useSafeTop();
@@ -149,11 +149,11 @@ export function DashboardScreen() {
                 ]}>
                     <Text style={styles.netWorthLabel}>NET WORTH</Text>
                     <View style={styles.netWorthRow}>
-                        <Text style={styles.netWorthAmount}>{formatAmount(totalBalance)}</Text>
-                        {totalBalance !== 0 && (
-                            <View style={[styles.changeBadge, totalBalance < 0 && styles.negativeBadge]}>
-                                <Text style={[styles.changeText, totalBalance < 0 && styles.negativeChangeText]}>
-                                    {totalBalance >= 0 ? <Icon name="arrow-upward" size={12} color={COLORS.primary} /> : <Icon name="arrow-downward" size={12} color={COLORS.error} />} {activeAccounts.length} accounts
+                        <Text style={styles.netWorthAmount}>{formatAmount(netWorth)}</Text>
+                        {netWorth !== 0 && (
+                            <View style={[styles.changeBadge, netWorth < 0 && styles.negativeBadge]}>
+                                <Text style={[styles.changeText, netWorth < 0 && styles.negativeChangeText]}>
+                                    {netWorth >= 0 ? <Icon name="arrow-upward" size={12} color={COLORS.primary} /> : <Icon name="arrow-downward" size={12} color={COLORS.error} />} {activeAccounts.length} accounts
                                 </Text>
                             </View>
                         )}
@@ -202,22 +202,65 @@ export function DashboardScreen() {
                         </TouchableOpacity>
                     ) : (
                         <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.accountsScroll}>
-                            {activeAccounts.slice(0, 4).map((account) => (
-                                <TouchableOpacity
-                                    key={account.id}
-                                    style={styles.accountCard}
-                                    activeOpacity={0.85}
-                                    onPress={() => handleAccountPress(account)}
-                                >
-                                    <View style={styles.accountIcon}>
-                                        <Icon name={account.icon as any} size={24} color={COLORS.text} />
-                                    </View>
-                                    <Text style={styles.accountName}>{account.name}</Text>
-                                    <Text style={[styles.accountBalance, account.balance < 0 && styles.negativeBalance]}>
-                                        {formatAmount(account.balance)}
-                                    </Text>
-                                </TouchableOpacity>
-                            ))}
+                            {activeAccounts.slice(0, 4).map((account) => {
+                                const isCreditCard = account.type === 'credit';
+                                const isInvestment = account.type === 'investment' || account.type === 'bitcoin';
+                                const ccLimit = account.creditCardDetails?.creditLimit ?? 0;
+                                const ccUsed = Math.abs(account.balance);
+                                const ccAvailable = Math.max(0, ccLimit - ccUsed);
+                                const ccUtilPercent = ccLimit > 0 ? (ccUsed / ccLimit) * 100 : 0;
+                                const utilColor = ccUtilPercent > 60 ? COLORS.error : ccUtilPercent > 30 ? '#F59E0B' : COLORS.success;
+                                const displayBalance = isInvestment ? (account.investmentValue ?? account.balance) : account.balance;
+
+                                return (
+                                    <TouchableOpacity
+                                        key={account.id}
+                                        style={styles.accountCard}
+                                        activeOpacity={0.85}
+                                        onPress={() => handleAccountPress(account)}
+                                    >
+                                        <View style={styles.accountIcon}>
+                                            <Icon name={account.icon as any} size={24} color={COLORS.text} />
+                                        </View>
+                                        <Text style={styles.accountName}>{account.name}</Text>
+
+                                        {isCreditCard ? (
+                                            <>
+                                                <Text style={styles.accountBalance}>
+                                                    {formatAmount(ccUsed)}
+                                                </Text>
+                                                <Text style={styles.ccLabel}>Outstanding</Text>
+                                                {/* Utilization bar */}
+                                                <View style={styles.ccUtilTrack}>
+                                                    <View style={[styles.ccUtilFill, { width: `${Math.min(ccUtilPercent, 100)}%`, backgroundColor: utilColor }]} />
+                                                </View>
+                                                <Text style={[styles.ccAvailText, { color: utilColor }]}>
+                                                    {formatAmount(ccAvailable)} available
+                                                </Text>
+                                                {/* Due date badge */}
+                                                {account.creditCardDetails?.dueDate && ccUsed > 0 && (() => {
+                                                    const now = new Date();
+                                                    const dueDay = account.creditCardDetails!.dueDate;
+                                                    const thisMonth = new Date(now.getFullYear(), now.getMonth(), dueDay);
+                                                    const target = thisMonth >= now ? thisMonth : new Date(now.getFullYear(), now.getMonth() + 1, dueDay);
+                                                    const daysUntil = Math.ceil((target.getTime() - now.getTime()) / 86400000);
+                                                    const dueColor = daysUntil <= 3 ? COLORS.error : daysUntil <= 7 ? '#F59E0B' : COLORS.textMuted;
+                                                    const dueLabel = daysUntil === 0 ? 'Due today' : daysUntil < 0 ? `Overdue` : `Due in ${daysUntil}d`;
+                                                    return (
+                                                        <Text style={[styles.ccDueText, { color: dueColor }]}>
+                                                            {dueLabel}
+                                                        </Text>
+                                                    );
+                                                })()}
+                                            </>
+                                        ) : (
+                                            <Text style={[styles.accountBalance, displayBalance < 0 && styles.negativeBalance]}>
+                                                {formatAmount(displayBalance)}
+                                            </Text>
+                                        )}
+                                    </TouchableOpacity>
+                                );
+                            })}
                         </ScrollView>
                     )}
                 </Animated.View>
@@ -373,6 +416,13 @@ const styles = StyleSheet.create({
     accountName: { fontSize: FONT_SIZE.sm, color: COLORS.textSecondary, marginBottom: SPACING.xs },
     accountBalance: { fontSize: FONT_SIZE.xl, fontWeight: '700', color: COLORS.text },
     negativeBalance: { color: COLORS.error },
+
+    // Credit Card dashboard card extras
+    ccLabel: { fontSize: FONT_SIZE.xs, color: COLORS.textMuted, marginBottom: 4 },
+    ccUtilTrack: { height: 3, backgroundColor: COLORS.surfaceLight, borderRadius: 2, overflow: 'hidden' as const, marginBottom: 4, marginTop: 2 },
+    ccUtilFill: { height: '100%' as any, borderRadius: 2 },
+    ccAvailText: { fontSize: 10, fontWeight: '600' as const },
+    ccDueText: { fontSize: 9, fontWeight: '600' as const, marginTop: 2 },
 
     // Transactions
     activityHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: SPACING.lg },

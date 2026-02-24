@@ -4,6 +4,7 @@
  */
 
 import React, { useState } from 'react';
+
 import {
     StyleSheet,
     Text,
@@ -19,10 +20,27 @@ import {
 import { COLORS, SPACING, FONT_SIZE, BORDER_RADIUS } from '../constants/theme';
 import { useSafeTop } from './SafeScreen';
 import { Icon } from './Icon';
-import { TransactionCategory } from '../types';
+import { TransactionCategory, Account } from '../types';
 import { useAccounts } from '../context/AccountsContext';
 import { CATEGORY_ICONS, CATEGORY_LABELS } from '../context/TransactionsContext';
 import { SENTIMENT_LIST } from '../constants/sentiments';
+
+/**
+ * Returns the spendable amount for a given account.
+ * - CC: available credit = limit − outstanding
+ * - Investment/Crypto: 0 (not spendable via transactions)
+ * - All others: balance
+ */
+function getSpendableAmount(account: Account): number {
+    if (account.type === 'credit') {
+        const limit = account.creditCardDetails?.creditLimit ?? 0;
+        return Math.max(0, limit - Math.abs(account.balance));
+    }
+    if (account.type === 'investment' || account.type === 'bitcoin') {
+        return 0; // Holdings-based, not spendable
+    }
+    return account.balance;
+}
 
 interface AddTransactionModalProps {
     visible: boolean;
@@ -98,11 +116,15 @@ export function AddTransactionModal({ visible, initialProps, onClose, onAdd }: A
                 Alert.alert('Invalid Transfer', 'Cannot transfer to the same account.');
                 return;
             }
-            // Check balance
+            // Check available funds (type-aware)
             const fromAccount = activeAccounts.find(acc => acc.id === accountId);
-            if (fromAccount && numAmount > fromAccount.balance) {
-                Alert.alert('Insufficient Balance', `Account "${fromAccount.name}" has insufficient funds.`);
-                return;
+            if (fromAccount) {
+                const available = getSpendableAmount(fromAccount);
+                if (numAmount > available) {
+                    const label = fromAccount.type === 'credit' ? 'Available Credit' : 'Balance';
+                    Alert.alert('Insufficient Funds', `${label} on "${fromAccount.name}" is ₹${available.toLocaleString()}.`);
+                    return;
+                }
             }
 
             // Add OUT transaction (Debit)
@@ -136,17 +158,21 @@ export function AddTransactionModal({ visible, initialProps, onClose, onAdd }: A
             // Regular Expense/Income
             if (!merchant.trim() || !accountId) return;
 
-            // Check for insufficient balance on expenses
+            // Check for insufficient funds on expenses (type-aware)
             if (type === 'expense') {
                 const selectedAccount = activeAccounts.find(acc => acc.id === accountId);
-                if (selectedAccount && Math.abs(numAmount) > selectedAccount.balance) {
-                    const message = `Your "${selectedAccount.name}" account only has ₹${selectedAccount.balance.toLocaleString()}. You can't spend ₹${Math.abs(numAmount).toLocaleString()}.`;
-                    if (Platform.OS === 'web') {
-                        window.alert(`Insufficient Balance\n\n${message}`);
-                    } else {
-                        Alert.alert('Insufficient Balance', message, [{ text: 'OK' }]);
+                if (selectedAccount) {
+                    const available = getSpendableAmount(selectedAccount);
+                    if (Math.abs(numAmount) > available) {
+                        const label = selectedAccount.type === 'credit' ? 'available credit' : 'balance';
+                        const message = `Your "${selectedAccount.name}" only has ₹${available.toLocaleString()} ${label}. You can't spend ₹${Math.abs(numAmount).toLocaleString()}.`;
+                        if (Platform.OS === 'web') {
+                            window.alert(`Insufficient Funds\n\n${message}`);
+                        } else {
+                            Alert.alert('Insufficient Funds', message, [{ text: 'OK' }]);
+                        }
+                        return;
                     }
-                    return;
                 }
             }
 
@@ -182,7 +208,7 @@ export function AddTransactionModal({ visible, initialProps, onClose, onAdd }: A
         <Modal visible={visible} animationType="slide" presentationStyle="pageSheet">
             <KeyboardAvoidingView
                 style={styles.modalContainer}
-                behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+                behavior={'padding'}
             >
                 <View style={[styles.modalHeader, { paddingTop: safeTop }]}>
                     <TouchableOpacity style={styles.cancelBtnContainer} onPress={onClose} activeOpacity={0.7}>
@@ -242,20 +268,37 @@ export function AddTransactionModal({ visible, initialProps, onClose, onAdd }: A
                     {/* From Account Selector */}
                     <Text style={styles.inputLabel}>{isTransfer ? 'From Account' : 'Account'}</Text>
                     <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.accountSelector}>
-                        {activeAccounts.map(acc => (
-                            <TouchableOpacity
-                                key={acc.id}
-                                style={[styles.accountChip, accountId === acc.id && styles.accountChipActive]}
-                                onPress={() => setAccountId(acc.id)}
-                            >
-                                <View style={{ marginRight: SPACING.sm }}>
-                                    <Icon name={acc.icon as any} size={18} color={accountId === acc.id ? COLORS.background : COLORS.text} />
-                                </View>
-                                <Text style={[styles.accountChipText, accountId === acc.id && styles.accountChipTextActive]}>
-                                    {acc.name}
-                                </Text>
-                            </TouchableOpacity>
-                        ))}
+                        {activeAccounts
+                            .filter(acc => {
+                                // Hide investment/crypto from expense/income (they use holdings, not transactions)
+                                if (!isTransfer && (acc.type === 'investment' || acc.type === 'bitcoin')) return false;
+                                return true;
+                            })
+                            .map(acc => {
+                                const isCC = acc.type === 'credit';
+                                const avail = getSpendableAmount(acc);
+                                return (
+                                    <TouchableOpacity
+                                        key={acc.id}
+                                        style={[styles.accountChip, accountId === acc.id && styles.accountChipActive]}
+                                        onPress={() => setAccountId(acc.id)}
+                                    >
+                                        <View style={{ marginRight: SPACING.sm }}>
+                                            <Icon name={acc.icon as any} size={18} color={accountId === acc.id ? COLORS.background : COLORS.text} />
+                                        </View>
+                                        <View>
+                                            <Text style={[styles.accountChipText, accountId === acc.id && styles.accountChipTextActive]}>
+                                                {acc.name}
+                                            </Text>
+                                            {isCC && isExpense && (
+                                                <Text style={[styles.accountChipSubtext, accountId === acc.id && { color: COLORS.background + 'AA' }]}>
+                                                    Avail: ₹{avail.toLocaleString()}
+                                                </Text>
+                                            )}
+                                        </View>
+                                    </TouchableOpacity>
+                                );
+                            })}
                     </ScrollView>
 
                     {/* To Account Selector (Transfer Only) */}
@@ -421,6 +464,7 @@ const styles = StyleSheet.create({
     accountChipIcon: { fontSize: 18, marginRight: SPACING.sm },
     accountChipText: { fontSize: FONT_SIZE.md, color: COLORS.textSecondary },
     accountChipTextActive: { color: COLORS.background, fontWeight: '600' },
+    accountChipSubtext: { fontSize: FONT_SIZE.xs, color: COLORS.textMuted, marginTop: 1 },
 
     // Category Grid
     categoryGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: SPACING.sm },

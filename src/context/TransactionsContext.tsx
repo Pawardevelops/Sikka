@@ -201,13 +201,15 @@ export function TransactionsProvider({ children }: TransactionsProviderProps) {
                     (newTx as any)._raw.updated_at = Date.now();
                 }
 
-                // 5. Update Account Balance
-                // Since transactionData.amount is already signed (negative for expense/debit), 
-                // we just need to ADD it to the balance.
-                // Income (+100) -> Balance + 100
-                // Expense (-100) -> Balance + (-100) = Balance - 100
+                // 5. Update Account Balance (type-aware)
+                // Liquid accounts: balance += amount (expense -100 → balance decreases)
+                // Credit cards:    balance -= amount (expense -100 → outstanding increases)
                 await account.update(acc => {
-                    acc.balance += transactionData.amount;
+                    if (account.type === 'credit') {
+                        acc.balance -= transactionData.amount;
+                    } else {
+                        acc.balance += transactionData.amount;
+                    }
                 });
 
             });
@@ -230,13 +232,19 @@ export function TransactionsProvider({ children }: TransactionsProviderProps) {
                     rec.isDeleted = true;
                 });
 
-                // Reverse Balance
+                // Reverse Balance (type-aware)
                 const account = await database.get<Account>('accounts').find(accountId);
                 await account.update(acc => {
-                    if (type === 'credit') {
-                        acc.balance -= amount; // Deduct income
+                    if (account.type === 'credit') {
+                        // CC: reverse of -= amount is += amount
+                        acc.balance += amount;
                     } else {
-                        acc.balance += amount; // Refund expense
+                        // Liquid: reverse of += amount is -= amount
+                        if (type === 'credit') {
+                            acc.balance -= amount; // Undo income
+                        } else {
+                            acc.balance -= amount; // Undo expense (amount was negative, so -= negative = +)
+                        }
                     }
                 });
             });

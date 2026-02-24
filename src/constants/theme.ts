@@ -43,6 +43,14 @@ export const COLORS = {
     gray: '#6E7681',
     lightGray: '#30363D',
     darkGray: '#8B949E',
+
+    // Financial Semantics (Color Psychology)
+    netWorth: '#1E3A5F',           // Deep Blue — stability & trust
+    investGrowth: '#059669',       // Emerald — growth
+    investLoss: '#DC2626',         // Red — loss
+    creditWarning: '#D97706',      // Amber — high utilization (not alarming)
+    creditSafe: '#059669',         // Emerald — healthy utilization
+    creditDanger: '#EF4444',       // Red — critical utilization (>80%)
 } as const;
 
 export const SPACING = {
@@ -147,6 +155,8 @@ export const SHADOWS = {
 export const ACCOUNT_ICONS: Record<string, string> = {
     bank: 'account-balance',
     cash: 'payments',
+    wallet: 'account-balance-wallet',
+    savings: 'savings',
     bitcoin: 'currency-bitcoin',
     credit: 'credit-card',
     investment: 'trending-up',

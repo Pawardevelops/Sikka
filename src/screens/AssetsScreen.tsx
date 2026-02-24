@@ -22,6 +22,7 @@ import { useSafeTop } from '../components/SafeScreen';
 import { Account, Subscription } from '../types';
 import { useNavigation } from '../context/NavigationContext';
 import { Icon } from '../components/Icon';
+import { computeCreditUtilization, computePortfolioPnL } from '../types/accountTypes';
 
 // ==================== ACCOUNT CATEGORY GROUPING ====================
 type AccountGroup = {
@@ -87,7 +88,7 @@ const ACCOUNT_TYPE_ICONS: Record<string, string> = {
 // ==================== MAIN COMPONENT ====================
 export function AssetsScreen() {
     const { formatAmount } = useCurrency();
-    const { activeAccounts, totalBalance } = useAccounts();
+    const { activeAccounts, netWorth } = useAccounts();
     const { activeSubscriptions, pausedSubscriptions, monthlyTotal } = useSubscriptions();
     const { selectAccount, openAddModal, openAddSubscriptionModal, selectSubscription } = useNavigation();
     const safeTop = useSafeTop();
@@ -179,7 +180,7 @@ export function AssetsScreen() {
                     </TouchableOpacity>
                 </View>
                 <Text style={styles.netWorthAmount}>
-                    {hideBalance ? '••••••' : formatAmount(totalBalance)}
+                    {hideBalance ? '••••••' : formatAmount(netWorth)}
                 </Text>
                 <View style={styles.changeBadge}>
                     <Icon name="trending-up" size={14} color={COLORS.primary} />
@@ -211,10 +212,60 @@ export function AssetsScreen() {
                                 <Text style={styles.accountSubtitle}>
                                     {account.lastUpdated ? `• Updated ${account.lastUpdated.toLowerCase()}` : account.type.toUpperCase()}
                                 </Text>
+
+                                {/* ── Credit Utilization Bar ── */}
+                                {account.type === 'credit' && account.creditCardDetails && (() => {
+                                    const util = computeCreditUtilization(account.balance, account.creditCardDetails.creditLimit);
+                                    const barColor = util.status === 'danger' ? COLORS.creditDanger
+                                        : util.status === 'warning' ? COLORS.creditWarning
+                                            : COLORS.creditSafe;
+                                    return (
+                                        <View style={styles.utilizationContainer}>
+                                            <View style={styles.utilizationTrack}>
+                                                <View style={[styles.utilizationFill, {
+                                                    width: `${Math.min(util.percent, 100)}%`,
+                                                    backgroundColor: barColor,
+                                                }]} />
+                                            </View>
+                                            <Text style={[styles.utilizationText, { color: barColor }]}>
+                                                {util.percent.toFixed(0)}% used
+                                            </Text>
+                                        </View>
+                                    );
+                                })()}
+
+                                {/* ── Investment P&L Badge ── */}
+                                {(account.type === 'investment' || account.type === 'bitcoin') && account.holdings && account.holdings.length > 0 && (() => {
+                                    const portfolio = computePortfolioPnL(account.holdings);
+                                    const isPositive = portfolio.totalPnL >= 0;
+                                    return (
+                                        <View style={[styles.pnlBadge, { backgroundColor: isPositive ? COLORS.investGrowth + '18' : COLORS.investLoss + '18' }]}>
+                                            <Icon
+                                                name={isPositive ? 'trending-up' : 'trending-down'}
+                                                size={12}
+                                                color={isPositive ? COLORS.investGrowth : COLORS.investLoss}
+                                            />
+                                            <Text style={[styles.pnlText, { color: isPositive ? COLORS.investGrowth : COLORS.investLoss }]}>
+                                                {isPositive ? '+' : ''}{portfolio.pnlPercent.toFixed(1)}%
+                                            </Text>
+                                        </View>
+                                    );
+                                })()}
                             </View>
-                            <Text style={[styles.accountBalance, account.balance < 0 && styles.negativeBalance]}>
-                                {hideBalance ? '••••' : formatAmount(account.balance)}
-                            </Text>
+                            <View style={styles.accountBalanceCol}>
+                                <Text style={[styles.accountBalance, account.balance < 0 && styles.negativeBalance]}>
+                                    {hideBalance ? '••••' : formatAmount(
+                                        (account.type === 'investment' || account.type === 'bitcoin')
+                                            ? (account.investmentValue ?? account.balance)
+                                            : account.balance
+                                    )}
+                                </Text>
+                                {account.type === 'credit' && account.creditCardDetails && (
+                                    <Text style={styles.accountSubBalance}>
+                                        Limit: {hideBalance ? '••••' : formatAmount(account.creditCardDetails.creditLimit)}
+                                    </Text>
+                                )}
+                            </View>
                         </TouchableOpacity>
                     ))}
                 </View>
@@ -763,4 +814,54 @@ const styles = StyleSheet.create({
     emptyState: { alignItems: 'center', paddingVertical: SPACING.xl * 2 },
     emptyText: { fontSize: FONT_SIZE.lg, fontWeight: '600', color: COLORS.text, marginTop: SPACING.md },
     emptySubtext: { fontSize: FONT_SIZE.sm, color: COLORS.textMuted, marginTop: SPACING.sm },
+
+    // Credit Utilization Bar
+    utilizationContainer: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        marginTop: 6,
+        gap: 6,
+    },
+    utilizationTrack: {
+        flex: 1,
+        height: 4,
+        backgroundColor: COLORS.surfaceLight,
+        borderRadius: 2,
+        overflow: 'hidden',
+    },
+    utilizationFill: {
+        height: '100%',
+        borderRadius: 2,
+    },
+    utilizationText: {
+        fontSize: 10,
+        fontWeight: '700',
+    },
+
+    // Investment P&L Badge
+    pnlBadge: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        paddingHorizontal: 6,
+        paddingVertical: 2,
+        borderRadius: 4,
+        marginTop: 4,
+        alignSelf: 'flex-start',
+        gap: 3,
+    },
+    pnlText: {
+        fontSize: 10,
+        fontWeight: '700',
+    },
+
+    // Account Balance Column
+    accountBalanceCol: {
+        alignItems: 'flex-end',
+        justifyContent: 'center',
+    },
+    accountSubBalance: {
+        fontSize: FONT_SIZE.xs,
+        color: COLORS.textMuted,
+        marginTop: 2,
+    },
 });

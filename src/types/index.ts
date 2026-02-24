@@ -39,6 +39,13 @@ export interface Account {
     color: string;
     lastUpdated?: string;
     isDeleted?: boolean;
+
+    // ── Credit Card (populated when type='credit') ──
+    creditCardDetails?: import('./accountTypes').CreditCardDetails;
+
+    // ── Investment / Crypto (populated when type='investment'|'bitcoin') ──
+    holdings?: import('./accountTypes').InvestmentHoldingData[];
+    investmentValue?: number; // Computed: Σ(qty × currentPrice)
 }
 
 // ==================== TRANSACTIONS ====================

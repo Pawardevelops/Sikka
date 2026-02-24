@@ -148,7 +148,7 @@ export function AddSubscriptionModal({ visible, onClose, onAdd }: AddSubscriptio
             onRequestClose={onClose}
         >
             <KeyboardAvoidingView
-                behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+                behavior={'padding'}
                 style={styles.modalOverlay}
             >
                 <View style={styles.modalContainer}>

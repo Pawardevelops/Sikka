@@ -8,6 +8,8 @@ export default class Account extends Model {
     static associations: Associations = {
         transactions: { type: 'has_many', foreignKey: 'account_id' },
         subscriptions: { type: 'has_many', foreignKey: 'account_id' },
+        credit_card_details: { type: 'has_many', foreignKey: 'account_id' },
+        investment_holdings: { type: 'has_many', foreignKey: 'account_id' },
     };
 
     @field('name') name!: string;
@@ -22,4 +24,6 @@ export default class Account extends Model {
     @readonly @date('updated_at') updatedAt!: number;
 
     @children('transactions') transactions!: any;
+    @children('credit_card_details') creditCardDetails!: any;
+    @children('investment_holdings') investmentHoldings!: any;
 }

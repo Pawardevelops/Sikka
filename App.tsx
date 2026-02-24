@@ -151,8 +151,12 @@ function MainApp() {
   const closePrivacyPolicy = () => setShowPrivacyPolicy(false);
 
   // Data Handlers
-  const handleAddAccount = (accountData: { name: string; type: any; icon: string; balance: number; color: string }) => {
-    addAccount(accountData);
+  const handleAddAccount = (
+    accountData: { name: string; type: any; icon: string; balance: number; color: string },
+    ccDetails?: { creditLimit: number; billingCycleDate: number; dueDate: number },
+    holdings?: { ticker: string; quantity: number; avgBuyPrice: number; currentPrice: number }[],
+  ) => {
+    addAccount(accountData as any, ccDetails, holdings);
   };
 
   const handleUpdateAccount = (id: string, updates: Partial<Account>) => {

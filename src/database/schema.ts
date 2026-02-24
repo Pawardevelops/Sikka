@@ -17,6 +17,33 @@ export const mySchema = appSchema({
                 { name: 'updated_at', type: 'number' },
             ],
         }),
+
+        // ── Credit Card Details (1:1 satellite for type='credit') ──
+        tableSchema({
+            name: 'credit_card_details',
+            columns: [
+                { name: 'account_id', type: 'string', isIndexed: true },
+                { name: 'credit_limit', type: 'number' },
+                { name: 'billing_cycle_date', type: 'number' }, // Day 1-31
+                { name: 'due_date', type: 'number' },           // Day 1-31
+                { name: 'created_at', type: 'number' },
+                { name: 'updated_at', type: 'number' },
+            ],
+        }),
+
+        // ── Investment Holdings (1:N satellite for type='investment'|'bitcoin') ──
+        tableSchema({
+            name: 'investment_holdings',
+            columns: [
+                { name: 'account_id', type: 'string', isIndexed: true },
+                { name: 'ticker', type: 'string' },
+                { name: 'quantity', type: 'number' },
+                { name: 'avg_buy_price', type: 'number' },
+                { name: 'current_price', type: 'number' },
+                { name: 'created_at', type: 'number' },
+                { name: 'updated_at', type: 'number' },
+            ],
+        }),
         tableSchema({
             name: 'categories',
             columns: [

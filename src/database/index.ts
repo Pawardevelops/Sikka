@@ -15,6 +15,8 @@ import SubscriptionEvent from './models/SubscriptionEvent';
 import UnparsedMessage from './models/UnparsedMessage';
 import Setting from './models/Setting';
 import User from './models/User';
+import CreditCardDetail from './models/CreditCardDetail';
+import InvestmentHolding from './models/InvestmentHolding';
 
 // Create the adapter to the underlying database:
 const adapter = new SQLiteAdapter({
@@ -47,6 +49,8 @@ const database = new Database({
         UnparsedMessage,
         Setting,
         User,
+        CreditCardDetail,
+        InvestmentHolding,
     ],
 });
 

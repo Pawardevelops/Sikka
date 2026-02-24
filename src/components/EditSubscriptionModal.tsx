@@ -203,7 +203,7 @@ export function EditSubscriptionModal({ visible, subscription, onClose }: EditSu
             onRequestClose={onClose}
         >
             <KeyboardAvoidingView
-                behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+                behavior={'padding'}
                 style={styles.modalOverlay}
             >
                 <View style={styles.modalContainer}>

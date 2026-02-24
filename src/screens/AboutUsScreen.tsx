@@ -69,13 +69,13 @@ export function AboutUsScreen() {
 
                     <TouchableOpacity style={styles.contactButton} onPress={handleContact}>
                         <Icon name="mail" size={20} color={COLORS.background} style={{ marginRight: SPACING.md }} />
-                        <Text style={styles.contactButtonText}>Contact Developer</Text>
+                        <Text style={styles.contactButtonText}>Contact Team Sikka</Text>
                     </TouchableOpacity>
                 </View>
 
                 <View style={styles.footer}>
                     <Text style={styles.footerText}>Version 1.0.0 (Beta)</Text>
-                    <Text style={styles.footerText}>Made with ❤️ by Pawar Develops</Text>
+                    <Text style={styles.footerText}>Made with ❤️ by Team Sikka</Text>
                 </View>
             </ScrollView>
         </View>
