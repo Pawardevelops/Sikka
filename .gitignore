@@ -45,3 +45,11 @@ yarn-error.*
 *.env
 
 *google-services*.json
+
+
+# Keystore files
+*.keystore
+*.keystore.base64
+
+# Local signing config
+android/local.properties
