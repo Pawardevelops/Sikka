@@ -17,6 +17,7 @@ import {
     Platform,
     Alert,
 } from 'react-native';
+import DateTimePicker from '@react-native-community/datetimepicker';
 import { COLORS, SPACING, FONT_SIZE, BORDER_RADIUS } from '../constants/theme';
 import { useSafeTop } from './SafeScreen';
 import { Icon } from './Icon';
@@ -56,6 +57,7 @@ interface AddTransactionModalProps {
         sentimentIds?: string[];
         isImpulse?: boolean;
         type?: 'credit' | 'debit';
+        timestamp?: number;
     }) => void;
 }
 
@@ -77,6 +79,12 @@ export function AddTransactionModal({ visible, initialProps, onClose, onAdd }: A
     const [notes, setNotes] = useState('');
     const [type, setType] = useState<'income' | 'expense' | 'transfer'>('expense');
 
+    // Date/Time specific
+    const [useCurrentTime, setUseCurrentTime] = useState(true);
+    const [date, setDate] = useState(new Date());
+    const [showDatePicker, setShowDatePicker] = useState(false);
+    const [showTimePicker, setShowTimePicker] = useState(false);
+
     // Sentiments (Multi-select)
     const [sentimentIds, setSentimentIds] = useState<string[]>([]);
     const safeTop = useSafeTop();
@@ -97,9 +105,31 @@ export function AddTransactionModal({ visible, initialProps, onClose, onAdd }: A
         } else if (visible) {
             // Reset to defaults if no props
             setType('expense');
+            setUseCurrentTime(true);
+            setDate(new Date());
             if (activeAccounts.length > 0) setAccountId(activeAccounts[0].id);
         }
     }, [visible, initialProps]);
+
+    const onDateChange = (_event: any, selectedDate?: Date) => {
+        setShowDatePicker(Platform.OS === 'ios');
+        if (selectedDate) {
+            const updatedDate = new Date(selectedDate);
+            updatedDate.setHours(date.getHours());
+            updatedDate.setMinutes(date.getMinutes());
+            setDate(updatedDate);
+        }
+    };
+
+    const onTimeChange = (_event: any, selectedTime?: Date) => {
+        setShowTimePicker(Platform.OS === 'ios');
+        if (selectedTime) {
+            const updatedDate = new Date(date);
+            updatedDate.setHours(selectedTime.getHours());
+            updatedDate.setMinutes(selectedTime.getMinutes());
+            setDate(updatedDate);
+        }
+    };
 
     const handleAdd = () => {
         // Validation
@@ -136,6 +166,7 @@ export function AddTransactionModal({ visible, initialProps, onClose, onAdd }: A
                 notes: notes ? `To: ${activeAccounts.find(a => a.id === toAccountId)?.name}. ${notes}` : `To: ${activeAccounts.find(a => a.id === toAccountId)?.name}`,
                 isAuto: false,
                 type: 'debit',
+                timestamp: useCurrentTime ? Date.now() : date.getTime(),
             });
 
             // Add IN transaction (Credit)
@@ -152,6 +183,7 @@ export function AddTransactionModal({ visible, initialProps, onClose, onAdd }: A
                 notes: notes ? `From: ${activeAccounts.find(a => a.id === accountId)?.name}. ${notes}` : `From: ${activeAccounts.find(a => a.id === accountId)?.name}`,
                 isAuto: false,
                 type: 'credit',
+                timestamp: useCurrentTime ? Date.now() : date.getTime(),
             });
 
         } else {
@@ -186,6 +218,7 @@ export function AddTransactionModal({ visible, initialProps, onClose, onAdd }: A
                 sentimentIds: type === 'expense' ? sentimentIds : [],
                 isImpulse: type === 'expense' ? sentimentIds.includes('impulse') : undefined,
                 type: type === 'income' ? 'credit' : 'debit',
+                timestamp: useCurrentTime ? Date.now() : date.getTime(),
             });
         }
 
@@ -264,6 +297,64 @@ export function AddTransactionModal({ visible, initialProps, onClose, onAdd }: A
                             keyboardType="decimal-pad"
                         />
                     </View>
+
+                    {/* Transaction Time Selection */}
+                    <Text style={styles.inputLabel}>TRANSACTION TIME</Text>
+                    <View style={styles.timeToggle}>
+                        <TouchableOpacity
+                            style={[styles.timeBtn, useCurrentTime && styles.timeBtnActive]}
+                            onPress={() => setUseCurrentTime(true)}
+                        >
+                            <Text style={[styles.timeBtnText, useCurrentTime && styles.timeBtnTextActive]}>Now</Text>
+                        </TouchableOpacity>
+                        <TouchableOpacity
+                            style={[styles.timeBtn, !useCurrentTime && styles.timeBtnActiveManual]}
+                            onPress={() => setUseCurrentTime(false)}
+                        >
+                            <Text style={[styles.timeBtnText, !useCurrentTime && styles.timeBtnTextActive]}>Manual</Text>
+                        </TouchableOpacity>
+                    </View>
+
+                    {!useCurrentTime && (
+                        <View style={styles.manualTimeContainer}>
+                            <TouchableOpacity
+                                style={styles.dateDisplayBtn}
+                                onPress={() => setShowDatePicker(true)}
+                            >
+                                <Icon name="calendar-today" size={20} color={COLORS.primary} />
+                                <Text style={styles.dateDisplayText}>
+                                    {date.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}
+                                </Text>
+                            </TouchableOpacity>
+
+                            <TouchableOpacity
+                                style={styles.dateDisplayBtn}
+                                onPress={() => setShowTimePicker(true)}
+                            >
+                                <Icon name="access-time" size={20} color={COLORS.primary} />
+                                <Text style={styles.dateDisplayText}>
+                                    {date.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: true })}
+                                </Text>
+                            </TouchableOpacity>
+
+                            {showDatePicker && (
+                                <DateTimePicker
+                                    value={date}
+                                    mode="date"
+                                    display={Platform.OS === 'ios' ? 'spinner' : 'default'}
+                                    onChange={onDateChange}
+                                />
+                            )}
+                            {showTimePicker && (
+                                <DateTimePicker
+                                    value={date}
+                                    mode="time"
+                                    display={Platform.OS === 'ios' ? 'spinner' : 'default'}
+                                    onChange={onTimeChange}
+                                />
+                            )}
+                        </View>
+                    )}
 
                     {/* From Account Selector */}
                     <Text style={styles.inputLabel}>{isTransfer ? 'From Account' : 'Account'}</Text>
@@ -451,6 +542,37 @@ const styles = StyleSheet.create({
     expenseColor: { color: COLORS.error },
     incomeColor: { color: COLORS.success },
     transferColor: { color: COLORS.primary },
+
+    // Time Toggle
+    timeToggle: { flexDirection: 'row', backgroundColor: COLORS.surface, borderRadius: BORDER_RADIUS.md, padding: SPACING.xs, marginBottom: SPACING.lg },
+    timeBtn: { flex: 1, paddingVertical: SPACING.md, alignItems: 'center', borderRadius: BORDER_RADIUS.sm },
+    timeBtnActive: { backgroundColor: COLORS.primary },
+    timeBtnActiveManual: { backgroundColor: COLORS.secondary || COLORS.textSecondary },
+    timeBtnText: { fontSize: FONT_SIZE.md, fontWeight: '600', color: COLORS.textMuted },
+    timeBtnTextActive: { color: COLORS.white },
+
+    manualTimeContainer: {
+        flexDirection: 'row',
+        gap: SPACING.md,
+        marginBottom: SPACING.sm,
+    },
+    dateDisplayBtn: {
+        flex: 1,
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'center',
+        backgroundColor: COLORS.surface,
+        borderRadius: BORDER_RADIUS.md,
+        paddingVertical: SPACING.md,
+        gap: SPACING.sm,
+        borderWidth: 1,
+        borderColor: COLORS.border,
+    },
+    dateDisplayText: {
+        fontSize: FONT_SIZE.md,
+        color: COLORS.text,
+        fontWeight: '500',
+    },
 
     // Inputs
     inputLabel: { fontSize: FONT_SIZE.sm, fontWeight: '600', color: COLORS.textMuted, letterSpacing: 0.5, marginBottom: SPACING.sm, marginTop: SPACING.lg },
