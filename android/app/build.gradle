@@ -111,12 +111,25 @@ android {
                 storePassword System.getenv("KEYSTORE_PASSWORD")
                 keyAlias System.getenv("KEY_ALIAS")
                 keyPassword System.getenv("KEY_PASSWORD")
-            } else if (project.hasProperty('MYAPP_UPLOAD_STORE_FILE')) {
-                // Local: use gradle.properties or local.properties
-                storeFile file(MYAPP_UPLOAD_STORE_FILE)
-                storePassword MYAPP_UPLOAD_STORE_PASSWORD
-                keyAlias MYAPP_UPLOAD_KEY_ALIAS
-                keyPassword MYAPP_UPLOAD_KEY_PASSWORD
+            } else {
+                // Local: read signing config from .env file
+                def envFile = new File("${rootProject.projectDir}/../.env")
+                if (envFile.exists()) {
+                    def envProps = new Properties()
+                    envFile.readLines().each { line ->
+                        def trimmed = line.trim()
+                        if (trimmed && !trimmed.startsWith('#') && trimmed.contains('=')) {
+                            def key = trimmed.split('=', 2)[0].trim()
+                            def value = trimmed.split('=', 2)[1].trim()
+                                .replaceAll(/^["']|["']$/, '') // strip quotes
+                            envProps.setProperty(key, value)
+                        }
+                    }
+                    storeFile file('sikka-release.keystore')
+                    storePassword envProps.getProperty('KEYSTORE_PASSWORD', '')
+                    keyAlias envProps.getProperty('KEY_ALIAS', '')
+                    keyPassword envProps.getProperty('KEY_PASSWORD', '')
+                }
             }
         }
     }
@@ -125,8 +138,6 @@ android {
             signingConfig signingConfigs.debug
         }
         release {
-            // Caution! In production, you need to generate your own keystore file.
-            // see https://reactnative.dev/docs/signed-apk-android.
             signingConfig signingConfigs.release
             def enableShrinkResources = findProperty('android.enableShrinkResourcesInReleaseBuilds') ?: 'false'
             shrinkResources enableShrinkResources.toBoolean()
@@ -197,5 +208,3 @@ dependencies {
 }
 
 apply plugin: 'com.google.gms.google-services'
-
-
