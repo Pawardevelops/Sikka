@@ -186,6 +186,25 @@ export function useBackup(options?: UseBackupOptions) {
         }
     };
 
+    const exportLocalBackup = async () => {
+        if (isSyncing) return;
+        
+        try {
+            setIsSyncing(true);
+            const success = await BackupService.exportLocalBackup();
+            if (success && showModal) {
+                showModal('Export Successful', 'Your backup file has been saved and shared.', [{ text: 'OK', style: 'primary', onPress: () => {} }], 'success');
+            }
+        } catch (error: any) {
+            console.error('Export error:', error);
+            if (showModal) {
+                showModal('Export Failed', error.message || 'Could not export backup file.', [{ text: 'OK', style: 'primary', onPress: () => {} }], 'error');
+            }
+        } finally {
+            setIsSyncing(false);
+        }
+    };
+
     return {
         isSyncing,
         lastBackup,
@@ -194,5 +213,6 @@ export function useBackup(options?: UseBackupOptions) {
         toggleDriveBackup,
         manualBackup,
         restoreBackup,
+        exportLocalBackup,
     };
 }

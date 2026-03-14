@@ -454,11 +454,19 @@ function BackupSection({ showModal }: { showModal: (title: string, message: stri
         autoBackupEnabled,
         toggleDriveBackup,
         manualBackup,
-        restoreBackup
+        restoreBackup,
+        exportLocalBackup
     } = useBackup({ showModal });
 
     return (
         <>
+            <SettingItem 
+                icon="save-alt" 
+                title="Export Local Backup" 
+                subtitle="Download your data to a file" 
+                onPress={exportLocalBackup}
+            />
+
             <SettingItem 
                 icon="cloud-upload" 
                 title="Google Drive Backup" 
