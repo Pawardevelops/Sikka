@@ -10,7 +10,7 @@
     "web": "expo start --web",
     "android:apk": "cd android && ./gradlew assembleRelease",
     "android:aab": "cd android && ./gradlew bundleRelease",
-    "android:dev": "export PATH=/usr/local/bin:$PATH && cd android && ./gradlew assembleDebug",
+    "android:dev": "cd android && gradlew assembleDebug",
     "android:clean": "cd android && ./gradlew clean"
   },
   "dependencies": {
