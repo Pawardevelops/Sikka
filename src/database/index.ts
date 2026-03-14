@@ -1,7 +1,6 @@
 import { Database } from '@nozbe/watermelondb';
-import SQLiteAdapter from '@nozbe/watermelondb/adapters/sqlite';
+import { adapter } from './adapter';
 
-import { mySchema } from './schema';
 import Account from './models/Account';
 import Category from './models/Category';
 import Transaction from './models/Transaction';
@@ -17,20 +16,6 @@ import Setting from './models/Setting';
 import User from './models/User';
 import CreditCardDetail from './models/CreditCardDetail';
 import InvestmentHolding from './models/InvestmentHolding';
-
-// Create the adapter to the underlying database:
-const adapter = new SQLiteAdapter({
-    schema: mySchema,
-    // (You might want to comment out migrations if you haven't created them yet)
-    // migrations,
-    // dbName: 'myapp', // optional, default is 'watermelon'
-    // jsi: true, /* Platform.OS === 'ios' */
-    onSetUpError: error => {
-        // Database failed to load -- often because of file permissions or corrupt database
-        // In a real app, you might want to wipe the database and try again
-        console.error('Database setup error:', error);
-    },
-});
 
 // Then, make a Database instance
 const database = new Database({

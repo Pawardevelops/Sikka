@@ -73,6 +73,17 @@ export const BackupService = {
         }
     },
 
+    checkIfBackupExists: async (accessToken: string) => {
+        try {
+            const files = await GoogleDriveService.listFiles(accessToken);
+            const existingFile = files.find((f: any) => f.name === BACKUP_FILE_NAME);
+            return !!existingFile;
+        } catch (error) {
+            console.error('Check backup exists failed:', error);
+            return false;
+        }
+    },
+
     /**
      * Restore data from the latest backup
      * WARNING: This wipes existing data and replaces it with backup

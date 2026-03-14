@@ -62,7 +62,7 @@ export function ProfileSetupScreen() {
                     </View>
                     <TextInput
                         style={styles.textInput}
-                        placeholder="e.g. Aditi Sharma"
+                        placeholder="e.g. Nayan jyotipatwari"
                         placeholderTextColor={COLORS.textMuted}
                         value={data.userName}
                         onChangeText={(text) => updateData({ userName: text })}

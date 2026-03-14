@@ -12,6 +12,7 @@ import {
     TouchableOpacity,
     Switch,
     TextInput,
+    ActivityIndicator
 } from 'react-native';
 
 import { useCurrency, CURRENCIES } from '../context/CurrencyContext';
@@ -19,7 +20,6 @@ import { useSecurity } from '../context/SecurityContext';
 import { useOnboarding } from '../context/OnboardingContext';
 import { useNavigation } from '../context/NavigationContext';
 import { useBackup } from '../hooks/useBackup';
-import { ActivityIndicator } from 'react-native';
 import { COLORS, SPACING, FONT_SIZE, BORDER_RADIUS } from '../constants/theme';
 import { useSafeTop } from '../components/SafeScreen';
 import { Icon } from '../components/Icon';
@@ -199,7 +199,7 @@ export function SettingsScreen() {
     };
 
     const getUserInitials = () => {
-        if (!onboardingData.userName) return <Icon name="person" size={24} color={COLORS.background} />;
+        if (!onboardingData.userName) return <Icon name="person" size={28} color={COLORS.background} />;
         const names = onboardingData.userName.trim().split(' ');
         if (names.length >= 2) {
             return `${names[0][0]}${names[1][0]}`.toUpperCase();
@@ -209,14 +209,18 @@ export function SettingsScreen() {
 
     return (
         <ScrollView
-            style={styles.scrollView}
+            style={[styles.scrollView, { backgroundColor: COLORS.background }]}
             contentContainerStyle={[styles.scrollContent, { paddingTop: safeTop }]}
             showsVerticalScrollIndicator={false}
         >
             <Text style={styles.screenTitle}>Settings</Text>
 
             {/* Profile Section */}
-            <View style={styles.profileCard}>
+            <TouchableOpacity 
+                style={styles.profileCard} 
+                onPress={() => setEditingName(true)}
+                activeOpacity={0.7}
+            >
                 <View style={styles.profileAvatar}>
                     <Text style={styles.profileAvatarText}>{getUserInitials()}</Text>
                 </View>
@@ -236,209 +240,164 @@ export function SettingsScreen() {
                             </TouchableOpacity>
                         </View>
                     ) : (
-                        <TouchableOpacity onPress={() => setEditingName(true)}>
+                        <>
                             <Text style={styles.profileName}>
                                 {onboardingData.userName || 'Set your name'}
                             </Text>
                             <Text style={styles.profileSubtitle}>Tap to edit profile</Text>
-                        </TouchableOpacity>
+                        </>
                     )}
                 </View>
-            </View>
+                {!editingName && <Icon name="qr-code" size={24} color={COLORS.primary} />}
+            </TouchableOpacity>
 
-            {/* Security Section */}
-            <Text style={styles.sectionTitle}>SECURITY</Text>
-            <View style={styles.settingsCard}>
-                <View style={styles.settingRow}>
-                    <View style={styles.settingInfo}>
-                        <Icon name="lock" size={24} color={COLORS.text} style={{ marginRight: SPACING.md }} />
-                        <View style={styles.settingTextContainer}>
-                            <Text style={styles.settingLabel}>Fingerprint Lock</Text>
-                            <Text style={styles.settingSubtitle}>
-                                {hasBiometricHardware
-                                    ? `${biometricType} available`
-                                    : 'Not available on this device'}
-                            </Text>
-                        </View>
+            <View style={styles.divider} />
+
+            {/* Accounts/Regional */}
+            <SettingItem 
+                icon="attach-money" 
+                title="Currency" 
+                subtitle={`${currency.name} (${currency.symbol})`} 
+                onPress={() => setShowCurrencyPicker(!showCurrencyPicker)} 
+                hideBorder={showCurrencyPicker}
+            />
+            {showCurrencyPicker && (
+                <View style={styles.currencyPicker}>
+                    {CURRENCIES.map((curr) => (
+                        <TouchableOpacity
+                            key={curr.code}
+                            style={[
+                                styles.currencyOption,
+                                currency.code === curr.code && styles.currencyOptionActive,
+                            ]}
+                            onPress={() => {
+                                setCurrency(curr);
+                                setShowCurrencyPicker(false);
+                            }}
+                        >
+                            <Text style={styles.currencySymbol}>{curr.symbol}</Text>
+                            <View style={styles.currencyTextContainer}>
+                                <Text style={styles.currencyCode}>{curr.code}</Text>
+                                <Text style={styles.currencyName}>{curr.name}</Text>
+                            </View>
+                            {currency.code === curr.code && (
+                                <Icon name="check" size={20} color={COLORS.primary} />
+                            )}
+                        </TouchableOpacity>
+                    ))}
+                </View>
+            )}
+
+            <SettingItem 
+                icon="format-list-numbered" 
+                title="Number Format" 
+                subtitle={onboardingData.numberSystem === 'lakhs' ? '1,00,000 (Lakhs)' : '100,000 (Millions)'} 
+                onPress={handleNumberSystemChange}
+                rightElement={
+                    <View style={styles.togglePill}>
+                        <Text style={[styles.togglePillText, onboardingData.numberSystem === 'lakhs' && styles.togglePillTextActive]}>L</Text>
+                        <Text style={[styles.togglePillText, onboardingData.numberSystem === 'millions' && styles.togglePillTextActive]}>M</Text>
                     </View>
+                }
+                hideBorder
+            />
+
+            <View style={styles.divider} />
+
+            {/* Privacy & Security */}
+            <SettingItem 
+                icon="lock" 
+                title="Fingerprint Lock" 
+                subtitle={hasBiometricHardware ? `${biometricType} available` : 'Not available on this device'} 
+                onPress={handleBiometricToggle}
+                rightElement={
                     <Switch
                         value={biometricEnabled}
                         onValueChange={handleBiometricToggle}
                         disabled={!hasBiometricHardware || biometricType === 'Not Set Up' || isToggling}
-                        trackColor={{
-                            false: COLORS.border,
-                            true: COLORS.primaryMuted
-                        }}
+                        trackColor={{ false: COLORS.border, true: COLORS.primaryMuted }}
                         thumbColor={biometricEnabled ? COLORS.primary : COLORS.textMuted}
                     />
-                </View>
-                <View style={[styles.settingRow, styles.lastRow]}>
-                    <View style={styles.settingInfo}>
-                        <Icon name="visibility" size={24} color={COLORS.text} style={{ marginRight: SPACING.md }} />
-                        <View style={styles.settingTextContainer}>
-                            <Text style={styles.settingLabel}>Hide Balances</Text>
-                            <Text style={styles.settingSubtitle}>Mask amounts with ****</Text>
-                        </View>
-                    </View>
+                }
+            />
+
+            <SettingItem 
+                icon="visibility-off" 
+                title="Hide Balances" 
+                subtitle="Mask amounts with **** on home screen" 
+                onPress={() => handleHideBalancesToggle(!onboardingData.hideBalances)}
+                rightElement={
                     <Switch
                         value={onboardingData.hideBalances}
                         onValueChange={handleHideBalancesToggle}
-                        trackColor={{
-                            false: COLORS.border,
-                            true: COLORS.primaryMuted
-                        }}
+                        trackColor={{ false: COLORS.border, true: COLORS.primaryMuted }}
                         thumbColor={onboardingData.hideBalances ? COLORS.primary : COLORS.textMuted}
                     />
-                </View>
-            </View>
+                }
+                hideBorder
+            />
 
-            {/* Regional Settings */}
-            <Text style={styles.sectionTitle}>REGIONAL</Text>
-            <View style={styles.settingsCard}>
-                <TouchableOpacity
-                    style={styles.settingRow}
-                    onPress={() => setShowCurrencyPicker(!showCurrencyPicker)}
-                >
-                    <View style={styles.settingInfo}>
-                        <Icon name="attach-money" size={24} color={COLORS.text} style={{ marginRight: SPACING.md }} />
-                        <View style={styles.settingTextContainer}>
-                            <Text style={styles.settingLabel}>Currency</Text>
-                            <Text style={styles.settingSubtitle}>{currency.name} ({currency.symbol})</Text>
-                        </View>
-                    </View>
-                    <Icon name={showCurrencyPicker ? "arrow-drop-up" : "arrow-drop-down"} size={24} color={COLORS.textMuted} />
-                </TouchableOpacity>
+            <View style={styles.divider} />
 
-                {showCurrencyPicker && (
-                    <View style={styles.currencyPicker}>
-                        {CURRENCIES.map((curr) => (
-                            <TouchableOpacity
-                                key={curr.code}
-                                style={[
-                                    styles.currencyOption,
-                                    currency.code === curr.code && styles.currencyOptionActive,
-                                ]}
-                                onPress={() => {
-                                    setCurrency(curr);
-                                    setShowCurrencyPicker(false);
-                                }}
-                            >
-                                <Text style={styles.currencySymbol}>{curr.symbol}</Text>
-                                <View style={styles.currencyTextContainer}>
-                                    <Text style={styles.currencyCode}>{curr.code}</Text>
-                                    <Text style={styles.currencyName}>{curr.name}</Text>
-                                </View>
-                                {currency.code === curr.code && (
-                                    <Icon name="check" size={20} color={COLORS.primary} />
-                                )}
-                            </TouchableOpacity>
-                        ))}
-                    </View>
-                )}
-
-                <TouchableOpacity style={[styles.settingRow, styles.lastRow]} onPress={handleNumberSystemChange}>
-                    <View style={styles.settingInfo}>
-                        <Icon name="format-list-numbered" size={24} color={COLORS.text} style={{ marginRight: SPACING.md }} />
-                        <View style={styles.settingTextContainer}>
-                            <Text style={styles.settingLabel}>Number Format</Text>
-                            <Text style={styles.settingSubtitle}>
-                                {onboardingData.numberSystem === 'lakhs' ? '1,00,000 (Lakhs)' : '100,000 (Millions)'}
-                            </Text>
-                        </View>
-                    </View>
-                    <View style={styles.togglePill}>
-                        <Text style={[
-                            styles.togglePillText,
-                            onboardingData.numberSystem === 'lakhs' && styles.togglePillTextActive
-                        ]}>L</Text>
-                        <Text style={[
-                            styles.togglePillText,
-                            onboardingData.numberSystem === 'millions' && styles.togglePillTextActive
-                        ]}>M</Text>
-                    </View>
-                </TouchableOpacity>
-            </View>
-
-            {/* Automation */}
-            <Text style={styles.sectionTitle}>AUTOMATION</Text>
-            <View style={styles.settingsCard}>
-                <TouchableOpacity style={[styles.settingRow, styles.lastRow]} onPress={handleNotificationSettings}>
-                    <View style={styles.settingInfo}>
-                        <Icon name="notifications-active" size={24} color={COLORS.text} style={{ marginRight: SPACING.md }} />
-                        <View style={styles.settingTextContainer}>
-                            <Text style={styles.settingLabel}>Auto-Track Transactions</Text>
-                            <Text style={styles.settingSubtitle}>
-                                {onboardingData.notificationPermissionGranted
-                                    ? 'Active'
-                                    : 'Read bank SMS/Notifications'}
-                            </Text>
-                        </View>
-                    </View>
+            {/* Notifications / Auto Track */}
+            <SettingItem 
+                icon="notifications" 
+                title="Auto-Track SMS" 
+                subtitle={onboardingData.notificationPermissionGranted ? 'Active' : 'Allow reading bank SMS to auto-add'} 
+                onPress={handleNotificationSettings}
+                rightElement={
                     <Switch
                         value={onboardingData.notificationPermissionGranted}
                         onValueChange={handleNotificationSettings}
-                        trackColor={{
-                            false: COLORS.border,
-                            true: COLORS.primaryMuted
-                        }}
+                        trackColor={{ false: COLORS.border, true: COLORS.primaryMuted }}
                         thumbColor={onboardingData.notificationPermissionGranted ? COLORS.primary : COLORS.textMuted}
                     />
-                </TouchableOpacity>
-            </View>
+                }
+                hideBorder
+            />
 
-            {/* Data & Backup */}
-            <Text style={styles.sectionTitle}>DATA & BACKUP</Text>
-            <BackupSection />
+            <View style={styles.divider} />
 
-            {/* About Section */}
-            <Text style={styles.sectionTitle}>ABOUT</Text>
-            <View style={styles.settingsCard}>
-                <View style={styles.settingRow}>
-                    <View style={styles.settingInfo}>
-                        <Icon name="info" size={24} color={COLORS.text} style={{ marginRight: SPACING.md }} />
-                        <Text style={styles.settingLabel}>Version</Text>
-                    </View>
-                    <Text style={styles.settingValue}>1.0.0</Text>
-                </View>
-                <TouchableOpacity style={styles.settingRow} onPress={() => navigation.openAboutUs()}>
-                    <View style={styles.settingInfo}>
-                        <Icon name="info-outline" size={24} color={COLORS.text} style={{ marginRight: SPACING.md }} />
-                        <Text style={styles.settingLabel}>About Us</Text>
-                    </View>
-                    <Icon name="chevron-right" size={24} color={COLORS.textMuted} />
-                </TouchableOpacity>
-                <TouchableOpacity style={[styles.settingRow, styles.lastRow]} onPress={() => navigation.openPrivacyPolicy()}>
-                    <View style={styles.settingInfo}>
-                        <Icon name="policy" size={24} color={COLORS.text} style={{ marginRight: SPACING.md }} />
-                        <Text style={styles.settingLabel}>Privacy Policy</Text>
-                    </View>
-                    <Icon name="chevron-right" size={24} color={COLORS.textMuted} />
-                </TouchableOpacity>
-            </View>
+            {/* Backup */}
+            <BackupSection showModal={showModal} />
+
+            <View style={styles.divider} />
+
+            {/* Help / About */}
+            <SettingItem 
+                icon="info-outline" 
+                title="About Us" 
+                subtitle="Version 1.0.0" 
+                onPress={() => navigation.openAboutUs()}
+            />
+            <SettingItem 
+                icon="gavel" 
+                title="Privacy Policy" 
+                subtitle="Read our policies" 
+                onPress={() => navigation.openPrivacyPolicy()}
+                hideBorder
+            />
+
+            <View style={styles.divider} />
 
             {/* Danger Zone */}
-            <Text style={styles.sectionTitle}>DANGER ZONE</Text>
-            <View style={styles.settingsCard}>
-                <TouchableOpacity
-                    style={[styles.settingRow, styles.dangerRow]}
-                    onPress={handleResetPreferences}
-                >
-                    <View style={styles.settingInfo}>
-                        <Icon name="restore" size={24} color={COLORS.secondary} style={{ marginRight: SPACING.md }} />
-                        <Text style={[styles.dangerLabel, { color: COLORS.secondary }]}>Reset App Preferences</Text>
-                    </View>
-                </TouchableOpacity>
-
-                <TouchableOpacity
-                    style={[styles.settingRow, styles.dangerRow, styles.lastRow]}
-                    onPress={handleNuclearDelete}
-                >
-                    <View style={styles.settingInfo}>
-                        <Icon name="delete-forever" size={24} color={COLORS.error} style={{ marginRight: SPACING.md }} />
-                        <Text style={styles.dangerLabel}>NUCLEAR DELETE (Wipe Data)</Text>
-                    </View>
-                </TouchableOpacity>
-            </View>
+            <SettingItem 
+                icon="restore" 
+                title="Reset App Preferences" 
+                subtitle="Restore default settings without losing data" 
+                onPress={handleResetPreferences}
+                iconColor={COLORS.secondary}
+                titleColor={COLORS.secondary}
+            />
+            <SettingItem 
+                icon="delete-outline" 
+                title="Delete Account" 
+                subtitle="Permanently erase all your data" 
+                onPress={handleNuclearDelete}
+                iconColor={COLORS.error}
+                titleColor={COLORS.error}
+                hideBorder
+            />
 
             {/* Bottom Spacing */}
             <View style={styles.bottomSpacer} />
@@ -457,31 +416,120 @@ export function SettingsScreen() {
     );
 }
 
+// Helpers for WhatsApp style layout
+interface SettingItemProps {
+    icon: string;
+    title: string;
+    subtitle?: string;
+    onPress?: () => void;
+    rightElement?: React.ReactNode;
+    iconColor?: string;
+    titleColor?: string;
+    hideBorder?: boolean;
+}
+
+function SettingItem({ icon, title, subtitle, onPress, rightElement, iconColor, titleColor, hideBorder }: SettingItemProps) {
+    const Component = onPress ? TouchableOpacity : View;
+    return (
+        <Component style={styles.settingRow} onPress={onPress} activeOpacity={0.7}>
+            <View style={styles.iconContainer}>
+                <Icon name={icon} size={28} color={iconColor || COLORS.textMuted} />
+            </View>
+            <View style={[styles.settingContent, !hideBorder && styles.settingBorder]}>
+                <View style={styles.settingTextContainer}>
+                    <Text style={[styles.settingLabel, titleColor && { color: titleColor }]}>{title}</Text>
+                    {subtitle && <Text style={styles.settingSubtitle}>{subtitle}</Text>}
+                </View>
+                {rightElement && <View style={styles.rightElement}>{rightElement}</View>}
+            </View>
+        </Component>
+    );
+}
+
+function BackupSection({ showModal }: { showModal: (title: string, message: string, actions: ModalAction[], type?: ModalType, icon?: string) => void }) {
+    const {
+        isSyncing,
+        lastBackup,
+        user,
+        autoBackupEnabled,
+        toggleDriveBackup,
+        manualBackup,
+        restoreBackup
+    } = useBackup({ showModal });
+
+    return (
+        <>
+            <SettingItem 
+                icon="cloud-upload" 
+                title="Google Drive Backup" 
+                subtitle={user ? `Signed in as ${user.user.name}` : 'Sign in to safely backup data'} 
+                onPress={() => {
+                    // Don't toggle if syncing, otherwise do standard toggle
+                    if (!isSyncing) toggleDriveBackup(!autoBackupEnabled);
+                }}
+                rightElement={
+                    isSyncing ? (
+                        <ActivityIndicator size="small" color={COLORS.primary} />
+                    ) : (
+                        <Switch
+                            value={autoBackupEnabled}
+                            onValueChange={toggleDriveBackup}
+                            trackColor={{ false: COLORS.border, true: COLORS.primaryMuted }}
+                            thumbColor={autoBackupEnabled ? COLORS.primary : COLORS.textMuted}
+                        />
+                    )
+                }
+                hideBorder={!autoBackupEnabled}
+            />
+
+            {autoBackupEnabled && (
+                <>
+                    <SettingItem 
+                        icon="backup" 
+                        title="Backup Now" 
+                        subtitle={`Last backup: ${lastBackup || 'Never'}`} 
+                        onPress={() => manualBackup(false)} 
+                        iconColor={COLORS.primary}
+                    />
+
+                    <SettingItem 
+                        icon="settings-backup-restore" 
+                        title="Restore Data from Backup" 
+                        subtitle="Overwrite local data with Google Drive version" 
+                        onPress={restoreBackup}
+                        iconColor={COLORS.error}
+                        hideBorder
+                    />
+                </>
+            )}
+        </>
+    );
+}
+
 const styles = StyleSheet.create({
-    scrollView: { flex: 1 },
-    scrollContent: { paddingHorizontal: SPACING.xl, paddingBottom: 40 },
-    screenTitle: { fontSize: 28, fontWeight: '700', color: COLORS.text, marginBottom: SPACING.xl },
+    scrollView: { flex: 1, backgroundColor: COLORS.surface },
+    scrollContent: { paddingBottom: 40 },
+    screenTitle: { fontSize: 32, fontWeight: '700', color: COLORS.text, marginBottom: SPACING.md, paddingHorizontal: SPACING.xl },
 
     // Profile Card
     profileCard: {
         flexDirection: 'row',
         alignItems: 'center',
+        paddingHorizontal: SPACING.xl,
+        paddingVertical: SPACING.lg,
         backgroundColor: COLORS.surface,
-        borderRadius: BORDER_RADIUS.xl,
-        padding: SPACING.lg,
-        marginBottom: SPACING.xxl,
     },
     profileAvatar: {
-        width: 60,
-        height: 60,
-        borderRadius: 30,
+        width: 64,
+        height: 64,
+        borderRadius: 32,
         backgroundColor: COLORS.primary,
         alignItems: 'center',
         justifyContent: 'center',
         marginRight: SPACING.lg,
     },
     profileAvatarText: {
-        fontSize: 24,
+        fontSize: 28,
         fontWeight: '700',
         color: COLORS.background,
     },
@@ -492,23 +540,25 @@ const styles = StyleSheet.create({
         fontSize: FONT_SIZE.xl,
         fontWeight: '600',
         color: COLORS.text,
+        marginBottom: 4,
     },
     profileSubtitle: {
-        fontSize: FONT_SIZE.sm,
+        fontSize: FONT_SIZE.md,
         color: COLORS.textMuted,
-        marginTop: 2,
     },
     editNameContainer: {
         flexDirection: 'row',
         alignItems: 'center',
+        paddingRight: SPACING.md,
     },
     nameInput: {
         flex: 1,
-        fontSize: FONT_SIZE.lg,
+        fontSize: FONT_SIZE.xl,
         color: COLORS.text,
-        borderBottomWidth: 1,
+        borderBottomWidth: 2,
         borderBottomColor: COLORS.primary,
         paddingVertical: SPACING.xs,
+        fontWeight: '600'
     },
     saveNameBtn: {
         marginLeft: SPACING.md,
@@ -522,82 +572,79 @@ const styles = StyleSheet.create({
         fontWeight: '600',
     },
 
-    // Section
-    sectionTitle: {
-        fontSize: FONT_SIZE.sm,
-        fontWeight: '600',
-        color: COLORS.textMuted,
-        letterSpacing: 1,
-        marginBottom: SPACING.md,
-        marginTop: SPACING.sm,
-    },
-
-    // Settings Card
-    settingsCard: {
-        backgroundColor: COLORS.surface,
-        borderRadius: BORDER_RADIUS.xl,
-        marginBottom: SPACING.xl,
-        overflow: 'hidden',
+    // Dividers
+    divider: {
+        height: 10,
+        backgroundColor: COLORS.background, // Creates the distinct section gap like WhatsApp
+        width: '100%',
     },
 
     // Setting Row
     settingRow: {
         flexDirection: 'row',
         alignItems: 'center',
-        justifyContent: 'space-between',
-        padding: SPACING.lg,
-        borderBottomWidth: 1,
-        borderBottomColor: COLORS.borderLight,
+        backgroundColor: COLORS.surface,
     },
-    settingInfo: {
+    iconContainer: {
+        width: 72,
+        alignItems: 'center',
+        justifyContent: 'center',
+    },
+    settingContent: {
+        flex: 1,
         flexDirection: 'row',
         alignItems: 'center',
-        flex: 1,
+        justifyContent: 'space-between',
+        paddingVertical: SPACING.lg,
+        paddingRight: SPACING.xl,
+    },
+    settingBorder: {
+        borderBottomWidth: 0.5,
+        borderBottomColor: COLORS.borderLight,
     },
     settingTextContainer: {
         flex: 1,
+        paddingRight: SPACING.md,
     },
-    settingIcon: { fontSize: 20, marginRight: SPACING.md },
-    settingLabel: { fontSize: FONT_SIZE.md, fontWeight: '500', color: COLORS.text },
-    settingSubtitle: { fontSize: FONT_SIZE.sm, color: COLORS.textMuted, marginTop: 2 },
-    settingArrow: { fontSize: FONT_SIZE.lg, color: COLORS.textMuted },
-    settingValue: { fontSize: FONT_SIZE.md, color: COLORS.textSecondary },
-    lastRow: { borderBottomWidth: 0 },
+    settingLabel: { fontSize: FONT_SIZE.lg, color: COLORS.text, marginBottom: 2 },
+    settingSubtitle: { fontSize: 13, color: COLORS.textMuted, lineHeight: 18 },
+    rightElement: {
+        minWidth: 40,
+        alignItems: 'flex-end',
+    },
 
     // Currency Picker
     currencyPicker: {
-        borderTopWidth: 1,
-        borderTopColor: COLORS.borderLight,
+        backgroundColor: COLORS.surface,
+        paddingLeft: 72, // Align with text
     },
     currencyOption: {
         flexDirection: 'row',
         alignItems: 'center',
-        padding: SPACING.lg,
-        borderBottomWidth: 1,
+        paddingVertical: SPACING.md,
+        paddingRight: SPACING.xl,
+        borderBottomWidth: 0.5,
         borderBottomColor: COLORS.borderLight,
     },
     currencyOptionActive: {
         backgroundColor: COLORS.primaryMuted,
     },
     currencySymbol: {
-        fontSize: FONT_SIZE.xl,
+        fontSize: FONT_SIZE.lg,
         fontWeight: '700',
-        color: COLORS.primary,
-        width: 36,
-        textAlign: 'center',
-        marginRight: SPACING.md,
+        color: COLORS.text,
+        width: 32,
     },
     currencyTextContainer: {
         flex: 1,
     },
-    currencyCode: { fontSize: FONT_SIZE.md, fontWeight: '600', color: COLORS.text },
+    currencyCode: { fontSize: FONT_SIZE.md, color: COLORS.text },
     currencyName: { fontSize: FONT_SIZE.sm, color: COLORS.textMuted },
-    checkmark: { fontSize: 18, color: COLORS.primary, fontWeight: '700' },
 
     // Toggle Pill
     togglePill: {
         flexDirection: 'row',
-        backgroundColor: COLORS.surfaceLight,
+        backgroundColor: COLORS.background,
         borderRadius: BORDER_RADIUS.md,
         padding: 4,
     },
@@ -614,87 +661,10 @@ const styles = StyleSheet.create({
         color: COLORS.background,
     },
 
-    // Danger Zone
-    dangerRow: {
-        backgroundColor: 'rgba(239, 68, 68, 0.1)',
-    },
-    dangerLabel: {
-        fontSize: FONT_SIZE.md,
-        fontWeight: '500',
-        color: '#EF4444',
-    },
-
     bottomSpacer: {
         height: 100,
+        backgroundColor: COLORS.background,
     },
 });
-
-function BackupSection() {
-    const {
-        isSyncing,
-        lastBackup,
-        user,
-        autoBackupEnabled,
-        toggleDriveBackup,
-        manualBackup,
-        restoreBackup
-    } = useBackup();
-
-    return (
-        <View style={styles.settingsCard}>
-            {/* Auto Backup Toggle */}
-            <View style={styles.settingRow}>
-                <View style={styles.settingInfo}>
-                    <Icon name="cloud-queue" size={24} color={COLORS.text} style={{ marginRight: SPACING.md }} />
-                    <View style={styles.settingTextContainer}>
-                        <Text style={styles.settingLabel}>Google Drive Backup</Text>
-                        <Text style={styles.settingSubtitle}>
-                            {user ? `Signed in as ${user.user.name}` : 'Sign in to sync data'}
-                        </Text>
-                    </View>
-                </View>
-                {isSyncing ? (
-                    <ActivityIndicator size="small" color={COLORS.primary} />
-                ) : (
-                    <Switch
-                        value={autoBackupEnabled}
-                        onValueChange={toggleDriveBackup}
-                        trackColor={{ false: COLORS.border, true: COLORS.primaryMuted }}
-                        thumbColor={autoBackupEnabled ? COLORS.primary : COLORS.textMuted}
-                    />
-                )}
-            </View>
-
-            {/* Manual Actions (Only if signed in) */}
-            {autoBackupEnabled && (
-                <>
-                    <TouchableOpacity style={styles.settingRow} onPress={manualBackup} disabled={isSyncing}>
-                        <View style={styles.settingInfo}>
-                            <Icon name="backup" size={24} color={COLORS.text} style={{ marginRight: SPACING.md }} />
-                            <View style={styles.settingTextContainer}>
-                                <Text style={styles.settingLabel}>Backup Now</Text>
-                                <Text style={styles.settingSubtitle}>
-                                    Last backup: {lastBackup || 'Never'}
-                                </Text>
-                            </View>
-                        </View>
-                        <Icon name="chevron-right" size={24} color={COLORS.textMuted} />
-                    </TouchableOpacity>
-
-                    <TouchableOpacity style={[styles.settingRow, styles.lastRow]} onPress={restoreBackup} disabled={isSyncing}>
-                        <View style={styles.settingInfo}>
-                            <Icon name="settings-backup-restore" size={24} color={COLORS.error} style={{ marginRight: SPACING.md }} />
-                            <View style={styles.settingTextContainer}>
-                                <Text style={[styles.settingLabel, { color: COLORS.error }]}>Restore Data</Text>
-                                <Text style={styles.settingSubtitle}>Overwrite local data</Text>
-                            </View>
-                        </View>
-                        <Icon name="warning" size={24} color={COLORS.error} />
-                    </TouchableOpacity>
-                </>
-            )}
-        </View>
-    );
-}
 
 export default SettingsScreen;
