@@ -1,59 +1,117 @@
-name: Build Android APK (Tag Release)
+name: Android Release CI
 
 on:
   push:
     tags:
-      - "v*.*.*"
+      - "v*"
+  workflow_dispatch:
 
 jobs:
   build:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
 
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v4
 
-      - name: Setup Node
-        uses: actions/setup-node@v4
-        with:
-          node-version: 20
-          cache: npm
+      - name: Extract Version from Tag
+        id: version
+        run: |
+          TAG=${GITHUB_REF#refs/tags/v}
+          # Handle workflow_dispatch or tags not starting with v
+          if [[ "$TAG" == "efs/heads/"* ]]; then TAG="manual"; fi
+          echo "VERSION_NAME=$TAG" >> $GITHUB_OUTPUT
 
-      - name: Install Dependencies
-        run: npm install
+          # Parse semver: v1.2.3 → versionCode = 1*10000 + 2*100 + 3 = 10203
+          if [[ "$TAG" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            IFS='.' read -r MAJOR MINOR PATCH <<< "$TAG"
+            MAJOR=${MAJOR:-0}
+            MINOR=${MINOR:-0}
+            PATCH=${PATCH:-0}
+            VERSION_CODE=$((MAJOR * 10000 + MINOR * 100 + PATCH))
+          else
+            VERSION_CODE=1
+          fi
+          echo "VERSION_CODE=$VERSION_CODE" >> $GITHUB_OUTPUT
 
-      - name: Setup Java
+          echo "📦 Version: $TAG (code: $VERSION_CODE)"
+
+      - name: Set up JDK 17
         uses: actions/setup-java@v4
         with:
-          distribution: temurin
-          java-version: 17
+          distribution: "temurin"
+          java-version: "17"
 
-      - name: Create google-services.json
-        run: echo '${{ secrets.GOOGLE_SERVICES_JSON }}' > google-services.json
-      
-      - name: Decode Keystore
-        run: echo "${{ secrets.SIGNING_KEY }}" | base64 --decode > android/release.keystore
-        
-      - name: Install Expo CLI
-        run: npm install -g expo-cli
+      - name: Set up Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
 
-      - name: Generate Native Android Code
+      - name: Install Node Dependencies
+        run: npm ci
+
+      - name: Inject google-services.json
+        env:
+          GOOGLE_SERVICES_JSON: ${{ secrets.GOOGLE_SERVICES_JSON }}
+        run: echo "$GOOGLE_SERVICES_JSON" > google-services.json
+
+      - name: Expo Prebuild (Generate Native Code)
         run: npx expo prebuild --platform android --no-install
 
-      - name: Grant Gradle Permission
+      - name: Decode Keystore
+        run: |
+          echo "${{ secrets.SIGNING_KEY }}" | base64 --decode > android/release.keystore
+
+      - name: Cache Gradle
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: gradle-${{ runner.os }}-${{ hashFiles('**/*.gradle*', '**/gradle-wrapper.properties') }}
+          restore-keys: |
+            gradle-${{ runner.os }}-
+
+      - name: Grant Execute Permission to Gradlew
         run: chmod +x android/gradlew
 
       - name: Build Release APK
+        working-directory: android
+        run: |
+          ./gradlew assembleRelease \
+            -PVERSION_NAME=${{ steps.version.outputs.VERSION_NAME }} \
+            -PVERSION_CODE=${{ steps.version.outputs.VERSION_CODE }}
         env:
           KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
           KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
           KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
-        run: |
-          cd android
-          ./gradlew assembleRelease
 
-      - name: Upload APK Artifact
-        uses: actions/upload-artifact@v4
+      - name: Rename APK
+        run: |
+          APK_PATH=$(find android/app/build/outputs/apk/release -name "*.apk" | head -1)
+          if [ -z "$APK_PATH" ]; then
+            echo "❌ APK not found!"
+            exit 1
+          fi
+          cp "$APK_PATH" "Sikka-v${{ steps.version.outputs.VERSION_NAME }}.apk"
+
+      - name: Create GitHub Release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
         with:
-          name: android-release-apk
-          path: android/app/build/outputs/apk/release/app-release.apk
+          name: "Sikka v${{ steps.version.outputs.VERSION_NAME }}"
+          body: |
+            ## 🚀 Sikka v${{ steps.version.outputs.VERSION_NAME }}
+
+            **Version Code:** ${{ steps.version.outputs.VERSION_CODE }}
+            **Built from:** `${{ github.sha }}`
+
+            ### Installation
+            Download the APK below and install on your Android device.
+          files: Sikka-v${{ steps.version.outputs.VERSION_NAME }}.apk
+          generate_release_notes: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
