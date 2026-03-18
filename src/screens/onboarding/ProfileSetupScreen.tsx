@@ -34,9 +34,7 @@ export function ProfileSetupScreen() {
         <View style={styles.container}>
             {/* Header */}
             <View style={styles.topHeader}>
-                <TouchableOpacity onPress={goBack} style={styles.backButton}>
-                    <Icon name="arrow-back" size={24} color={COLORS.text} />
-                </TouchableOpacity>
+                <View style={{ width: 40 }} />
                 <Text style={styles.headerTitle}>PROFILE SETUP</Text>
                 <TouchableOpacity onPress={handleSkip}>
                     <Text style={styles.skipText}>Skip</Text>

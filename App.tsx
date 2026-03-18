@@ -39,7 +39,6 @@ import { BiometricLockScreen } from './src/components/BiometricLockScreen';
 import { DashboardScreen, AssetsScreen, StatsScreen, SettingsScreen, AccountDetailScreen, NotifyActionCenterScreen, PrivacyPolicyScreen, AboutUsScreen } from './src/screens';
 import { AllTransactionsScreen } from './src/screens/AllTransactionsScreen';
 import {
-  WelcomeScreen,
   ProfileSetupScreen,
   AccountSetupScreen,
   NotificationPermissionScreen,
@@ -52,17 +51,15 @@ function OnboardingFlow() {
 
   switch (currentStep) {
     case 1:
-      return <WelcomeScreen />;
-    case 2:
       return <ProfileSetupScreen />;
-    case 3:
+    case 2:
       return <AccountSetupScreen />;
-    case 4:
+    case 3:
       return <NotificationPermissionScreen />;
-    case 5:
+    case 4:
       return <SecuritySetupScreen />;
     default:
-      return <WelcomeScreen />;
+      return <ProfileSetupScreen />;
   }
 }
 

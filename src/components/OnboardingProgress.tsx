@@ -13,7 +13,7 @@ interface OnboardingProgressProps {
     totalSteps?: number;
 }
 
-export function OnboardingProgress({ currentStep, totalSteps = 5 }: OnboardingProgressProps) {
+export function OnboardingProgress({ currentStep, totalSteps = 4 }: OnboardingProgressProps) {
     return (
         <View style={styles.container}>
             {Array.from({ length: totalSteps }, (_, i) => {
