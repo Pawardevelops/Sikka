@@ -1,8 +1,3 @@
-/**
- * Sikka - Account Setup Screen (Onboarding Step 3)
- * Select account types and initial balance
- */
-
 import React, { useState } from 'react';
 import {
     StyleSheet,
@@ -17,52 +12,45 @@ import { useCurrency } from '../../context/CurrencyContext';
 import { OnboardingProgress } from '../../components/OnboardingProgress';
 import { Icon } from '../../components/Icon';
 import { COLORS, SPACING, FONT_SIZE, BORDER_RADIUS } from '../../constants/theme';
-import { OnboardingAccountType, AccountType } from '../../types';
+import { Account } from '../../types';
+import { AddAccountModal } from '../../components/AddAccountModal';
 
-const ACCOUNT_TYPES: (OnboardingAccountType & { iconName: any })[] = [
-    { type: 'cash', name: 'Cash', description: 'Physical cash in hand', icon: '💵', iconName: 'payments', color: '#22C55E', selected: false, balance: 0 },
-    { type: 'bank', name: 'Bank', description: 'Savings & Current', icon: '🏦', iconName: 'account-balance', color: '#3B82F6', selected: false, balance: 0 },
-    { type: 'credit', name: 'Credit Card', description: 'Manage credit bills', icon: '💳', iconName: 'credit-card', color: '#A855F7', selected: false, balance: 0 },
-    { type: 'savings', name: 'UPI / Wallet', description: 'Digital wallets', icon: '📱', iconName: 'account-balance-wallet', color: '#F97316', selected: false, balance: 0 },
-    { type: 'investment', name: 'Investments', description: 'Stocks & Mutual Funds', icon: '📈', iconName: 'trending-up', color: '#EC4899', selected: false, balance: 0 },
-    { type: 'bitcoin', name: 'Crypto', description: 'Bitcoin & Altcoins', icon: '₿', iconName: 'currency-bitcoin', color: '#EAB308', selected: false, balance: 0 },
-];
+const ACCOUNT_TYPE_ICONS: Record<string, string> = {
+    bank: 'account-balance',
+    cash: 'payments',
+    wallet: 'account-balance-wallet',
+    credit: 'credit-card',
+    savings: 'savings',
+    investment: 'trending-up',
+    bitcoin: 'currency-bitcoin',
+};
 
 export function AccountSetupScreen() {
     const { currentStep, goNext, goBack } = useOnboarding();
-    const { addAccount } = useAccounts();
+    const { activeAccounts, netWorth, addAccount, updateAccount, deleteAccount } = useAccounts();
     const { formatAmount } = useCurrency();
-    const [accounts, setAccounts] = useState(ACCOUNT_TYPES);
 
-    const toggleAccount = (type: AccountType) => {
-        setAccounts(prev => prev.map(acc =>
-            acc.type === type ? { ...acc, selected: !acc.selected } : acc
-        ));
-    };
+    // Modal state
+    const [showAddModal, setShowAddModal] = useState(false);
+    const [accountToEdit, setAccountToEdit] = useState<Account | null>(null);
 
-    const totalBalance = accounts
-        .filter(acc => acc.selected)
-        .reduce((sum, acc) => sum + acc.balance, 0);
-
-    const selectedCount = accounts.filter(acc => acc.selected).length;
-
-    const handleContinue = async () => {
-        // Add selected accounts
-        for (const account of accounts.filter(acc => acc.selected)) {
-            await addAccount({
-                name: account.name,
-                type: account.type,
-                icon: account.iconName,
-                balance: account.balance,
-                color: account.color,
-            });
+    const handleContinue = () => {
+        if (activeAccounts.length > 0) {
+            goNext();
         }
-        goNext();
     };
 
-    const handleSkip = () => {
-        goNext();
+    const openAddModal = (account?: Account) => {
+        setAccountToEdit(account || null);
+        setShowAddModal(true);
     };
+
+    const closeAddModal = () => {
+        setShowAddModal(false);
+        setAccountToEdit(null);
+    };
+
+    const canContinue = activeAccounts.length > 0;
 
     return (
         <View style={styles.container}>
@@ -71,10 +59,8 @@ export function AccountSetupScreen() {
                 <TouchableOpacity onPress={goBack} style={styles.backButton}>
                     <Icon name="arrow-back" size={24} color={COLORS.text} />
                 </TouchableOpacity>
-                <Text style={styles.headerTitle}>Setup Accounts</Text>
-                <TouchableOpacity onPress={handleSkip}>
-                    <Text style={styles.skipText}>Skip</Text>
-                </TouchableOpacity>
+                <Text style={styles.headerTitle}>SET UP ACCOUNTS</Text>
+                <View style={{ width: 40 }} />
             </View>
 
             <OnboardingProgress currentStep={currentStep} />
@@ -85,58 +71,108 @@ export function AccountSetupScreen() {
                 showsVerticalScrollIndicator={false}
             >
                 {/* Title */}
-                <Text style={styles.title}>Add your accounts</Text>
+                <Text style={styles.title}>Track your{'\n'}money flow</Text>
                 <Text style={styles.subtitle}>
-                    Select account types to track your current balances. We'll help you organize them.
+                    Add at least one account like Cash, Bank, or Credit Card to get started.
                 </Text>
 
-                {/* Account Grid */}
-                <View style={styles.accountGrid}>
-                    {accounts.map((account) => (
+                {/* Net Worth Summary (only if accounts exist) */}
+                {activeAccounts.length > 0 && (
+                    <View style={styles.netWorthCard}>
+                        <Text style={styles.netWorthLabel}>TOTAL BALANCE</Text>
+                        <Text style={styles.netWorthAmount}>{formatAmount(netWorth)}</Text>
+                    </View>
+                )}
+
+                {/* Account List */}
+                <View style={styles.sectionHeader}>
+                    <Text style={styles.sectionTitle}>YOUR ACCOUNTS</Text>
+                    <Text style={styles.accountCount}>{activeAccounts.length} added</Text>
+                </View>
+
+                {activeAccounts.length === 0 ? (
+                    <TouchableOpacity
+                        style={styles.emptyState}
+                        onPress={() => openAddModal()}
+                        activeOpacity={0.7}
+                    >
+                        <View style={styles.emptyIconContainer}>
+                            <Icon name="account-balance-wallet" size={40} color={COLORS.primary} />
+                        </View>
+                        <Text style={styles.emptyTitle}>No accounts yet</Text>
+                        <Text style={styles.emptySubtitle}>Tap here to add your first account</Text>
+                        <View style={styles.addFirstBtn}>
+                            <Icon name="add" size={20} color={COLORS.background} />
+                            <Text style={styles.addFirstBtnText}>Add Account</Text>
+                        </View>
+                    </TouchableOpacity>
+                ) : (
+                    <>
+                        {activeAccounts.map((account) => (
+                            <TouchableOpacity
+                                key={account.id}
+                                style={styles.accountCard}
+                                onPress={() => openAddModal(account)}
+                                activeOpacity={0.8}
+                            >
+                                <View style={[styles.accountIcon, { backgroundColor: account.color + '20' }]}>
+                                    <Icon
+                                        name={(ACCOUNT_TYPE_ICONS[account.type] || account.icon || 'account-balance') as any}
+                                        size={22}
+                                        color={account.color || COLORS.primary}
+                                    />
+                                </View>
+                                <View style={styles.accountInfo}>
+                                    <Text style={styles.accountName} numberOfLines={1}>{account.name}</Text>
+                                    <Text style={styles.accountType}>{account.type.toUpperCase()}</Text>
+                                </View>
+                                <View style={styles.accountBalanceContainer}>
+                                    <Text style={[styles.accountBalance, account.balance < 0 && styles.negativeBalance]}>
+                                        {formatAmount(account.balance)}
+                                    </Text>
+                                    <TouchableOpacity
+                                        onPress={() => deleteAccount(account.id)}
+                                        hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                                    >
+                                        <Icon name="delete-outline" size={18} color={COLORS.error} style={{ opacity: 0.6 }} />
+                                    </TouchableOpacity>
+                                </View>
+                            </TouchableOpacity>
+                        ))}
+
                         <TouchableOpacity
-                            key={account.type}
-                            style={[
-                                styles.accountCard,
-                                account.selected && styles.accountCardSelected,
-                            ]}
-                            onPress={() => toggleAccount(account.type)}
+                            style={styles.addAnotherBtn}
+                            onPress={() => openAddModal()}
                             activeOpacity={0.7}
                         >
-                            <View style={[
-                                styles.accountIcon,
-                                { backgroundColor: `${account.color}20` },
-                            ]}>
-                                <Icon name={account.iconName} size={24} color={account.color} />
-                            </View>
-                            <Text style={styles.accountName}>{account.name}</Text>
-                            <Text style={styles.accountDescription}>{account.description}</Text>
-                            {account.selected && (
-                                <View style={styles.checkmark}>
-                                    <Icon name="check" size={14} color={COLORS.background} />
-                                </View>
-                            )}
+                            <Icon name="add" size={20} color={COLORS.primary} />
+                            <Text style={styles.addAnotherBtnText}>Add Another Account</Text>
                         </TouchableOpacity>
-                    ))}
-                </View>
+                    </>
+                )}
             </ScrollView>
 
-            {/* Balance Summary */}
-            <View style={styles.balanceSummary}>
-                <View style={styles.balanceHeader}>
-                    <Text style={styles.balanceLabel}>TOTAL INITIAL BALANCE</Text>
-                    <Icon name="lock" size={14} color={COLORS.textMuted} />
-                </View>
-                <Text style={styles.balanceAmount}>{formatAmount(totalBalance)}</Text>
-                <View style={styles.progressBar}>
-                    <View style={[styles.progressFill, { width: selectedCount > 0 ? '10%' : '0%' }]} />
-                </View>
-            </View>
+            {/* Modal */}
+            <AddAccountModal
+                visible={showAddModal}
+                accountToEdit={accountToEdit}
+                onClose={closeAddModal}
+                onAdd={addAccount}
+                onUpdate={updateAccount}
+            />
 
-            {/* Continue Button */}
+            {/* Footer */}
             <View style={styles.footer}>
-                <TouchableOpacity style={styles.continueButton} onPress={handleContinue} activeOpacity={0.8}>
-                    <Text style={styles.continueButtonText}>Continue</Text>
-                    <Icon name="arrow-forward" size={20} color={COLORS.background} />
+                <TouchableOpacity
+                    style={[styles.continueButton, !canContinue && styles.continueButtonDisabled]}
+                    onPress={handleContinue}
+                    activeOpacity={0.8}
+                    disabled={!canContinue}
+                >
+                    <Text style={[styles.continueButtonText, !canContinue && styles.continueButtonTextDisabled]}>
+                        Continue
+                    </Text>
+                    <Icon name="arrow-forward" size={20} color={canContinue ? COLORS.background : COLORS.textMuted} />
                 </TouchableOpacity>
             </View>
         </View>
@@ -162,32 +198,25 @@ const styles = StyleSheet.create({
         alignItems: 'center',
         justifyContent: 'center',
     },
-    backIcon: {
-        fontSize: 24,
-        color: COLORS.text,
-    },
     headerTitle: {
-        fontSize: FONT_SIZE.md,
+        fontSize: FONT_SIZE.sm,
         fontWeight: '600',
-        color: COLORS.text,
-    },
-    skipText: {
-        fontSize: FONT_SIZE.md,
-        fontWeight: '600',
-        color: COLORS.primary,
+        color: COLORS.textSecondary,
+        letterSpacing: 1,
     },
     scrollView: {
         flex: 1,
     },
     scrollContent: {
         paddingHorizontal: SPACING.xl,
-        paddingBottom: SPACING.lg,
+        paddingBottom: SPACING.xxxl,
     },
     title: {
-        fontSize: 28,
+        fontSize: 32,
         fontWeight: '700',
         color: COLORS.text,
         marginBottom: SPACING.sm,
+        lineHeight: 40,
     },
     subtitle: {
         fontSize: FONT_SIZE.md,
@@ -195,104 +224,149 @@ const styles = StyleSheet.create({
         marginBottom: SPACING.xxl,
         lineHeight: 22,
     },
-    accountGrid: {
-        flexDirection: 'row',
-        flexWrap: 'wrap',
-        gap: SPACING.md,
-    },
-    accountCard: {
-        width: '47%',
+    netWorthCard: {
         backgroundColor: COLORS.surface,
         borderRadius: BORDER_RADIUS.xl,
-        padding: SPACING.lg,
+        padding: SPACING.xl,
+        marginBottom: SPACING.xxl,
         borderWidth: 1,
         borderColor: COLORS.border,
-        position: 'relative',
-    },
-    accountCardSelected: {
-        borderColor: COLORS.primary,
-        backgroundColor: 'rgba(34, 197, 94, 0.05)',
-    },
-    accountIcon: {
-        width: 48,
-        height: 48,
-        borderRadius: BORDER_RADIUS.md,
         alignItems: 'center',
-        justifyContent: 'center',
-        marginBottom: SPACING.md,
     },
-    accountIconText: {
-        fontSize: 24,
-    },
-    accountName: {
-        fontSize: FONT_SIZE.lg,
-        fontWeight: '600',
-        color: COLORS.text,
-        marginBottom: 4,
-    },
-    accountDescription: {
-        fontSize: FONT_SIZE.sm,
-        color: COLORS.textSecondary,
-    },
-    checkmark: {
-        position: 'absolute',
-        top: SPACING.md,
-        right: SPACING.md,
-        width: 24,
-        height: 24,
-        borderRadius: 12,
-        backgroundColor: COLORS.primary,
-        alignItems: 'center',
-        justifyContent: 'center',
-    },
-    checkmarkText: {
-        color: COLORS.background,
-        fontSize: 14,
-        fontWeight: '700',
-    },
-    balanceSummary: {
-        backgroundColor: COLORS.surface,
-        marginHorizontal: SPACING.xl,
-        borderRadius: BORDER_RADIUS.xl,
-        padding: SPACING.lg,
-        marginBottom: SPACING.md,
-    },
-    balanceHeader: {
-        flexDirection: 'row',
-        justifyContent: 'space-between',
-        alignItems: 'center',
-        marginBottom: SPACING.sm,
-    },
-    balanceLabel: {
+    netWorthLabel: {
         fontSize: FONT_SIZE.xs,
         fontWeight: '600',
         color: COLORS.textMuted,
         letterSpacing: 1,
+        marginBottom: SPACING.xs,
     },
-    lockIcon: {
-        fontSize: 14,
-    },
-    balanceAmount: {
+    netWorthAmount: {
         fontSize: 32,
         fontWeight: '700',
         color: COLORS.text,
+    },
+    sectionHeader: {
+        flexDirection: 'row',
+        justifyContent: 'space-between',
+        alignItems: 'center',
         marginBottom: SPACING.md,
     },
-    progressBar: {
-        height: 4,
-        backgroundColor: COLORS.border,
-        borderRadius: 2,
-        overflow: 'hidden',
+    sectionTitle: {
+        fontSize: FONT_SIZE.xs,
+        fontWeight: '700',
+        color: COLORS.primary,
+        letterSpacing: 1,
     },
-    progressFill: {
-        height: '100%',
+    accountCount: {
+        fontSize: FONT_SIZE.xs,
+        color: COLORS.textMuted,
+    },
+    emptyState: {
+        backgroundColor: COLORS.surface,
+        borderRadius: BORDER_RADIUS.xxl,
+        padding: SPACING.xxxl,
+        alignItems: 'center',
+        borderWidth: 1,
+        borderColor: COLORS.border,
+        borderStyle: 'dashed',
+    },
+    emptyIconContainer: {
+        width: 80,
+        height: 80,
+        borderRadius: 40,
+        backgroundColor: 'rgba(34, 197, 94, 0.1)',
+        alignItems: 'center',
+        justifyContent: 'center',
+        marginBottom: SPACING.lg,
+    },
+    emptyTitle: {
+        fontSize: FONT_SIZE.xl,
+        fontWeight: '600',
+        color: COLORS.text,
+        marginBottom: SPACING.xs,
+    },
+    emptySubtitle: {
+        fontSize: FONT_SIZE.md,
+        color: COLORS.textSecondary,
+        textAlign: 'center',
+        marginBottom: SPACING.xl,
+    },
+    addFirstBtn: {
+        flexDirection: 'row',
+        alignItems: 'center',
         backgroundColor: COLORS.primary,
-        borderRadius: 2,
+        paddingHorizontal: SPACING.xl,
+        paddingVertical: SPACING.md,
+        borderRadius: BORDER_RADIUS.full,
+        gap: SPACING.sm,
+    },
+    addFirstBtnText: {
+        color: COLORS.background,
+        fontWeight: '600',
+        fontSize: FONT_SIZE.md,
+    },
+    accountCard: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        backgroundColor: COLORS.surface,
+        borderRadius: BORDER_RADIUS.lg,
+        padding: SPACING.lg,
+        marginBottom: SPACING.md,
+        borderWidth: 1,
+        borderColor: COLORS.border,
+    },
+    accountIcon: {
+        width: 44,
+        height: 44,
+        borderRadius: BORDER_RADIUS.md,
+        alignItems: 'center',
+        justifyContent: 'center',
+        marginRight: SPACING.md,
+    },
+    accountInfo: {
+        flex: 1,
+    },
+    accountName: {
+        fontSize: FONT_SIZE.md,
+        fontWeight: '600',
+        color: COLORS.text,
+        marginBottom: 2,
+    },
+    accountType: {
+        fontSize: FONT_SIZE.xs,
+        color: COLORS.textMuted,
+        fontWeight: '500',
+    },
+    accountBalanceContainer: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: SPACING.md,
+    },
+    accountBalance: {
+        fontSize: FONT_SIZE.md,
+        fontWeight: '700',
+        color: COLORS.text,
+    },
+    negativeBalance: {
+        color: COLORS.error,
+    },
+    addAnotherBtn: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'center',
+        paddingVertical: SPACING.lg,
+        gap: SPACING.sm,
+        marginTop: SPACING.sm,
+    },
+    addAnotherBtnText: {
+        color: COLORS.primary,
+        fontWeight: '600',
+        fontSize: FONT_SIZE.md,
     },
     footer: {
         paddingHorizontal: SPACING.xl,
         paddingBottom: SPACING.xxl,
-        paddingTop: SPACING.md,
+        paddingTop: SPACING.lg,
     },
     continueButton: {
         flexDirection: 'row',
@@ -303,13 +377,15 @@ const styles = StyleSheet.create({
         paddingVertical: SPACING.lg,
         gap: SPACING.sm,
     },
+    continueButtonDisabled: {
+        backgroundColor: COLORS.surfaceLight,
+    },
     continueButtonText: {
         fontSize: FONT_SIZE.lg,
         fontWeight: '600',
         color: COLORS.background,
     },
-    continueArrow: {
-        fontSize: FONT_SIZE.lg,
-        color: COLORS.background,
+    continueButtonTextDisabled: {
+        color: COLORS.textMuted,
     },
 });

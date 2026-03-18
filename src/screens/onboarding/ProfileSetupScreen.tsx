@@ -19,7 +19,7 @@ import { Icon } from '../../components/Icon';
 import { COLORS, SPACING, FONT_SIZE, BORDER_RADIUS } from '../../constants/theme';
 
 export function ProfileSetupScreen() {
-    const { currentStep, data, updateData, goNext, goBack } = useOnboarding();
+    const { currentStep, data, updateData, goNext } = useOnboarding();
     const [showGoalPicker, setShowGoalPicker] = useState(false);
 
     const handleContinue = () => {
