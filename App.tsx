@@ -41,7 +41,6 @@ import { AllTransactionsScreen } from './src/screens/AllTransactionsScreen';
 import {
   ProfileSetupScreen,
   AccountSetupScreen,
-  NotificationPermissionScreen,
   SecuritySetupScreen,
 } from './src/screens/onboarding';
 
@@ -55,8 +54,6 @@ function OnboardingFlow() {
     case 2:
       return <AccountSetupScreen />;
     case 3:
-      return <NotificationPermissionScreen />;
-    case 4:
       return <SecuritySetupScreen />;
     default:
       return <ProfileSetupScreen />;

@@ -177,7 +177,7 @@ export interface DashboardData {
 }
 
 // ==================== ONBOARDING ====================
-export type OnboardingStep = 1 | 2 | 3 | 4;
+export type OnboardingStep = 1 | 2 | 3;
 
 export type Language = 'en' | 'hi' | 'hinglish';
 

@@ -88,7 +88,7 @@ export function OnboardingProvider({ children }: OnboardingProviderProps) {
     // Navigate to next step
     const goNext = useCallback(() => {
         setCurrentStep((prev) => {
-            if (prev < 4) return (prev + 1) as OnboardingStep;
+            if (prev < 3) return (prev + 1) as OnboardingStep;
             return prev;
         });
     }, []);

@@ -1,5 +1,5 @@
 /**
- * Sikka - Security Setup Screen (Onboarding Step 5)
+ * Sikka - Security Setup Screen (Onboarding Step 3)
  * Biometric unlock and backup location
  */
 
