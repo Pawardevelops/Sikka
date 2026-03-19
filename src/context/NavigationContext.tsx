@@ -4,7 +4,7 @@
  */
 
 import { createContext, useContext } from 'react';
-import { Account, Subscription } from '../types';
+import { Account, Subscription, Transaction } from '../types';
 
 // ==================== NAVIGATION CONTEXT ====================
 export interface NavigationContextType {
@@ -41,6 +41,11 @@ export interface NavigationContextType {
     showPrivacyPolicy: boolean;
     openPrivacyPolicy: () => void;
     closePrivacyPolicy: () => void;
+
+    // Transaction Editing
+    selectedTransaction: Transaction | null;
+    selectTransaction: (transaction: Transaction) => void;
+    closeTransactionDetail: () => void;
 
     // About Us
     showAboutUs: boolean;

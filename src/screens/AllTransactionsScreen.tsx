@@ -18,6 +18,7 @@ import { useTransactions, CATEGORY_ICONS, formatTimeAgo } from '../context/Trans
 import { COLORS, SPACING, FONT_SIZE, BORDER_RADIUS } from '../constants/theme';
 import { useSafeTop } from '../components/SafeScreen';
 import { Icon } from '../components/Icon';
+import { useNavigation } from '../context/NavigationContext';
 
 interface AllTransactionsScreenProps {
     onBack: () => void;
@@ -27,6 +28,7 @@ export function AllTransactionsScreen({ onBack }: AllTransactionsScreenProps) {
     const { formatAmount } = useCurrency();
     const { getAccount } = useAccounts();
     const { activeTransactions } = useTransactions();
+    const { selectTransaction } = useNavigation();
 
     // Animation refs
     const fadeAnim = useRef(new Animated.Value(0)).current;
@@ -105,7 +107,11 @@ export function AllTransactionsScreen({ onBack }: AllTransactionsScreenProps) {
                                             }],
                                         }}
                                     >
-                                        <View style={styles.transactionRow}>
+                                        <TouchableOpacity
+                                            style={styles.transactionRow}
+                                            activeOpacity={0.7}
+                                            onPress={() => selectTransaction(tx)}
+                                        >
                                             <View style={styles.txIcon}>
                                                 <Icon name={CATEGORY_ICONS[tx.category] as any} size={24} color={COLORS.text} />
                                             </View>
@@ -130,7 +136,7 @@ export function AllTransactionsScreen({ onBack }: AllTransactionsScreenProps) {
                                                     {tx.amount >= 0 ? '+' : ''}{formatAmount(tx.amount, true)}
                                                 </Text>
                                             </View>
-                                        </View>
+                                        </TouchableOpacity>
                                     </Animated.View>
                                 );
                             })}

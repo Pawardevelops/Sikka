@@ -1,9 +1,9 @@
 /**
- * Sikka - Add Transaction Modal
- * Modal for adding new transactions
+ * Sikka - Edit Transaction Modal
+ * Modal for editing existing transactions
  */
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 
 import {
     StyleSheet,
@@ -14,51 +14,24 @@ import {
     TextInput,
     ScrollView,
     KeyboardAvoidingView,
-    Platform,
-    Alert,
 } from 'react-native';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import { COLORS, SPACING, FONT_SIZE, BORDER_RADIUS } from '../constants/theme';
 import { useSafeTop } from './SafeScreen';
 import { Icon } from './Icon';
-import { TransactionCategory, Account } from '../types';
+import { CustomModal } from './CustomModal';
+import { Transaction, TransactionCategory } from '../types';
 import { useAccounts } from '../context/AccountsContext';
-import { CATEGORY_ICONS, CATEGORY_LABELS } from '../context/TransactionsContext';
+import { CATEGORY_ICONS, CATEGORY_LABELS, useTransactions } from '../context/TransactionsContext';
 import { SENTIMENT_LIST } from '../constants/sentiments';
+import { Platform } from 'react-native';
 
-/**
- * Returns the spendable amount for a given account.
- * - CC: available credit = limit − outstanding
- * - Investment/Crypto: 0 (not spendable via transactions)
- * - All others: balance
- */
-function getSpendableAmount(account: Account): number {
-    if (account.type === 'credit') {
-        const limit = account.creditCardDetails?.creditLimit ?? 0;
-        return Math.max(0, limit - Math.abs(account.balance));
-    }
-    if (account.type === 'investment' || account.type === 'bitcoin') {
-        return 0; // Holdings-based, not spendable
-    }
-    return account.balance;
-}
-
-interface AddTransactionModalProps {
+interface EditTransactionModalProps {
     visible: boolean;
-    initialProps?: { type?: 'income' | 'expense' | 'transfer', accountId?: string } | null;
+    transaction: Transaction | null;
     onClose: () => void;
-    onAdd: (transaction: {
-        accountId: string;
-        merchant: string;
-        category: TransactionCategory;
-        amount: number;
-        notes?: string;
-        isAuto: boolean;
-        sentimentIds?: string[];
-        isImpulse?: boolean;
-        type?: 'credit' | 'debit';
-        timestamp?: number;
-    }) => void;
+    onEdit: (id: string, updates: Partial<Omit<Transaction, 'id' | 'isDeleted'>>) => Promise<void>;
+    onDelete: (id: string) => Promise<void>;
 }
 
 const CATEGORIES: TransactionCategory[] = [
@@ -66,16 +39,13 @@ const CATEGORIES: TransactionCategory[] = [
     'utilities', 'health', 'income', 'transfer', 'other',
 ];
 
-export function AddTransactionModal({ visible, initialProps, onClose, onAdd }: AddTransactionModalProps) {
+export function EditTransactionModal({ visible, transaction, onClose, onEdit, onDelete }: EditTransactionModalProps) {
     const { activeAccounts } = useAccounts();
+    const { refreshTransactions } = useTransactions();
     const [merchant, setMerchant] = useState('');
     const [amount, setAmount] = useState('');
     const [category, setCategory] = useState<TransactionCategory>('other');
-    const [accountId, setAccountId] = useState(activeAccounts[0]?.id || '');
-
-    // Transfer specific
-    const [toAccountId, setToAccountId] = useState('');
-
+    const [accountId, setAccountId] = useState('');
     const [notes, setNotes] = useState('');
     const [type, setType] = useState<'income' | 'expense' | 'transfer'>('expense');
 
@@ -88,6 +58,10 @@ export function AddTransactionModal({ visible, initialProps, onClose, onAdd }: A
     const [sentimentIds, setSentimentIds] = useState<string[]>([]);
     const safeTop = useSafeTop();
 
+    // Custom modal states
+    const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+    const [showTransferWarning, setShowTransferWarning] = useState(false);
+
     const toggleSentiment = (id: string) => {
         setSentimentIds(prev =>
             prev.includes(id)
@@ -96,18 +70,27 @@ export function AddTransactionModal({ visible, initialProps, onClose, onAdd }: A
         );
     };
 
-    // Handle Initial Props
-    React.useEffect(() => {
-        if (visible && initialProps) {
-            if (initialProps.type) setType(initialProps.type);
-            if (initialProps.accountId) setAccountId(initialProps.accountId);
-        } else if (visible) {
-            // Reset to defaults if no props
-            setType('expense');
-            setDate(new Date());
-            if (activeAccounts.length > 0) setAccountId(activeAccounts[0].id);
+    // Populate form when transaction changes
+    useEffect(() => {
+        if (visible && transaction) {
+            setMerchant(transaction.merchant);
+            setAmount(String(Math.abs(transaction.amount)));
+            setCategory(transaction.category);
+            setAccountId(transaction.accountId);
+            setNotes(transaction.notes || '');
+            setSentimentIds(transaction.sentimentIds || []);
+            setDate(new Date(transaction.timestamp));
+
+            // Determine type from transaction data
+            if (transaction.category === 'transfer') {
+                setType('transfer');
+            } else if (transaction.amount >= 0) {
+                setType('income');
+            } else {
+                setType('expense');
+            }
         }
-    }, [visible, initialProps]);
+    }, [visible, transaction]);
 
     const onDateChange = (_event: any, selectedDate?: Date) => {
         setShowDatePicker(Platform.OS === 'ios');
@@ -129,105 +112,47 @@ export function AddTransactionModal({ visible, initialProps, onClose, onAdd }: A
         }
     };
 
-    const handleAdd = () => {
-        // Validation
+    const handleSave = async () => {
+        if (!transaction) return;
         if (!amount.trim()) return;
         const numAmount = parseFloat(amount);
         if (isNaN(numAmount)) return;
 
+        // For transfers, show warning via custom modal
         if (type === 'transfer') {
-            if (!accountId || !toAccountId) {
-                Alert.alert('Missing Details', 'Please select both From and To accounts.');
-                return;
-            }
-            if (accountId === toAccountId) {
-                Alert.alert('Invalid Transfer', 'Cannot transfer to the same account.');
-                return;
-            }
-            // Check available funds (type-aware)
-            const fromAccount = activeAccounts.find(acc => acc.id === accountId);
-            if (fromAccount) {
-                const available = getSpendableAmount(fromAccount);
-                if (numAmount > available) {
-                    const label = fromAccount.type === 'credit' ? 'Available Credit' : 'Balance';
-                    Alert.alert('Insufficient Funds', `${label} on "${fromAccount.name}" is ₹${available.toLocaleString()}.`);
-                    return;
-                }
-            }
-
-            // Add OUT transaction (Debit)
-            onAdd({
-                accountId,
-                merchant: 'Transfer Out',
-                category: 'transfer',
-                amount: -Math.abs(numAmount),
-                notes: notes ? `To: ${activeAccounts.find(a => a.id === toAccountId)?.name}. ${notes}` : `To: ${activeAccounts.find(a => a.id === toAccountId)?.name}`,
-                isAuto: false,
-                type: 'debit',
-                timestamp: date.getTime(),
-            });
-
-            // Add IN transaction (Credit)
-            // Note: onAdd currently only adds one. The parent needs to handle this or we call it twice.
-            // Since onAdd adds to context, calling it twice is fine.
-            // Add IN transaction (Credit)
-            // Note: onAdd currently only adds one. The parent needs to handle this or we call it twice.
-            // Since onAdd adds to context, calling it twice is fine.
-            onAdd({
-                accountId: toAccountId,
-                merchant: 'Transfer In',
-                category: 'transfer',
-                amount: Math.abs(numAmount),
-                notes: notes ? `From: ${activeAccounts.find(a => a.id === accountId)?.name}. ${notes}` : `From: ${activeAccounts.find(a => a.id === accountId)?.name}`,
-                isAuto: false,
-                type: 'credit',
-                timestamp: date.getTime(),
-            });
-
-        } else {
-            // Regular Expense/Income
-            if (!merchant.trim() || !accountId) return;
-
-            // Check for insufficient funds on expenses (type-aware)
-            if (type === 'expense') {
-                const selectedAccount = activeAccounts.find(acc => acc.id === accountId);
-                if (selectedAccount) {
-                    const available = getSpendableAmount(selectedAccount);
-                    if (Math.abs(numAmount) > available) {
-                        const label = selectedAccount.type === 'credit' ? 'available credit' : 'balance';
-                        const message = `Your "${selectedAccount.name}" only has ₹${available.toLocaleString()} ${label}. You can't spend ₹${Math.abs(numAmount).toLocaleString()}.`;
-                        if (Platform.OS === 'web') {
-                            window.alert(`Insufficient Funds\n\n${message}`);
-                        } else {
-                            Alert.alert('Insufficient Funds', message, [{ text: 'OK' }]);
-                        }
-                        return;
-                    }
-                }
-            }
-
-            onAdd({
-                accountId,
-                merchant: merchant.trim(),
-                category,
-                amount: type === 'expense' ? -Math.abs(numAmount) : Math.abs(numAmount),
-                notes: notes.trim() || undefined,
-                isAuto: false,
-                sentimentIds: type === 'expense' ? sentimentIds : [],
-                isImpulse: type === 'expense' ? sentimentIds.includes('impulse') : undefined,
-                type: type === 'income' ? 'credit' : 'debit',
-                timestamp: date.getTime(),
-            });
+            setShowTransferWarning(true);
+            return;
         }
 
-        // Reset form
-        setMerchant('');
-        setAmount('');
-        setCategory('other');
-        setNotes('');
-        setType('expense');
-        setSentimentIds([]);
-        setToAccountId('');
+        if (!merchant.trim() || !accountId) return;
+
+        const finalAmount = type === 'expense' ? -Math.abs(numAmount) : Math.abs(numAmount);
+
+        await onEdit(transaction.id, {
+            accountId,
+            merchant: merchant.trim(),
+            category,
+            amount: finalAmount,
+            notes: notes.trim() || undefined,
+            type: type === 'income' ? 'credit' : 'debit',
+            timestamp: date.getTime(),
+            sentimentIds: type === 'expense' ? sentimentIds : [],
+        });
+
+        await refreshTransactions();
+        onClose();
+    };
+
+    const handleDelete = () => {
+        if (!transaction) return;
+        setShowDeleteConfirm(true);
+    };
+
+    const confirmDelete = async () => {
+        if (!transaction) return;
+        setShowDeleteConfirm(false);
+        await onDelete(transaction.id);
+        await refreshTransactions();
         onClose();
     };
 
@@ -236,7 +161,7 @@ export function AddTransactionModal({ visible, initialProps, onClose, onAdd }: A
     const isTransfer = type === 'transfer';
 
     return (
-        <Modal visible={visible} animationType="slide" presentationStyle="pageSheet">
+        <Modal visible={visible} animationType="slide" transparent={true} onRequestClose={onClose}>
             <KeyboardAvoidingView
                 style={styles.modalContainer}
                 behavior={'padding'}
@@ -246,11 +171,11 @@ export function AddTransactionModal({ visible, initialProps, onClose, onAdd }: A
                         <Icon name="close" size={20} color={COLORS.textSecondary} />
                         <Text style={styles.cancelBtn}>Cancel</Text>
                     </TouchableOpacity>
-                    <Text style={styles.modalTitle}>Add Transaction</Text>
+                    <Text style={styles.modalTitle}>Edit Transaction</Text>
                     <TouchableOpacity
-                        style={[styles.saveBtnContainer, (!amount || !accountId || (isTransfer && !toAccountId)) && styles.saveBtnDisabledContainer]}
-                        onPress={handleAdd}
-                        disabled={!amount || !accountId || (isTransfer && !toAccountId)}
+                        style={[styles.saveBtnContainer, (!amount || !accountId) && styles.saveBtnDisabledContainer]}
+                        onPress={handleSave}
+                        disabled={!amount || !accountId}
                         activeOpacity={0.7}
                     >
                         <Icon name="check" size={18} color={(amount && accountId) ? COLORS.background : COLORS.textMuted} />
@@ -262,20 +187,21 @@ export function AddTransactionModal({ visible, initialProps, onClose, onAdd }: A
                     {/* Type Toggle */}
                     <View style={styles.typeToggle}>
                         <TouchableOpacity
-                            style={[styles.typeBtn, isExpense && styles.typeBtnActiveExpense]}
+                            style={[styles.typeBtn, isExpense && styles.typeBtnActive]}
                             onPress={() => setType('expense')}
                         >
                             <Text style={[styles.typeBtnText, isExpense && styles.typeBtnTextActive]}>Expense</Text>
                         </TouchableOpacity>
                         <TouchableOpacity
-                            style={[styles.typeBtn, isIncome && styles.typeBtnActiveIncome]}
+                            style={[styles.typeBtn, isIncome && styles.typeBtnActive]}
                             onPress={() => setType('income')}
                         >
                             <Text style={[styles.typeBtnText, isIncome && styles.typeBtnTextActive]}>Income</Text>
                         </TouchableOpacity>
                         <TouchableOpacity
-                            style={[styles.typeBtn, isTransfer && styles.typeBtnActiveTransfer]}
+                            style={[styles.typeBtn, isTransfer && styles.typeBtnActive]}
                             onPress={() => setType('transfer')}
+                            disabled={true}
                         >
                             <Text style={[styles.typeBtnText, isTransfer && styles.typeBtnTextActive]}>Transfer</Text>
                         </TouchableOpacity>
@@ -337,64 +263,29 @@ export function AddTransactionModal({ visible, initialProps, onClose, onAdd }: A
                         )}
                     </View>
 
-                    {/* From Account Selector */}
-                    <Text style={styles.inputLabel}>{isTransfer ? 'From Account' : 'Account'}</Text>
+                    {/* Account Selector */}
+                    <Text style={styles.inputLabel}>Account</Text>
                     <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.accountSelector}>
                         {activeAccounts
                             .filter(acc => {
-                                // Hide investment/crypto from expense/income (they use holdings, not transactions)
                                 if (!isTransfer && (acc.type === 'investment' || acc.type === 'bitcoin')) return false;
                                 return true;
                             })
-                            .map(acc => {
-                                const isCC = acc.type === 'credit';
-                                const avail = getSpendableAmount(acc);
-                                return (
-                                    <TouchableOpacity
-                                        key={acc.id}
-                                        style={[styles.accountChip, accountId === acc.id && styles.accountChipActive]}
-                                        onPress={() => setAccountId(acc.id)}
-                                    >
-                                        <View style={{ marginRight: SPACING.sm }}>
-                                            <Icon name={acc.icon as any} size={18} color={accountId === acc.id ? COLORS.background : COLORS.text} />
-                                        </View>
-                                        <View>
-                                            <Text style={[styles.accountChipText, accountId === acc.id && styles.accountChipTextActive]}>
-                                                {acc.name}
-                                            </Text>
-                                            {isCC && isExpense && (
-                                                <Text style={[styles.accountChipSubtext, accountId === acc.id && { color: COLORS.background + 'AA' }]}>
-                                                    Avail: ₹{avail.toLocaleString()}
-                                                </Text>
-                                            )}
-                                        </View>
-                                    </TouchableOpacity>
-                                );
-                            })}
+                            .map(acc => (
+                                <TouchableOpacity
+                                    key={acc.id}
+                                    style={[styles.accountChip, accountId === acc.id && styles.accountChipActive]}
+                                    onPress={() => setAccountId(acc.id)}
+                                >
+                                    <View style={{ marginRight: SPACING.sm }}>
+                                        <Icon name={acc.icon as any} size={18} color={accountId === acc.id ? COLORS.background : COLORS.text} />
+                                    </View>
+                                    <Text style={[styles.accountChipText, accountId === acc.id && styles.accountChipTextActive]}>
+                                        {acc.name}
+                                    </Text>
+                                </TouchableOpacity>
+                            ))}
                     </ScrollView>
-
-                    {/* To Account Selector (Transfer Only) */}
-                    {isTransfer && (
-                        <>
-                            <Text style={styles.inputLabel}>To Account</Text>
-                            <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.accountSelector}>
-                                {activeAccounts.filter(a => a.id !== accountId).map(acc => (
-                                    <TouchableOpacity
-                                        key={acc.id}
-                                        style={[styles.accountChip, toAccountId === acc.id && styles.accountChipActive]}
-                                        onPress={() => setToAccountId(acc.id)}
-                                    >
-                                        <View style={{ marginRight: SPACING.sm }}>
-                                            <Icon name={acc.icon as any} size={18} color={toAccountId === acc.id ? COLORS.background : COLORS.text} />
-                                        </View>
-                                        <Text style={[styles.accountChipText, toAccountId === acc.id && styles.accountChipTextActive]}>
-                                            {acc.name}
-                                        </Text>
-                                    </TouchableOpacity>
-                                ))}
-                            </ScrollView>
-                        </>
-                    )}
 
                     {/* Merchant & Category (Hide for Transfer) */}
                     {!isTransfer && (
@@ -473,7 +364,46 @@ export function AddTransactionModal({ visible, initialProps, onClose, onAdd }: A
                         onChangeText={setNotes}
                         multiline
                     />
+
+                    {/* Delete Button */}
+                    <TouchableOpacity
+                        style={styles.deleteBtn}
+                        onPress={handleDelete}
+                        activeOpacity={0.7}
+                    >
+                        <Icon name="delete" size={20} color={COLORS.error} />
+                        <Text style={styles.deleteBtnText}>Delete Transaction</Text>
+                    </TouchableOpacity>
+
+                    <View style={{ height: 40 }} />
                 </ScrollView>
+
+                {/* Delete Confirmation Modal */}
+                <CustomModal
+                    visible={showDeleteConfirm}
+                    title="Delete Transaction"
+                    message="Are you sure you want to delete this transaction? The account balance will be adjusted automatically."
+                    type="error"
+                    icon="delete"
+                    onClose={() => setShowDeleteConfirm(false)}
+                    actions={[
+                        { text: 'Cancel', onPress: () => setShowDeleteConfirm(false), style: 'cancel' },
+                        { text: 'Delete', onPress: confirmDelete, style: 'destructive' },
+                    ]}
+                />
+
+                {/* Transfer Warning Modal */}
+                <CustomModal
+                    visible={showTransferWarning}
+                    title="Transfer Editing"
+                    message="To modify a transfer, please delete it and create a new one."
+                    type="info"
+                    icon="swap-horiz"
+                    onClose={() => setShowTransferWarning(false)}
+                    actions={[
+                        { text: 'Got it', onPress: () => setShowTransferWarning(false), style: 'primary' },
+                    ]}
+                />
             </KeyboardAvoidingView>
         </Modal>
     );
@@ -511,9 +441,7 @@ const styles = StyleSheet.create({
     // Type Toggle
     typeToggle: { flexDirection: 'row', backgroundColor: COLORS.surface, borderRadius: BORDER_RADIUS.md, padding: SPACING.xs, marginBottom: SPACING.xxl },
     typeBtn: { flex: 1, paddingVertical: SPACING.md, alignItems: 'center', borderRadius: BORDER_RADIUS.sm },
-    typeBtnActiveExpense: { backgroundColor: COLORS.primary },
-    typeBtnActiveIncome: { backgroundColor: COLORS.success },
-    typeBtnActiveTransfer: { backgroundColor: COLORS.primary },
+    typeBtnActive: { backgroundColor: COLORS.primary },
     typeBtnText: { fontSize: FONT_SIZE.md, fontWeight: '600', color: COLORS.textMuted },
     typeBtnTextActive: { color: COLORS.white },
 
@@ -524,8 +452,6 @@ const styles = StyleSheet.create({
     expenseColor: { color: COLORS.error },
     incomeColor: { color: COLORS.success },
     transferColor: { color: COLORS.primary },
-
-
 
     manualTimeContainer: {
         flexDirection: 'row',
@@ -559,16 +485,13 @@ const styles = StyleSheet.create({
     accountSelector: { marginBottom: SPACING.md },
     accountChip: { flexDirection: 'row', alignItems: 'center', backgroundColor: COLORS.surface, paddingHorizontal: SPACING.lg, paddingVertical: SPACING.md, borderRadius: BORDER_RADIUS.md, marginRight: SPACING.sm },
     accountChipActive: { backgroundColor: COLORS.primary },
-    accountChipIcon: { fontSize: 18, marginRight: SPACING.sm },
     accountChipText: { fontSize: FONT_SIZE.md, color: COLORS.textSecondary },
     accountChipTextActive: { color: COLORS.background, fontWeight: '600' },
-    accountChipSubtext: { fontSize: FONT_SIZE.xs, color: COLORS.textMuted, marginTop: 1 },
 
     // Category Grid
     categoryGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: SPACING.sm },
     categoryChip: { flexDirection: 'row', alignItems: 'center', backgroundColor: COLORS.surface, paddingHorizontal: SPACING.md, paddingVertical: SPACING.sm, borderRadius: BORDER_RADIUS.md },
     categoryChipActive: { backgroundColor: COLORS.primary },
-    categoryChipIcon: { fontSize: 16, marginRight: SPACING.xs },
     categoryChipText: { fontSize: FONT_SIZE.sm, color: COLORS.textSecondary },
     categoryChipTextActive: { color: COLORS.background, fontWeight: '600' },
 
@@ -598,6 +521,25 @@ const styles = StyleSheet.create({
         fontWeight: '500',
         color: COLORS.textSecondary,
     },
+
+    // Delete
+    deleteBtn: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'center',
+        backgroundColor: COLORS.error + '15',
+        borderRadius: BORDER_RADIUS.md,
+        paddingVertical: SPACING.lg,
+        marginTop: SPACING.xxl,
+        gap: SPACING.sm,
+        borderWidth: 1,
+        borderColor: COLORS.error + '30',
+    },
+    deleteBtnText: {
+        fontSize: FONT_SIZE.md,
+        fontWeight: '600',
+        color: COLORS.error,
+    },
 });
 
-export default AddTransactionModal;
+export default EditTransactionModal;

@@ -20,7 +20,7 @@ import { GoogleDriveService } from './src/services/GoogleDriveService';
 import { AppLifecycleProvider } from './src/context/AppLifecycleContext';
 
 // Types
-import { TabType, Account, TransactionCategory, Subscription } from './src/types';
+import { TabType, Account, TransactionCategory, Subscription, Transaction as TransactionType } from './src/types';
 
 // Theme
 import { COLORS } from './src/constants/theme';
@@ -33,6 +33,7 @@ import { TabBar, SplashScreen, AddAccountModal } from './src/components';
 import { AddTransactionModal } from './src/components/AddTransactionModal';
 import { AddSubscriptionModal } from './src/components/AddSubscriptionModal';
 import { EditSubscriptionModal } from './src/components/EditSubscriptionModal';
+import { EditTransactionModal } from './src/components/EditTransactionModal';
 import { BiometricLockScreen } from './src/components/BiometricLockScreen';
 
 // Screens
@@ -79,13 +80,16 @@ function MainApp() {
   // Subscription Editing
   const [selectedSubscription, setSelectedSubscription] = useState<Subscription | null>(null);
 
+  // Transaction Editing
+  const [selectedTransaction, setSelectedTransaction] = useState<TransactionType | null>(null);
+
   // Privacy Policy
   const [showPrivacyPolicy, setShowPrivacyPolicy] = useState(false);
 
   const fadeAnim = useRef(new Animated.Value(0)).current;
   const slideAnim = useRef(new Animated.Value(20)).current;
   const { addAccount, deleteAccount, updateAccount } = useAccounts();
-  const { addTransaction } = useTransactions();
+  const { addTransaction, editTransaction, deleteTransaction } = useTransactions();
   const { addSubscription } = useSubscriptions();
 
   // Animate screen transitions
@@ -140,6 +144,9 @@ function MainApp() {
 
   const selectSubscription = (sub: Subscription) => setSelectedSubscription(sub);
   const closeSubscriptionDetail = () => setSelectedSubscription(null);
+
+  const selectTransaction = (tx: TransactionType) => setSelectedTransaction(tx);
+  const closeTransactionDetail = () => setSelectedTransaction(null);
 
   const openPrivacyPolicy = () => setShowPrivacyPolicy(true);
   const closePrivacyPolicy = () => setShowPrivacyPolicy(false);
@@ -268,6 +275,10 @@ function MainApp() {
       showAboutUs,
       openAboutUs,
       closeAboutUs,
+      // Transaction Editing
+      selectedTransaction,
+      selectTransaction,
+      closeTransactionDetail,
     }}>
       <View style={styles.container}>
         <StatusBar style="light" />
@@ -305,6 +316,13 @@ function MainApp() {
           visible={!!selectedSubscription}
           subscription={selectedSubscription}
           onClose={closeSubscriptionDetail}
+        />
+        <EditTransactionModal
+          visible={!!selectedTransaction}
+          transaction={selectedTransaction}
+          onClose={closeTransactionDetail}
+          onEdit={editTransaction}
+          onDelete={deleteTransaction}
         />
       </View>
     </NavigationContext.Provider>

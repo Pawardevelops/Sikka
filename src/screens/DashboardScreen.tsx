@@ -31,7 +31,7 @@ export function DashboardScreen() {
     const { todayTransactions, transactions } = useTransactions();
     const { data: onboardingData } = useOnboarding();
     const safeTop = useSafeTop();
-    const { selectAccount, openAddModal, openAddTransactionModal, openAllTransactions, openNotifyCenter } = useNavigation();
+    const { selectAccount, openAddModal, openAddTransactionModal, openAllTransactions, openNotifyCenter, selectTransaction } = useNavigation();
 
     // Get pending transactions count
     const pendingTransactionsCount = transactions.filter(t => t.status === 'pending' && !t.isDeleted).length;
@@ -114,9 +114,6 @@ export function DashboardScreen() {
     // FAB items
     const fabItems = [
         { id: 'transaction', icon: 'attach-money', label: 'Add Transaction', onPress: () => openAddTransactionModal() },
-        { id: 'notify', icon: 'notifications', label: 'Notify Center', onPress: openNotifyCenter },
-        { id: 'scan', icon: 'camera-alt', label: 'Scan Receipt', onPress: () => { } },
-        { id: 'transfer', icon: 'swap-horiz', label: 'Transfer', onPress: () => { } },
     ];
 
     return (
@@ -295,7 +292,11 @@ export function DashboardScreen() {
                                     }],
                                 }}
                             >
-                                <View style={styles.transactionRow}>
+                                <TouchableOpacity
+                                    style={styles.transactionRow}
+                                    activeOpacity={0.7}
+                                    onPress={() => selectTransaction(tx)}
+                                >
                                     <View style={styles.txIcon}>
                                         <Icon name={CATEGORY_ICONS[tx.category] as any} size={24} color={COLORS.text} />
                                     </View>
@@ -320,7 +321,7 @@ export function DashboardScreen() {
                                             {tx.amount >= 0 ? '+' : ''}{formatAmount(tx.amount, true)}
                                         </Text>
                                     </View>
-                                </View>
+                                </TouchableOpacity>
                             </Animated.View>
                         );
                     })

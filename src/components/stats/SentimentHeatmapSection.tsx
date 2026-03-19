@@ -11,25 +11,27 @@ export function SentimentHeatmapSection() {
     const { activeTransactions } = useTransactions();
     const { formatAmount } = useCurrency();
 
-    // Default to 'regret' as it's the most actionable insight, or 'impulse' for familiarity
-    const [activeSentimentId, setActiveSentimentId] = useState<string>('regret');
+    // 'all' shows every expense; otherwise filter by sentiment
+    const [activeSentimentId, setActiveSentimentId] = useState<string>('all');
     const [selectedDate, setSelectedDate] = useState<string | null>(null);
 
-    // Get current sentiment details
-    const activeSentiment = SENTIMENTS[activeSentimentId] || SENTIMENTS.regret;
+    // Resolve display info for current selection
+    const isAll = activeSentimentId === 'all';
+    const activeSentiment = isAll
+        ? { color: COLORS.primary, description: 'All your spending activity' }
+        : (SENTIMENTS[activeSentimentId] || SENTIMENTS.regret);
 
-    // Filter Transactions by selected Sentiment
+    // Filter Transactions by selected Sentiment (or all expenses)
     const filteredTransactions = useMemo(() => {
+        if (isAll) {
+            return activeTransactions.filter(tx => tx.amount < 0);
+        }
         return activeTransactions.filter(tx => {
-            // New mechanism: check sentimentIds array
             if (tx.sentimentIds?.includes(activeSentimentId)) return true;
-
-            // Legacy/Compat: if viewing 'impulse', also include old isImpulse flag
             if (activeSentimentId === 'impulse' && tx.isImpulse) return true;
-
             return false;
         });
-    }, [activeTransactions, activeSentimentId]);
+    }, [activeTransactions, activeSentimentId, isAll]);
 
     // Aggregate by date for Heatmap
     const heatmapData = useMemo(() => {
@@ -63,6 +65,25 @@ export function SentimentHeatmapSection() {
                 contentContainerStyle={styles.sentimentList}
                 style={styles.sentimentScroll}
             >
+                {/* "All" chip */}
+                <TouchableOpacity
+                    style={[
+                        styles.sentimentChip,
+                        isAll && { backgroundColor: COLORS.primary + '20', borderColor: COLORS.primary }
+                    ]}
+                    onPress={() => {
+                        setActiveSentimentId('all');
+                        setSelectedDate(null);
+                    }}
+                >
+                    <Text style={[
+                        styles.sentimentLabel,
+                        isAll && { color: COLORS.primary, fontWeight: '700' }
+                    ]}>
+                        All
+                    </Text>
+                </TouchableOpacity>
+
                 {SENTIMENT_LIST.map((sentiment) => {
                     const isActive = activeSentimentId === sentiment.id;
                     return (
@@ -74,7 +95,7 @@ export function SentimentHeatmapSection() {
                             ]}
                             onPress={() => {
                                 setActiveSentimentId(sentiment.id);
-                                setSelectedDate(null); // Clear selection on switch
+                                setSelectedDate(null);
                             }}
                         >
                             <Text style={[

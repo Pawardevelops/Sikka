@@ -248,7 +248,7 @@ export function SettingsScreen() {
                         </>
                     )}
                 </View>
-                {!editingName && <Icon name="qr-code" size={24} color={COLORS.primary} />}
+                {!editingName && <Icon name="input" size={24} color={COLORS.primary} />}
             </TouchableOpacity>
 
             <View style={styles.divider} />

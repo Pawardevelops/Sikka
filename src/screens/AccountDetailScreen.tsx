@@ -54,7 +54,7 @@ export function AccountDetailScreen({ account, onBack, onDelete }: AccountDetail
     const { formatAmount } = useCurrency();
     const { getTransactionsByAccount } = useTransactions();
     const { updateAccount } = useAccounts();
-    const { openAddTransactionModal, openAddModal } = useNavigation();
+    const { openAddTransactionModal, openAddModal, selectTransaction } = useNavigation();
     const allTransactions = getTransactionsByAccount(account.id);
     const safeTop = useSafeTop();
 
@@ -405,7 +405,7 @@ export function AccountDetailScreen({ account, onBack, onDelete }: AccountDetail
                     transactions.map((tx) => {
                         const isPayment = isCreditCard && tx.amount > 0;
                         return (
-                            <View key={tx.id} style={styles.transactionRow}>
+                            <TouchableOpacity key={tx.id} style={styles.transactionRow} activeOpacity={0.7} onPress={() => selectTransaction(tx)}>
                                 <View style={[styles.txIcon, isPayment && { backgroundColor: COLORS.success + '18' }]}>
                                     <Icon
                                         name={isPayment ? 'check-circle' : (CATEGORY_ICONS[tx.category] as any)}
@@ -436,7 +436,7 @@ export function AccountDetailScreen({ account, onBack, onDelete }: AccountDetail
                                         {tx.amount > 0 ? '+' : ''}{formatAmount(tx.amount, true)}
                                     </Text>
                                 </View>
-                            </View>
+                            </TouchableOpacity>
                         );
                     })
                 )}

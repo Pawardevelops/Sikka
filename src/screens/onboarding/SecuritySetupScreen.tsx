@@ -3,7 +3,7 @@
  * Biometric unlock and backup location
  */
 
-import React from 'react';
+import React, { useState } from 'react';
 import {
     StyleSheet,
     Text,
@@ -12,16 +12,51 @@ import {
     ScrollView,
     Switch,
     Alert,
+    ActivityIndicator,
 } from 'react-native';
 import { useOnboarding } from '../../context/OnboardingContext';
 import { useSecurity } from '../../context/SecurityContext';
 import { OnboardingProgress } from '../../components/OnboardingProgress';
 import { Icon } from '../../components/Icon';
 import { COLORS, SPACING, FONT_SIZE, BORDER_RADIUS } from '../../constants/theme';
+import { useBackup } from '../../hooks/useBackup';
+import { CustomModal, ModalAction, ModalType } from '../../components/CustomModal';
 
 export function SecuritySetupScreen() {
     const { currentStep, data, updateData, goBack, completeOnboarding } = useOnboarding();
     const { hasBiometricHardware, biometricType, setBiometricEnabled } = useSecurity();
+
+    // Modal State for Backup
+    const [modalVisible, setModalVisible] = useState(false);
+    const [modalConfig, setModalConfig] = useState<{
+        title: string;
+        message: string;
+        icon?: string;
+        type?: ModalType;
+        actions: ModalAction[];
+    }>({
+        title: '',
+        message: '',
+        actions: [],
+    });
+
+    const showModal = (
+        title: string,
+        message: string,
+        actions: ModalAction[],
+        type: ModalType = 'default',
+        icon?: string
+    ) => {
+        setModalConfig({ title, message, actions, type, icon });
+        setModalVisible(true);
+    };
+
+    const {
+        isSyncing,
+        user,
+        autoBackupEnabled,
+        toggleDriveBackup,
+    } = useBackup({ showModal });
 
     const handleBiometricToggle = async (value: boolean) => {
         // During onboarding, set biometric directly without verification prompt
@@ -29,16 +64,8 @@ export function SecuritySetupScreen() {
         updateData({ biometricEnabled: value });
     };
 
-    const handleSelectBackupFolder = () => {
-        Alert.alert(
-            'Select Backup Location',
-            'Choose where to save your backup files',
-            [
-                { text: 'Google Drive', onPress: () => updateData({ backupLocation: 'Google Drive' }) },
-                { text: 'SD Card', onPress: () => updateData({ backupLocation: 'SD Card' }) },
-                { text: 'Cancel', style: 'cancel' },
-            ]
-        );
+    const handleImportPress = () => {
+        Alert.alert('Import Backup', 'This feature is currently in development. Stay tuned!');
     };
 
     const handleSealTheVault = async () => {
@@ -94,48 +121,78 @@ export function SecuritySetupScreen() {
                     />
                 </View>
 
+                {/* Account Sync Section */}
+                <Text style={styles.sectionLabel}>Account Sync</Text>
+                
+                {/* Google Drive Card */}
+                <View style={styles.syncCard}>
+                    <View style={styles.syncIconContainer}>
+                        <Icon name="cloud-upload" size={24} color={COLORS.primary} />
+                    </View>
+                    <View style={styles.syncContent}>
+                        <Text style={styles.syncTitle}>Google Drive Sync</Text>
+                        <Text style={styles.syncSubtitle} numberOfLines={1}>
+                            {user ? `Connected: ${user.user.name}` : 'Continuously backup your data'}
+                        </Text>
+                    </View>
+                    {isSyncing ? (
+                        <ActivityIndicator size="small" color={COLORS.primary} />
+                    ) : (
+                        <Switch
+                            value={autoBackupEnabled}
+                            onValueChange={toggleDriveBackup}
+                            trackColor={{ false: COLORS.surfaceLight, true: COLORS.primaryMuted }}
+                            thumbColor={autoBackupEnabled ? COLORS.primary : COLORS.textMuted}
+                        />
+                    )}
+                </View>
+
+                {/* Import Data Card */}
+                <TouchableOpacity 
+                    style={styles.syncCard} 
+                    onPress={handleImportPress}
+                    activeOpacity={0.7}
+                >
+                    <View style={[styles.syncIconContainer, { backgroundColor: COLORS.surfaceLight }]}>
+                        <Icon name="file-download" size={24} color={COLORS.textMuted} />
+                    </View>
+                    <View style={styles.syncContent}>
+                        <Text style={styles.syncTitle}>Import Existing Data</Text>
+                        <Text style={styles.syncSubtitle}>Coming Soon</Text>
+                    </View>
+                    <Icon name="chevron-right" size={24} color={COLORS.textMuted} />
+                </TouchableOpacity>
+
+                <View style={{ height: SPACING.xl }} />
+
                 {/* No-Cloud Warning */}
                 <View style={styles.warningCard}>
                     <View style={styles.warningHeader}>
                         <Icon name="cloud-off" size={20} color="#F87171" />
-                        <Text style={styles.warningTitle}>No-Cloud Warning</Text>
+                        <Text style={styles.warningTitle}>Offline-First Policy</Text>
                     </View>
                     <Text style={styles.warningText}>
-                        Your data is stored <Text style={styles.boldText}>only on this device</Text>.
-                        We do not upload your financial records to any cloud server.
-                        If you lose this phone without a backup, your data is gone forever.
+                        Your financial records are stored <Text style={styles.boldText}>only on this device</Text>.
+                        We do not store your data on our servers.
                     </Text>
                     <View style={styles.recommendationBox}>
-                        <Icon name="warning" size={14} color={COLORS.textSecondary} />
+                        <Icon name="verified-user" size={14} color={COLORS.textSecondary} />
                         <Text style={styles.recommendationText}>
-                            Recommended: Setup regular local backups
+                            Sync enables cross-device tracking safely
                         </Text>
                     </View>
                 </View>
-
-                {/* Backup Location */}
-                <Text style={styles.sectionLabel}>Backup Location</Text>
-                <TouchableOpacity
-                    style={styles.backupCard}
-                    onPress={handleSelectBackupFolder}
-                    activeOpacity={0.7}
-                >
-                    <View style={styles.backupIcon}>
-                        <Icon name="folder" size={24} color={COLORS.textMuted} />
-                    </View>
-                    <View style={styles.backupContent}>
-                        <Text style={styles.backupTitle}>
-                            {data.backupLocation || 'Select Backup Folder'}
-                        </Text>
-                        <Text style={styles.backupSubtitle}>Google Drive / SD Card</Text>
-                    </View>
-                    <Icon name="chevron-right" size={24} color={COLORS.textMuted} />
-                </TouchableOpacity>
-                <Text style={styles.backupNote}>
-                    We recommend selecting a folder that automatically syncs with
-                    your personal cloud storage for safety.
-                </Text>
             </ScrollView>
+
+            <CustomModal
+                visible={modalVisible}
+                title={modalConfig.title}
+                message={modalConfig.message}
+                icon={modalConfig.icon}
+                type={modalConfig.type}
+                actions={modalConfig.actions}
+                onClose={() => setModalVisible(false)}
+            />
 
             {/* Seal the Vault Button */}
             <View style={styles.footer}>
@@ -290,49 +347,37 @@ const styles = StyleSheet.create({
         color: COLORS.text,
         marginBottom: SPACING.md,
     },
-    backupCard: {
+    syncCard: {
         flexDirection: 'row',
         alignItems: 'center',
         backgroundColor: COLORS.surface,
         borderRadius: BORDER_RADIUS.xl,
         padding: SPACING.lg,
+        marginBottom: SPACING.md,
         borderWidth: 1,
         borderColor: COLORS.border,
     },
-    backupIcon: {
+    syncIconContainer: {
         width: 48,
         height: 48,
         borderRadius: BORDER_RADIUS.md,
-        backgroundColor: COLORS.surfaceLight,
+        backgroundColor: 'rgba(52, 211, 153, 0.1)',
         alignItems: 'center',
         justifyContent: 'center',
         marginRight: SPACING.lg,
     },
-    backupIconText: {
-        fontSize: 24,
-    },
-    backupContent: {
+    syncContent: {
         flex: 1,
     },
-    backupTitle: {
+    syncTitle: {
         fontSize: FONT_SIZE.md,
         fontWeight: '600',
         color: COLORS.text,
     },
-    backupSubtitle: {
+    syncSubtitle: {
         fontSize: FONT_SIZE.sm,
         color: COLORS.textSecondary,
         marginTop: 2,
-    },
-    backupArrow: {
-        fontSize: 24,
-        color: COLORS.textMuted,
-    },
-    backupNote: {
-        fontSize: FONT_SIZE.sm,
-        color: COLORS.textMuted,
-        marginTop: SPACING.md,
-        lineHeight: 20,
     },
     footer: {
         paddingHorizontal: SPACING.xl,
@@ -347,9 +392,6 @@ const styles = StyleSheet.create({
         borderRadius: BORDER_RADIUS.xl,
         paddingVertical: SPACING.lg,
         gap: SPACING.sm,
-    },
-    sealIcon: {
-        fontSize: 18,
     },
     sealButtonText: {
         fontSize: FONT_SIZE.lg,

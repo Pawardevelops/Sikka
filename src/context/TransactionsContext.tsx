@@ -20,6 +20,7 @@ interface TransactionsContextType {
     todayTransactions: TransactionType[];
     isLoading: boolean;
     addTransaction: (transaction: Omit<TransactionType, 'id' | 'isDeleted' | 'timestamp'> & { timestamp?: number }) => Promise<void>;
+    editTransaction: (id: string, updates: Partial<Omit<TransactionType, 'id' | 'isDeleted'>>) => Promise<void>;
     deleteTransaction: (transactionId: string) => Promise<void>;
     getTransactionsByAccount: (accountId: string) => TransactionType[];
     getTransactionsByDate: (date: Date) => TransactionType[];
@@ -218,6 +219,95 @@ export function TransactionsProvider({ children }: TransactionsProviderProps) {
         }
     }, []);
 
+    // Edit existing transaction
+    const editTransaction = useCallback(async (id: string, updates: Partial<Omit<TransactionType, 'id' | 'isDeleted'>>) => {
+        try {
+            await database.write(async () => {
+                const tx = await database.get<Transaction>('transactions').find(id);
+                const oldAccountId = tx.account.id;
+                const oldAmount = tx.amount;
+
+                // 1. Reverse old balance on old account
+                const oldAccount = await database.get<Account>('accounts').find(oldAccountId);
+                await oldAccount.update(acc => {
+                    if (oldAccount.type === 'credit') {
+                        acc.balance += oldAmount;
+                    } else {
+                        acc.balance -= oldAmount;
+                    }
+                });
+
+                // 2. Resolve new category if changed
+                let newCategoryRecord: Category | undefined;
+                if (updates.category) {
+                    const categoriesCollection = database.get<Category>('categories');
+                    const categoryRecords = await categoriesCollection.query(
+                        Q.where('name', Q.like(`%${updates.category}%`))
+                    ).fetch();
+                    if (categoryRecords.length > 0) {
+                        newCategoryRecord = categoryRecords[0];
+                    } else {
+                        const otherCats = await categoriesCollection.query(Q.where('name', 'other')).fetch();
+                        if (otherCats.length > 0) newCategoryRecord = otherCats[0];
+                    }
+                }
+
+                // 3. Resolve new account if changed
+                let newAccount = oldAccount;
+                if (updates.accountId && updates.accountId !== oldAccountId) {
+                    newAccount = await database.get<Account>('accounts').find(updates.accountId);
+                }
+
+                // 4. Update the transaction record
+                const newAmount = updates.amount !== undefined ? updates.amount : oldAmount;
+                await tx.update(rec => {
+                    if (updates.merchant !== undefined) rec.merchant = updates.merchant;
+                    if (updates.amount !== undefined) rec.amount = updates.amount;
+                    if (updates.notes !== undefined) rec.note = updates.notes || '';
+                    if (updates.timestamp !== undefined) rec.timestamp = updates.timestamp;
+                    if (updates.type !== undefined) rec.type = updates.type;
+                    if (newCategoryRecord) rec.category.set(newCategoryRecord);
+                    if (updates.accountId && updates.accountId !== oldAccountId) {
+                        rec.account.set(newAccount);
+                    }
+                });
+
+                // 5. Apply new balance on (possibly new) account
+                await newAccount.update(acc => {
+                    if (newAccount.type === 'credit') {
+                        acc.balance -= newAmount;
+                    } else {
+                        acc.balance += newAmount;
+                    }
+                });
+
+                // 6. Update sentiments if provided
+                if (updates.sentimentIds !== undefined) {
+                    // Clear old sentiments
+                    const oldSentiments = await tx.transactionSentiments.fetch();
+                    for (const ts of oldSentiments) {
+                        await ts.destroyPermanently();
+                    }
+                    // Create new ones
+                    if (updates.sentimentIds.length > 0) {
+                        const tsCollection = database.get<TransactionSentiment>('transaction_sentiments');
+                        const sentimentRecords = await database.get<Sentiment>('sentiments').query(
+                            Q.where('id', Q.oneOf(updates.sentimentIds))
+                        ).fetch();
+                        for (const sentiment of sentimentRecords) {
+                            await tsCollection.create(ts => {
+                                ts.transaction.set(tx);
+                                ts.sentiment.set(sentiment);
+                            });
+                        }
+                    }
+                }
+            });
+        } catch (error) {
+            console.error('Error editing transaction:', error);
+        }
+    }, []);
+
     // Soft delete transaction
     const deleteTransaction = useCallback(async (transactionId: string) => {
         try {
@@ -236,14 +326,12 @@ export function TransactionsProvider({ children }: TransactionsProviderProps) {
                 const account = await database.get<Account>('accounts').find(accountId);
                 await account.update(acc => {
                     if (account.type === 'credit') {
-                        // CC: reverse of -= amount is += amount
                         acc.balance += amount;
                     } else {
-                        // Liquid: reverse of += amount is -= amount
                         if (type === 'credit') {
-                            acc.balance -= amount; // Undo income
+                            acc.balance -= amount;
                         } else {
-                            acc.balance -= amount; // Undo expense (amount was negative, so -= negative = +)
+                            acc.balance -= amount;
                         }
                     }
                 });
@@ -354,6 +442,7 @@ export function TransactionsProvider({ children }: TransactionsProviderProps) {
             todayTransactions,
             isLoading,
             addTransaction,
+            editTransaction,
             deleteTransaction,
             getTransactionsByAccount,
             getTransactionsByDate,
