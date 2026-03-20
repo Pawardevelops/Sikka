@@ -53,3 +53,15 @@ yarn-error.*
 
 # Local signing config
 android/local.properties
+
+# IDEs and Editors
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# Misc OS Files
+Thumbs.db
+ehthumbs.db
+.DS_Store

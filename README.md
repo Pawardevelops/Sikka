@@ -1,5 +1,6 @@
 # 🪙 Sikka — Personal Finance Tracker
 
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 **Sikka** (Hindi for "coin") is an open-source, privacy-first personal finance app built with React Native and Expo. It runs entirely on-device using WatermelonDB — your financial data never leaves your phone.
 
 ---
@@ -156,6 +157,8 @@ Detailed architecture docs live in the [`docs/`](docs/) folder:
 
 ## 🤝 Contributing
 
+We welcome contributions! Please see our [Contributing Guide](CONTRIBUTING.md) for detailed instructions on how to get started.
+
 1. **Fork** the repository
 2. Create a **feature branch**: `git checkout -b feat/my-feature`
 3. **Commit** with descriptive messages: `git commit -m "feat: add budget alerts"`
@@ -167,6 +170,12 @@ Detailed architecture docs live in the [`docs/`](docs/) folder:
 - **Functional components** — no class components
 - **React Context** for state — no Redux/MobX
 - **SOLID principles** — strategy pattern for account types, interface segregation
+
+---
+
+## 🛡️ Code of Conduct
+
+Please note that this project is released with a [Contributor Code of Conduct](CODE_OF_CONDUCT.md). By participating in this project you agree to abide by its terms.
 
 ---
 
