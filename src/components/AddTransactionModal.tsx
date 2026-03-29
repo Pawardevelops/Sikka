@@ -271,7 +271,7 @@ export function AddTransactionModal({ visible, initialProps, onClose, onAdd }: A
     const isTransfer = type === 'transfer';
 
     return (
-        <Modal visible={visible} animationType="slide" presentationStyle="pageSheet">
+        <Modal visible={visible} animationType="slide" presentationStyle="pageSheet" onRequestClose={onClose}>
             <KeyboardAvoidingView
                 style={styles.modalContainer}
                 behavior={Platform.OS === 'ios' ? 'padding' : undefined}
