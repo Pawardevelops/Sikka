@@ -4,7 +4,7 @@
  */
 
 import React, { useState, useRef, useEffect, useCallback } from 'react';
-import { StyleSheet, View, Animated } from 'react-native';
+import { StyleSheet, View, Animated, BackHandler } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 
@@ -83,8 +83,9 @@ function MainApp() {
   // Transaction Editing
   const [selectedTransaction, setSelectedTransaction] = useState<TransactionType | null>(null);
 
-  // Privacy Policy
+  // Navigation Overlays
   const [showPrivacyPolicy, setShowPrivacyPolicy] = useState(false);
+  const [showAboutUs, setShowAboutUs] = useState(false);
 
   const fadeAnim = useRef(new Animated.Value(0)).current;
   const slideAnim = useRef(new Animated.Value(20)).current;
@@ -109,7 +110,41 @@ function MainApp() {
         useNativeDriver: true,
       }),
     ]).start();
-  }, [activeTab, selectedAccount, showAllTransactions, showNotifyCenter]);
+  }, [activeTab, selectedAccount, showAllTransactions, showNotifyCenter, showPrivacyPolicy, showAboutUs]);
+
+  // Handle Android Back Button
+  useEffect(() => {
+    const backAction = () => {
+      if (showPrivacyPolicy) {
+        closePrivacyPolicy();
+        return true;
+      }
+      if (showAboutUs) {
+        closeAboutUs();
+        return true;
+      }
+      if (showNotifyCenter) {
+        closeNotifyCenter();
+        return true;
+      }
+      if (showAllTransactions) {
+        closeAllTransactions();
+        return true;
+      }
+      if (selectedAccount) {
+        goBack();
+        return true;
+      }
+      return false; // Let default behavior happen (exit app)
+    };
+
+    const backHandler = BackHandler.addEventListener(
+      "hardwareBackPress",
+      backAction
+    );
+
+    return () => backHandler.remove();
+  }, [showPrivacyPolicy, showAboutUs, showNotifyCenter, showAllTransactions, selectedAccount]);
 
   // Navigation Handlers
   const selectAccount = (account: Account) => setSelectedAccount(account);
@@ -148,8 +183,13 @@ function MainApp() {
   const selectTransaction = (tx: TransactionType) => setSelectedTransaction(tx);
   const closeTransactionDetail = () => setSelectedTransaction(null);
 
+
+
   const openPrivacyPolicy = () => setShowPrivacyPolicy(true);
   const closePrivacyPolicy = () => setShowPrivacyPolicy(false);
+
+  const openAboutUs = () => setShowAboutUs(true);
+  const closeAboutUs = () => setShowAboutUs(false);
 
   // Data Handlers
   const handleAddAccount = (
@@ -186,10 +226,7 @@ function MainApp() {
     });
   };
 
-  // About Us
-  const [showAboutUs, setShowAboutUs] = useState(false);
-  const openAboutUs = () => setShowAboutUs(true);
-  const closeAboutUs = () => setShowAboutUs(false);
+
 
   const renderScreen = () => {
     // If showing notify center
