@@ -239,7 +239,7 @@ export function AddTransactionModal({ visible, initialProps, onClose, onAdd }: A
         <Modal visible={visible} animationType="slide" presentationStyle="pageSheet">
             <KeyboardAvoidingView
                 style={styles.modalContainer}
-                behavior={'padding'}
+                behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
             >
                 <View style={[styles.modalHeader, { paddingTop: safeTop }]}>
                     <TouchableOpacity style={styles.cancelBtnContainer} onPress={onClose} activeOpacity={0.7}>
@@ -258,7 +258,7 @@ export function AddTransactionModal({ visible, initialProps, onClose, onAdd }: A
                     </TouchableOpacity>
                 </View>
 
-                <ScrollView style={styles.modalContent} contentContainerStyle={styles.modalContentContainer} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
+                <ScrollView style={styles.modalContent} contentContainerStyle={styles.modalContentContainer} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled" nestedScrollEnabled={true}>
                     {/* Type Toggle */}
                     <View style={styles.typeToggle}>
                         <TouchableOpacity
@@ -339,7 +339,7 @@ export function AddTransactionModal({ visible, initialProps, onClose, onAdd }: A
 
                     {/* From Account Selector */}
                     <Text style={styles.inputLabel}>{isTransfer ? 'From Account' : 'Account'}</Text>
-                    <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.accountSelector}>
+                    <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.accountSelector} nestedScrollEnabled={true}>
                         {activeAccounts
                             .filter(acc => {
                                 // Hide investment/crypto from expense/income (they use holdings, not transactions)
@@ -377,7 +377,7 @@ export function AddTransactionModal({ visible, initialProps, onClose, onAdd }: A
                     {isTransfer && (
                         <>
                             <Text style={styles.inputLabel}>To Account</Text>
-                            <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.accountSelector}>
+                            <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.accountSelector} nestedScrollEnabled={true}>
                                 {activeAccounts.filter(a => a.id !== accountId).map(acc => (
                                     <TouchableOpacity
                                         key={acc.id}
@@ -437,6 +437,7 @@ export function AddTransactionModal({ visible, initialProps, onClose, onAdd }: A
                                 showsHorizontalScrollIndicator={false}
                                 style={styles.sentimentScroll}
                                 contentContainerStyle={styles.sentimentContainer}
+                                nestedScrollEnabled={true}
                             >
                                 {SENTIMENT_LIST.map((sentiment) => {
                                     const isSelected = sentimentIds.includes(sentiment.id);
