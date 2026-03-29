@@ -89,7 +89,7 @@ const ACCOUNT_TYPE_ICONS: Record<string, string> = {
 export function AssetsScreen() {
     const { formatAmount } = useCurrency();
     const { activeAccounts, netWorth } = useAccounts();
-    const { activeSubscriptions, pausedSubscriptions, monthlyTotal } = useSubscriptions();
+    const { activeSubscriptions, pausedSubscriptions, archivedSubscriptions, monthlyTotal } = useSubscriptions();
     const { selectAccount, openAddModal, openAddSubscriptionModal, selectSubscription } = useNavigation();
     const safeTop = useSafeTop();
 
@@ -97,6 +97,7 @@ export function AssetsScreen() {
     const [hideBalance, setHideBalance] = useState(false);
     const [subSort, setSubSort] = useState<'date' | 'amount'>('date');
     const [showPastSubs, setShowPastSubs] = useState(false);
+    const [showDeletedSubs, setShowDeletedSubs] = useState(false);
 
     // Animations
     const fadeAnim = useRef(new Animated.Value(0)).current;
@@ -392,7 +393,7 @@ export function AssetsScreen() {
                     </TouchableOpacity>
 
                     {showPastSubs && pausedSubscriptions.map(sub => (
-                        <View key={sub.id} style={[styles.subCard, { opacity: 0.6 }]}>
+                        <TouchableOpacity key={sub.id} style={[styles.subCard, { opacity: 0.6 }]} activeOpacity={0.85} onPress={() => selectSubscription(sub)}>
                             <View style={styles.subCardTop}>
                                 <View style={[styles.subIcon, { backgroundColor: COLORS.surfaceLight }]}>
                                     <Icon name={sub.icon as any} size={20} color={COLORS.textMuted} />
@@ -400,6 +401,39 @@ export function AssetsScreen() {
                                 <View style={styles.subContent}>
                                     <Text style={[styles.subName, { color: COLORS.textMuted }]}>{sub.name}</Text>
                                     <Text style={styles.subDueText}>Paused</Text>
+                                </View>
+                                <View style={styles.subRight}>
+                                    <Text style={[styles.subAmount, { color: COLORS.textMuted }]}>
+                                        {formatAmount(sub.myShare ?? sub.amount ?? 0)}
+                                    </Text>
+                                </View>
+                            </View>
+                        </TouchableOpacity>
+                    ))}
+                </View>
+            )}
+
+            {/* Deleted Subscriptions (Collapsed) */}
+            {archivedSubscriptions.length > 0 && (
+                <View style={{ marginTop: SPACING.xl }}>
+                    <TouchableOpacity
+                        style={styles.pastSubsHeader}
+                        onPress={() => setShowDeletedSubs(!showDeletedSubs)}
+                    >
+                        <Text style={[styles.groupLabel, { color: COLORS.error }]}>DELETED ({archivedSubscriptions.length})</Text>
+                        <Icon name={showDeletedSubs ? 'expand-less' : 'expand-more'} size={20} color={COLORS.textMuted} />
+                    </TouchableOpacity>
+
+                    {/* TODO: To enable click-to-restore, change <View> to <TouchableOpacity onPress={() => selectSubscription(sub)}> */}
+                    {showDeletedSubs && archivedSubscriptions.map(sub => (
+                        <View key={sub.id} style={[styles.subCard, { opacity: 0.5 }]}>
+                            <View style={styles.subCardTop}>
+                                <View style={[styles.subIcon, { backgroundColor: COLORS.surfaceLight }]}>
+                                    <Icon name={sub.icon as any} size={20} color={COLORS.textMuted} />
+                                </View>
+                                <View style={styles.subContent}>
+                                    <Text style={[styles.subName, { color: COLORS.textMuted }]}>{sub.name}</Text>
+                                    <Text style={[styles.subDueText, { color: COLORS.error }]}>Deleted</Text>
                                 </View>
                                 <View style={styles.subRight}>
                                     <Text style={[styles.subAmount, { color: COLORS.textMuted }]}>

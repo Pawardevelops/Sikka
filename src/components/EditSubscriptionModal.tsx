@@ -178,12 +178,12 @@ export function EditSubscriptionModal({ visible, subscription, onClose }: EditSu
 
     const handleArchive = () => {
         Alert.alert(
-            "Archive Subscription",
-            "This will move it to the archives. You can always restore it later.",
+            "Delete Subscription",
+            "This will move it to the deleted list. You can always restore it later.",
             [
                 { text: "Cancel", style: "cancel" },
                 {
-                    text: "Archive", style: "destructive", onPress: async () => {
+                    text: "Delete", style: "destructive", onPress: async () => {
                         await archiveSubscription(subscription.id);
                         onClose();
                     }
@@ -194,6 +194,7 @@ export function EditSubscriptionModal({ visible, subscription, onClose }: EditSu
 
     const isActive = subscription.status === 'active';
     const isPaused = subscription.status === 'paused';
+    const isArchived = subscription.status === 'archived';
 
     return (
         <Modal
@@ -498,22 +499,33 @@ export function EditSubscriptionModal({ visible, subscription, onClose }: EditSu
 
                         {/* Danger Zone */}
                         <View style={styles.dangerZone}>
-                            {isActive ? (
+                            {isActive && (
                                 <TouchableOpacity style={styles.dangerBtn} onPress={handlePause}>
                                     <Icon name="pause" size={20} color={COLORS.textSecondary} />
                                     <Text style={styles.dangerBtnText}>Pause Subscription</Text>
                                 </TouchableOpacity>
-                            ) : (
+                            )}
+
+                            {isPaused && (
                                 <TouchableOpacity style={styles.primaryBtn} onPress={handleResume}>
                                     <Icon name="play-arrow" size={20} color={COLORS.surface} />
                                     <Text style={styles.primaryBtnText}>Resume Subscription</Text>
                                 </TouchableOpacity>
                             )}
 
-                            <TouchableOpacity style={[styles.dangerBtn, { marginTop: SPACING.md }]} onPress={handleArchive}>
-                                <Icon name="archive" size={20} color={COLORS.error} />
-                                <Text style={[styles.dangerBtnText, { color: COLORS.error }]}>Archive Subscription</Text>
-                            </TouchableOpacity>
+                            {isArchived && (
+                                <TouchableOpacity style={styles.primaryBtn} onPress={handleResume}>
+                                    <Icon name="restore" size={20} color={COLORS.surface} />
+                                    <Text style={styles.primaryBtnText}>Restore Subscription</Text>
+                                </TouchableOpacity>
+                            )}
+
+                            {!isArchived && (
+                                <TouchableOpacity style={[styles.dangerBtn, { marginTop: SPACING.md }]} onPress={handleArchive}>
+                                    <Icon name="delete" size={20} color={COLORS.error} />
+                                    <Text style={[styles.dangerBtnText, { color: COLORS.error }]}>Delete Subscription</Text>
+                                </TouchableOpacity>
+                            )}
                         </View>
 
                         <View style={{ height: 60 }} />
