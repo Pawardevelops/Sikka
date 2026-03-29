@@ -3,7 +3,7 @@
  * Modal for adding new transactions
  */
 
-import React, { useState } from 'react';
+import React, { useState, useRef, useCallback } from 'react';
 
 import {
     StyleSheet,
@@ -16,6 +16,8 @@ import {
     KeyboardAvoidingView,
     Platform,
     Alert,
+    Animated,
+    Vibration,
 } from 'react-native';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import { COLORS, SPACING, FONT_SIZE, BORDER_RADIUS } from '../constants/theme';
@@ -88,6 +90,27 @@ export function AddTransactionModal({ visible, initialProps, onClose, onAdd }: A
     const [sentimentIds, setSentimentIds] = useState<string[]>([]);
     const safeTop = useSafeTop();
 
+    // Validation
+    const [errors, setErrors] = useState<Record<string, boolean>>({});
+    const shakeAnims = useRef<Record<string, Animated.Value>>({
+        amount: new Animated.Value(0),
+        account: new Animated.Value(0),
+        merchant: new Animated.Value(0),
+        toAccount: new Animated.Value(0),
+    }).current;
+
+    const shakeField = useCallback((field: string) => {
+        shakeAnims[field].setValue(0);
+        Animated.sequence([
+            Animated.timing(shakeAnims[field], { toValue: 10, duration: 50, useNativeDriver: true }),
+            Animated.timing(shakeAnims[field], { toValue: -10, duration: 50, useNativeDriver: true }),
+            Animated.timing(shakeAnims[field], { toValue: 8, duration: 50, useNativeDriver: true }),
+            Animated.timing(shakeAnims[field], { toValue: -8, duration: 50, useNativeDriver: true }),
+            Animated.timing(shakeAnims[field], { toValue: 4, duration: 50, useNativeDriver: true }),
+            Animated.timing(shakeAnims[field], { toValue: 0, duration: 50, useNativeDriver: true }),
+        ]).start();
+    }, [shakeAnims]);
+
     const toggleSentiment = (id: string) => {
         setSentimentIds(prev =>
             prev.includes(id)
@@ -130,10 +153,22 @@ export function AddTransactionModal({ visible, initialProps, onClose, onAdd }: A
     };
 
     const handleAdd = () => {
-        // Validation
-        if (!amount.trim()) return;
+        // Validate mandatory fields
+        const newErrors: Record<string, boolean> = {};
+        if (!amount.trim() || isNaN(parseFloat(amount))) newErrors.amount = true;
+        if (!accountId) newErrors.account = true;
+        if (type === 'transfer' && !toAccountId) newErrors.toAccount = true;
+        if (type !== 'transfer' && !merchant.trim()) newErrors.merchant = true;
+
+        if (Object.keys(newErrors).length > 0) {
+            setErrors(newErrors);
+            Object.keys(newErrors).forEach(field => shakeField(field));
+            Vibration.vibrate(200);
+            return;
+        }
+        setErrors({});
+
         const numAmount = parseFloat(amount);
-        if (isNaN(numAmount)) return;
 
         if (type === 'transfer') {
             if (!accountId || !toAccountId) {
@@ -239,7 +274,8 @@ export function AddTransactionModal({ visible, initialProps, onClose, onAdd }: A
         <Modal visible={visible} animationType="slide" presentationStyle="pageSheet">
             <KeyboardAvoidingView
                 style={styles.modalContainer}
-                behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+                behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+                enabled={Platform.OS === 'ios'}
             >
                 <View style={[styles.modalHeader, { paddingTop: safeTop }]}>
                     <TouchableOpacity style={styles.cancelBtnContainer} onPress={onClose} activeOpacity={0.7}>
@@ -282,7 +318,7 @@ export function AddTransactionModal({ visible, initialProps, onClose, onAdd }: A
                     </View>
 
                     {/* Amount */}
-                    <View style={styles.amountSection}>
+                    <Animated.View style={[styles.amountSection, errors.amount && styles.errorHighlight, { transform: [{ translateX: shakeAnims.amount }] }]}>
                         <Text style={[styles.currencySymbol, isExpense ? styles.expenseColor : (isIncome ? styles.incomeColor : styles.transferColor)]}>
                             ₹
                         </Text>
@@ -291,10 +327,10 @@ export function AddTransactionModal({ visible, initialProps, onClose, onAdd }: A
                             placeholder="0"
                             placeholderTextColor={COLORS.textMuted}
                             value={amount}
-                            onChangeText={setAmount}
+                            onChangeText={(v) => { setAmount(v); if (errors.amount) setErrors(e => ({ ...e, amount: false })); }}
                             keyboardType="decimal-pad"
                         />
-                    </View>
+                    </Animated.View>
 
                     {/* Transaction Time */}
                     <Text style={styles.inputLabel}>TRANSACTION TIME</Text>
@@ -338,75 +374,81 @@ export function AddTransactionModal({ visible, initialProps, onClose, onAdd }: A
                     </View>
 
                     {/* From Account Selector */}
-                    <Text style={styles.inputLabel}>{isTransfer ? 'From Account' : 'Account'}</Text>
-                    <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.accountSelector} nestedScrollEnabled={true}>
-                        {activeAccounts
-                            .filter(acc => {
-                                // Hide investment/crypto from expense/income (they use holdings, not transactions)
-                                if (!isTransfer && (acc.type === 'investment' || acc.type === 'bitcoin')) return false;
-                                return true;
-                            })
-                            .map(acc => {
-                                const isCC = acc.type === 'credit';
-                                const avail = getSpendableAmount(acc);
-                                return (
-                                    <TouchableOpacity
-                                        key={acc.id}
-                                        style={[styles.accountChip, accountId === acc.id && styles.accountChipActive]}
-                                        onPress={() => setAccountId(acc.id)}
-                                    >
-                                        <View style={{ marginRight: SPACING.sm }}>
-                                            <Icon name={acc.icon as any} size={18} color={accountId === acc.id ? COLORS.background : COLORS.text} />
-                                        </View>
-                                        <View>
-                                            <Text style={[styles.accountChipText, accountId === acc.id && styles.accountChipTextActive]}>
-                                                {acc.name}
-                                            </Text>
-                                            {isCC && isExpense && (
-                                                <Text style={[styles.accountChipSubtext, accountId === acc.id && { color: COLORS.background + 'AA' }]}>
-                                                    Avail: ₹{avail.toLocaleString()}
+                    <Text style={styles.inputLabel}>{isTransfer ? 'From Account' : 'Account'}<Text style={styles.mandatoryStar}> *</Text></Text>
+                    <Animated.View style={[errors.account && styles.errorHighlight, styles.errorHighlightRow, { transform: [{ translateX: shakeAnims.account }] }]}>
+                        <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.accountSelector} nestedScrollEnabled={true}>
+                            {activeAccounts
+                                .filter(acc => {
+                                    // Hide investment/crypto from expense/income (they use holdings, not transactions)
+                                    if (!isTransfer && (acc.type === 'investment' || acc.type === 'bitcoin')) return false;
+                                    return true;
+                                })
+                                .map(acc => {
+                                    const isCC = acc.type === 'credit';
+                                    const avail = getSpendableAmount(acc);
+                                    return (
+                                        <TouchableOpacity
+                                            key={acc.id}
+                                            style={[styles.accountChip, accountId === acc.id && styles.accountChipActive]}
+                                            onPress={() => { setAccountId(acc.id); if (errors.account) setErrors(e => ({ ...e, account: false })); }}
+                                        >
+                                            <View style={{ marginRight: SPACING.sm }}>
+                                                <Icon name={acc.icon as any} size={18} color={accountId === acc.id ? COLORS.background : COLORS.text} />
+                                            </View>
+                                            <View>
+                                                <Text style={[styles.accountChipText, accountId === acc.id && styles.accountChipTextActive]}>
+                                                    {acc.name}
                                                 </Text>
-                                            )}
-                                        </View>
-                                    </TouchableOpacity>
-                                );
-                            })}
-                    </ScrollView>
+                                                {isCC && isExpense && (
+                                                    <Text style={[styles.accountChipSubtext, accountId === acc.id && { color: COLORS.background + 'AA' }]}>
+                                                        Avail: ₹{avail.toLocaleString()}
+                                                    </Text>
+                                                )}
+                                            </View>
+                                        </TouchableOpacity>
+                                    );
+                                })}
+                        </ScrollView>
+                    </Animated.View>
 
                     {/* To Account Selector (Transfer Only) */}
                     {isTransfer && (
                         <>
-                            <Text style={styles.inputLabel}>To Account</Text>
-                            <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.accountSelector} nestedScrollEnabled={true}>
-                                {activeAccounts.filter(a => a.id !== accountId).map(acc => (
-                                    <TouchableOpacity
-                                        key={acc.id}
-                                        style={[styles.accountChip, toAccountId === acc.id && styles.accountChipActive]}
-                                        onPress={() => setToAccountId(acc.id)}
-                                    >
-                                        <View style={{ marginRight: SPACING.sm }}>
-                                            <Icon name={acc.icon as any} size={18} color={toAccountId === acc.id ? COLORS.background : COLORS.text} />
-                                        </View>
-                                        <Text style={[styles.accountChipText, toAccountId === acc.id && styles.accountChipTextActive]}>
-                                            {acc.name}
-                                        </Text>
-                                    </TouchableOpacity>
-                                ))}
-                            </ScrollView>
+                            <Text style={styles.inputLabel}>To Account<Text style={styles.mandatoryStar}> *</Text></Text>
+                            <Animated.View style={[errors.toAccount && styles.errorHighlight, styles.errorHighlightRow, { transform: [{ translateX: shakeAnims.toAccount }] }]}>
+                                <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.accountSelector} nestedScrollEnabled={true}>
+                                    {activeAccounts.filter(a => a.id !== accountId).map(acc => (
+                                        <TouchableOpacity
+                                            key={acc.id}
+                                            style={[styles.accountChip, toAccountId === acc.id && styles.accountChipActive]}
+                                            onPress={() => { setToAccountId(acc.id); if (errors.toAccount) setErrors(e => ({ ...e, toAccount: false })); }}
+                                        >
+                                            <View style={{ marginRight: SPACING.sm }}>
+                                                <Icon name={acc.icon as any} size={18} color={toAccountId === acc.id ? COLORS.background : COLORS.text} />
+                                            </View>
+                                            <Text style={[styles.accountChipText, toAccountId === acc.id && styles.accountChipTextActive]}>
+                                                {acc.name}
+                                            </Text>
+                                        </TouchableOpacity>
+                                    ))}
+                                </ScrollView>
+                            </Animated.View>
                         </>
                     )}
 
                     {/* Merchant & Category (Hide for Transfer) */}
                     {!isTransfer && (
                         <>
-                            <Text style={styles.inputLabel}>Description</Text>
-                            <TextInput
-                                style={styles.textInput}
-                                placeholder="e.g. Swiggy, Amazon, Salary..."
-                                placeholderTextColor={COLORS.textMuted}
-                                value={merchant}
-                                onChangeText={setMerchant}
-                            />
+                            <Text style={styles.inputLabel}>Description<Text style={styles.mandatoryStar}> *</Text></Text>
+                            <Animated.View style={{ transform: [{ translateX: shakeAnims.merchant }] }}>
+                                <TextInput
+                                    style={[styles.textInput, errors.merchant && styles.errorHighlight]}
+                                    placeholder="e.g. Swiggy, Amazon, Salary..."
+                                    placeholderTextColor={COLORS.textMuted}
+                                    value={merchant}
+                                    onChangeText={(v) => { setMerchant(v); if (errors.merchant) setErrors(e => ({ ...e, merchant: false })); }}
+                                />
+                            </Animated.View>
 
                             <Text style={styles.inputLabel}>Category</Text>
                             <View style={styles.categoryGrid}>
@@ -557,7 +599,7 @@ const styles = StyleSheet.create({
     notesInput: { minHeight: 80, textAlignVertical: 'top' },
 
     // Account Selector
-    accountSelector: { marginBottom: SPACING.md },
+    accountSelector: { marginBottom: SPACING.md, flexGrow: 0 },
     accountChip: { flexDirection: 'row', alignItems: 'center', backgroundColor: COLORS.surface, paddingHorizontal: SPACING.lg, paddingVertical: SPACING.md, borderRadius: BORDER_RADIUS.md, marginRight: SPACING.sm },
     accountChipActive: { backgroundColor: COLORS.primary },
     accountChipIcon: { fontSize: 18, marginRight: SPACING.sm },
@@ -599,6 +641,11 @@ const styles = StyleSheet.create({
         fontWeight: '500',
         color: COLORS.textSecondary,
     },
+
+    // Mandatory & Error
+    mandatoryStar: { color: COLORS.success, fontWeight: '700', fontSize: FONT_SIZE.md },
+    errorHighlight: { borderWidth: 1.5, borderColor: COLORS.error, borderRadius: BORDER_RADIUS.md },
+    errorHighlightRow: { borderRadius: BORDER_RADIUS.md, overflow: 'hidden' },
 });
 
 export default AddTransactionModal;
