@@ -125,7 +125,7 @@ android {
                             envProps.setProperty(key, value)
                         }
                     }
-                    storeFile file('sikka-release.keystore')
+                    storeFile file('release.keystore')
                     storePassword envProps.getProperty('KEYSTORE_PASSWORD', '')
                     keyAlias envProps.getProperty('KEY_ALIAS', '')
                     keyPassword envProps.getProperty('KEY_PASSWORD', '')
