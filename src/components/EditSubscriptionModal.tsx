@@ -8,7 +8,6 @@ import {
     TextInput,
     ScrollView,
     KeyboardAvoidingView,
-    Platform,
     Switch,
     Alert,
 } from 'react-native';
@@ -69,6 +68,7 @@ export function EditSubscriptionModal({ visible, subscription, onClose }: EditSu
     // Payment Source
     const [paymentSourceId, setPaymentSourceId] = useState<string>('');
     const [paymentMode, setPaymentMode] = useState<PaymentMode>('ask_every_time');
+    const [showAutoDeductTip, setShowAutoDeductTip] = useState(false);
 
     // ── Init State on Open ──
     useEffect(() => {
@@ -441,22 +441,42 @@ export function EditSubscriptionModal({ visible, subscription, onClose }: EditSu
                             </ScrollView>
                             {/* Payment Mode */}
                             {paymentSourceId ? (
-                                <View style={styles.modeRow}>
-                                    <Text style={styles.subLabel}>Auto-deduct?</Text>
-                                    <View style={styles.pillRow}>
-                                        <TouchableOpacity
-                                            style={[styles.pillSmall, paymentMode === 'default' && styles.pillActive]}
-                                            onPress={() => setPaymentMode('default')}
-                                        >
-                                            <Text style={[styles.pillTextSmall, paymentMode === 'default' && styles.pillTextActive]}>Yes</Text>
-                                        </TouchableOpacity>
-                                        <TouchableOpacity
-                                            style={[styles.pillSmall, paymentMode === 'ask_every_time' && styles.pillActive]}
-                                            onPress={() => setPaymentMode('ask_every_time')}
-                                        >
-                                            <Text style={[styles.pillTextSmall, paymentMode === 'ask_every_time' && styles.pillTextActive]}>Ask Me</Text>
-                                        </TouchableOpacity>
+                                <View>
+                                    <View style={styles.modeRow}>
+                                        <View style={styles.modeLabel}>
+                                            <Text style={styles.subLabel}>Auto-deduct?</Text>
+                                            <TouchableOpacity onPress={() => setShowAutoDeductTip(!showAutoDeductTip)} style={styles.infoBtn}>
+                                                <Icon name="info-outline" size={16} color={COLORS.textMuted} />
+                                            </TouchableOpacity>
+                                        </View>
+                                        <View style={styles.pillRow}>
+                                            <TouchableOpacity
+                                                style={[styles.pillSmall, paymentMode === 'default' && styles.pillActive]}
+                                                onPress={() => setPaymentMode('default')}
+                                            >
+                                                <Text style={[styles.pillTextSmall, paymentMode === 'default' && styles.pillTextActive]}>Yes</Text>
+                                            </TouchableOpacity>
+                                            <TouchableOpacity
+                                                style={[styles.pillSmall, paymentMode === 'ask_every_time' && styles.pillActive]}
+                                                onPress={() => setPaymentMode('ask_every_time')}
+                                            >
+                                                <Text style={[styles.pillTextSmall, paymentMode === 'ask_every_time' && styles.pillTextActive]}>Ask Me</Text>
+                                            </TouchableOpacity>
+                                        </View>
                                     </View>
+                                    {showAutoDeductTip && (
+                                        <View style={styles.tooltipCard}>
+                                            <Text style={styles.tooltipTitle}>How does this work?</Text>
+                                            <View style={styles.tooltipItem}>
+                                                <Icon name="autorenew" size={14} color={COLORS.primary} />
+                                                <Text style={styles.tooltipText}><Text style={styles.tooltipBold}>Yes</Text> — Expense auto-logged from your account on the due date.</Text>
+                                            </View>
+                                            <View style={styles.tooltipItem}>
+                                                <Icon name="notifications" size={14} color={COLORS.primary} />
+                                                <Text style={styles.tooltipText}><Text style={styles.tooltipBold}>Ask Me</Text> — You'll get a reminder and choose when to log it.</Text>
+                                            </View>
+                                        </View>
+                                    )}
                                 </View>
                             ) : null}
                         </View>
@@ -692,6 +712,38 @@ const styles = StyleSheet.create({
     },
     accountName: { fontSize: FONT_SIZE.xs, color: COLORS.textSecondary, textAlign: 'center' },
     modeRow: { flexDirection: 'row', alignItems: 'center', marginTop: SPACING.sm },
+    modeLabel: { flexDirection: 'row', alignItems: 'center', flex: 1 },
+    infoBtn: { marginLeft: 6, padding: 2 },
+    tooltipCard: {
+        backgroundColor: COLORS.surfaceLight,
+        borderRadius: BORDER_RADIUS.md,
+        padding: SPACING.md,
+        marginTop: SPACING.sm,
+        borderWidth: 1,
+        borderColor: COLORS.border,
+    },
+    tooltipTitle: {
+        fontSize: FONT_SIZE.sm,
+        fontWeight: '700',
+        color: COLORS.text,
+        marginBottom: SPACING.sm,
+    },
+    tooltipItem: {
+        flexDirection: 'row',
+        alignItems: 'flex-start',
+        marginBottom: SPACING.xs,
+        gap: SPACING.sm,
+    },
+    tooltipText: {
+        fontSize: FONT_SIZE.xs,
+        color: COLORS.textSecondary,
+        flex: 1,
+        lineHeight: 18,
+    },
+    tooltipBold: {
+        fontWeight: '700',
+        color: COLORS.text,
+    },
 
     // Payment Actions
     paidContainer: {

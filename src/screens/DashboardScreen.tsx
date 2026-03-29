@@ -26,7 +26,7 @@ import { useNavigation } from '../context/NavigationContext';
 import { Icon } from '../components/Icon';
 
 export function DashboardScreen() {
-    const { formatAmount } = useCurrency();
+    const { formatAmount, balancesVisible, toggleBalancesVisible } = useCurrency();
     const { activeAccounts, netWorth, getAccount } = useAccounts();
     const { todayTransactions, transactions } = useTransactions();
     const { data: onboardingData } = useOnboarding();
@@ -144,7 +144,12 @@ export function DashboardScreen() {
                         ],
                     }
                 ]}>
-                    <Text style={styles.netWorthLabel}>NET WORTH</Text>
+                    <View style={styles.netWorthLabelRow}>
+                        <Text style={styles.netWorthLabel}>NET WORTH</Text>
+                        <TouchableOpacity onPress={toggleBalancesVisible} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
+                            <Icon name={balancesVisible ? 'visibility' : 'visibility-off'} size={18} color={COLORS.textMuted} />
+                        </TouchableOpacity>
+                    </View>
                     <View style={styles.netWorthRow}>
                         <Text style={styles.netWorthAmount}>{formatAmount(netWorth)}</Text>
                         {netWorth !== 0 && (
@@ -348,7 +353,8 @@ const styles = StyleSheet.create({
 
     // Net Worth Card
     netWorthCard: { backgroundColor: COLORS.surface, borderRadius: BORDER_RADIUS.xxl, padding: SPACING.xxl, marginBottom: SPACING.lg, borderWidth: 1, borderColor: COLORS.borderLight },
-    netWorthLabel: { fontSize: FONT_SIZE.sm, fontWeight: '600', color: COLORS.primary, letterSpacing: 1, marginBottom: SPACING.sm },
+    netWorthLabelRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: SPACING.sm },
+    netWorthLabel: { fontSize: FONT_SIZE.sm, fontWeight: '600', color: COLORS.primary, letterSpacing: 1 },
     netWorthRow: { flexDirection: 'row', alignItems: 'center', marginBottom: SPACING.xl },
     netWorthAmount: { fontSize: 36, fontWeight: '700', color: COLORS.text, marginRight: SPACING.md },
     changeBadge: { backgroundColor: COLORS.primaryMuted, paddingHorizontal: SPACING.sm, paddingVertical: SPACING.xs, borderRadius: BORDER_RADIUS.sm },

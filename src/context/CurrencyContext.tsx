@@ -30,6 +30,8 @@ interface CurrencyContextType {
     setCurrency: (currency: Currency) => void;
     formatAmount: (amount: number, forceShow?: boolean) => string;
     isLoading: boolean;
+    balancesVisible: boolean;
+    toggleBalancesVisible: () => void;
 }
 
 const CurrencyContext = createContext<CurrencyContextType | undefined>(undefined);
@@ -46,6 +48,18 @@ export function CurrencyProvider({ children }: CurrencyProviderProps) {
 
     // Derived from Onboarding Context
     const hideBalances = onboardingData?.hideBalances ?? false;
+
+    // Session-level visibility (initialized from global setting, toggleable on dashboard)
+    const [balancesVisible, setBalancesVisible] = useState(!hideBalances);
+
+    // Re-sync when global setting changes (e.g. user toggles in Settings)
+    useEffect(() => {
+        setBalancesVisible(!hideBalances);
+    }, [hideBalances]);
+
+    const toggleBalancesVisible = useCallback(() => {
+        setBalancesVisible(prev => !prev);
+    }, []);
 
     // Initial load
     useEffect(() => {
@@ -99,7 +113,7 @@ export function CurrencyProvider({ children }: CurrencyProviderProps) {
 
     const formatAmount = useCallback((amount: number, forceShow: boolean = false): string => {
         // If hidden and not forced to show
-        if (hideBalances && !forceShow) {
+        if (!balancesVisible && !forceShow) {
             return `***`;
         }
 
@@ -109,7 +123,7 @@ export function CurrencyProvider({ children }: CurrencyProviderProps) {
         });
         const sign = amount < 0 ? '-' : '';
         return `${sign}${currency.symbol}${formatted}`;
-    }, [currency, hideBalances]);
+    }, [currency, balancesVisible]);
 
     return (
         <CurrencyContext.Provider value={{
@@ -117,6 +131,8 @@ export function CurrencyProvider({ children }: CurrencyProviderProps) {
             setCurrency: handleSetCurrency,
             formatAmount,
             isLoading,
+            balancesVisible,
+            toggleBalancesVisible,
         }}>
             {children}
         </CurrencyContext.Provider>
