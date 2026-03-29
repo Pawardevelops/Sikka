@@ -87,14 +87,13 @@ const ACCOUNT_TYPE_ICONS: Record<string, string> = {
 
 // ==================== MAIN COMPONENT ====================
 export function AssetsScreen() {
-    const { formatAmount } = useCurrency();
+    const { formatAmount, balancesVisible, toggleBalancesVisible } = useCurrency();
     const { activeAccounts, netWorth } = useAccounts();
     const { activeSubscriptions, pausedSubscriptions, monthlyTotal } = useSubscriptions();
     const { selectAccount, openAddModal, openAddSubscriptionModal, selectSubscription } = useNavigation();
     const safeTop = useSafeTop();
 
     const [activeTab, setActiveTab] = useState<'accounts' | 'subscriptions'>('accounts');
-    const [hideBalance, setHideBalance] = useState(false);
     const [subSort, setSubSort] = useState<'date' | 'amount'>('date');
     const [showPastSubs, setShowPastSubs] = useState(false);
 
@@ -175,12 +174,12 @@ export function AssetsScreen() {
             <View style={styles.netWorthSection}>
                 <View style={styles.netWorthLabelRow}>
                     <Text style={styles.netWorthLabel}>NET WORTH</Text>
-                    <TouchableOpacity onPress={() => setHideBalance(!hideBalance)} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
-                        <Icon name={hideBalance ? 'visibility-off' : 'visibility'} size={18} color={COLORS.textMuted} />
+                    <TouchableOpacity onPress={toggleBalancesVisible} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
+                        <Icon name={balancesVisible ? 'visibility' : 'visibility-off'} size={18} color={COLORS.textMuted} />
                     </TouchableOpacity>
                 </View>
                 <Text style={styles.netWorthAmount}>
-                    {hideBalance ? '••••••' : formatAmount(netWorth)}
+                    {!balancesVisible ? '••••••' : formatAmount(netWorth)}
                 </Text>
                 <View style={styles.changeBadge}>
                     <Icon name="trending-up" size={14} color={COLORS.primary} />
@@ -254,7 +253,7 @@ export function AssetsScreen() {
                             </View>
                             <View style={styles.accountBalanceCol}>
                                 <Text style={[styles.accountBalance, account.balance < 0 && styles.negativeBalance]}>
-                                    {hideBalance ? '••••' : formatAmount(
+                                    {!balancesVisible ? '••••' : formatAmount(
                                         (account.type === 'investment' || account.type === 'bitcoin')
                                             ? (account.investmentValue ?? account.balance)
                                             : account.balance
@@ -262,7 +261,7 @@ export function AssetsScreen() {
                                 </Text>
                                 {account.type === 'credit' && account.creditCardDetails && (
                                     <Text style={styles.accountSubBalance}>
-                                        Limit: {hideBalance ? '••••' : formatAmount(account.creditCardDetails.creditLimit)}
+                                        Limit: {!balancesVisible ? '••••' : formatAmount(account.creditCardDetails.creditLimit)}
                                     </Text>
                                 )}
                             </View>
