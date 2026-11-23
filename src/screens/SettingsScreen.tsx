@@ -4,16 +4,8 @@
  */
 
 import React, { useState } from 'react';
-import {
-    StyleSheet,
-    Text,
-    View,
-    ScrollView,
-    TouchableOpacity,
-    Switch,
-    TextInput,
-    ActivityIndicator
-} from 'react-native';
+import { StyleSheet, View, ScrollView, TouchableOpacity, Switch, ActivityIndicator } from 'react-native';
+import { Text, TextInput } from '../components/Typography';
 
 import { useCurrency, CURRENCIES } from '../context/CurrencyContext';
 import { useSecurity } from '../context/SecurityContext';
@@ -22,7 +14,7 @@ import { useNavigation } from '../context/NavigationContext';
 import { useBackup } from '../hooks/useBackup';
 import { COLORS, SPACING, FONT_SIZE, BORDER_RADIUS } from '../constants/theme';
 import { useSafeTop } from '../components/SafeScreen';
-import { Icon } from '../components/Icon';
+import { Icon, IconName } from '../components/Icon';
 import { CustomModal, ModalAction, ModalType } from '../components/CustomModal';
 
 import { wipeDatabase } from '../database';
@@ -50,7 +42,7 @@ export function SettingsScreen() {
     const [modalConfig, setModalConfig] = useState<{
         title: string;
         message: string;
-        icon?: string;
+        icon?: IconName;
         type?: ModalType;
         actions: ModalAction[];
     }>({
@@ -64,7 +56,7 @@ export function SettingsScreen() {
         message: string,
         actions: ModalAction[],
         type: ModalType = 'default',
-        icon?: string
+        icon?: IconName
     ) => {
         setModalConfig({ title, message, actions, type, icon });
         setModalVisible(true);
@@ -199,7 +191,7 @@ export function SettingsScreen() {
     };
 
     const getUserInitials = () => {
-        if (!onboardingData.userName) return <Icon name="person" size={28} color={COLORS.background} />;
+        if (!onboardingData.userName) return <Icon name="person" size={28} color={COLORS.onBrand} />;
         const names = onboardingData.userName.trim().split(' ');
         if (names.length >= 2) {
             return `${names[0][0]}${names[1][0]}`.toUpperCase();
@@ -315,8 +307,8 @@ export function SettingsScreen() {
                         value={biometricEnabled}
                         onValueChange={handleBiometricToggle}
                         disabled={!hasBiometricHardware || biometricType === 'Not Set Up' || isToggling}
-                        trackColor={{ false: COLORS.border, true: COLORS.primaryMuted }}
-                        thumbColor={biometricEnabled ? COLORS.primary : COLORS.textMuted}
+                        trackColor={{ false: COLORS.border, true: COLORS.night }}
+                        thumbColor={biometricEnabled ? COLORS.brand : COLORS.white}
                     />
                 }
             />
@@ -330,8 +322,8 @@ export function SettingsScreen() {
                     <Switch
                         value={onboardingData.hideBalances}
                         onValueChange={handleHideBalancesToggle}
-                        trackColor={{ false: COLORS.border, true: COLORS.primaryMuted }}
-                        thumbColor={onboardingData.hideBalances ? COLORS.primary : COLORS.textMuted}
+                        trackColor={{ false: COLORS.border, true: COLORS.night }}
+                        thumbColor={onboardingData.hideBalances ? COLORS.brand : COLORS.white}
                     />
                 }
                 hideBorder
@@ -349,8 +341,8 @@ export function SettingsScreen() {
                     <Switch
                         value={onboardingData.notificationPermissionGranted}
                         onValueChange={handleNotificationSettings}
-                        trackColor={{ false: COLORS.border, true: COLORS.primaryMuted }}
-                        thumbColor={onboardingData.notificationPermissionGranted ? COLORS.primary : COLORS.textMuted}
+                        trackColor={{ false: COLORS.border, true: COLORS.night }}
+                        thumbColor={onboardingData.notificationPermissionGranted ? COLORS.brand : COLORS.white}
                     />
                 }
                 hideBorder
@@ -418,7 +410,7 @@ export function SettingsScreen() {
 
 // Helpers for WhatsApp style layout
 interface SettingItemProps {
-    icon: string;
+    icon: IconName;
     title: string;
     subtitle?: string;
     onPress?: () => void;
@@ -446,7 +438,7 @@ function SettingItem({ icon, title, subtitle, onPress, rightElement, iconColor, 
     );
 }
 
-function BackupSection({ showModal }: { showModal: (title: string, message: string, actions: ModalAction[], type?: ModalType, icon?: string) => void }) {
+function BackupSection({ showModal }: { showModal: (title: string, message: string, actions: ModalAction[], type?: ModalType, icon?: IconName) => void }) {
     const {
         isSyncing,
         lastBackup,
@@ -482,8 +474,8 @@ function BackupSection({ showModal }: { showModal: (title: string, message: stri
                         <Switch
                             value={autoBackupEnabled}
                             onValueChange={toggleDriveBackup}
-                            trackColor={{ false: COLORS.border, true: COLORS.primaryMuted }}
-                            thumbColor={autoBackupEnabled ? COLORS.primary : COLORS.textMuted}
+                            trackColor={{ false: COLORS.border, true: COLORS.night }}
+                            thumbColor={autoBackupEnabled ? COLORS.brand : COLORS.white}
                         />
                     )
                 }
@@ -516,7 +508,7 @@ function BackupSection({ showModal }: { showModal: (title: string, message: stri
 
 const styles = StyleSheet.create({
     scrollView: { flex: 1, backgroundColor: COLORS.surface },
-    scrollContent: { paddingBottom: 40 },
+    scrollContent: { paddingBottom: 130 }, // clear the floating tab bar
     screenTitle: { fontSize: 32, fontWeight: '700', color: COLORS.text, marginBottom: SPACING.md, paddingHorizontal: SPACING.xl },
 
     // Profile Card
@@ -531,7 +523,7 @@ const styles = StyleSheet.create({
         width: 64,
         height: 64,
         borderRadius: 32,
-        backgroundColor: COLORS.primary,
+        backgroundColor: COLORS.brand,
         alignItems: 'center',
         justifyContent: 'center',
         marginRight: SPACING.lg,
@@ -539,7 +531,7 @@ const styles = StyleSheet.create({
     profileAvatarText: {
         fontSize: 28,
         fontWeight: '700',
-        color: COLORS.background,
+        color: COLORS.onBrand,
     },
     profileInfo: {
         flex: 1,
@@ -572,11 +564,11 @@ const styles = StyleSheet.create({
         marginLeft: SPACING.md,
         paddingHorizontal: SPACING.lg,
         paddingVertical: SPACING.sm,
-        backgroundColor: COLORS.primary,
+        backgroundColor: COLORS.brand,
         borderRadius: BORDER_RADIUS.md,
     },
     saveNameBtnText: {
-        color: COLORS.background,
+        color: COLORS.onBrand,
         fontWeight: '600',
     },
 
@@ -665,8 +657,8 @@ const styles = StyleSheet.create({
         borderRadius: BORDER_RADIUS.sm,
     },
     togglePillTextActive: {
-        backgroundColor: COLORS.primary,
-        color: COLORS.background,
+        backgroundColor: COLORS.brand,
+        color: COLORS.onBrand,
     },
 
     bottomSpacer: {

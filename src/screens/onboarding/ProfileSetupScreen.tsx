@@ -1,329 +1,167 @@
 /**
- * Sikka - Profile Setup Screen (Onboarding Step 2)
- * Name, goal, and hide balances preference
+ * Sikka - Profile (Onboarding 2 of 4)
+ * Design: design-system/screens/Profile-v2.html
+ * Name, monthly spend limit ("on pace"), main goal.
  */
 
-import React, { useState } from 'react';
-import {
-    StyleSheet,
-    Text,
-    View,
-    TouchableOpacity,
-    TextInput,
-    ScrollView,
-    Switch,
-} from 'react-native';
-import { useOnboarding, USER_GOALS } from '../../context/OnboardingContext';
-import { OnboardingProgress } from '../../components/OnboardingProgress';
+import React from 'react';
+import { StyleSheet, View, TouchableOpacity, ScrollView, KeyboardAvoidingView, Platform } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { Text, TextInput } from '../../components/Typography';
+import { useOnboarding, USER_GOALS, ONBOARDING_STEPS } from '../../context/OnboardingContext';
+import { useCurrency } from '../../context/CurrencyContext';
 import { Icon } from '../../components/Icon';
-import { COLORS, SPACING, FONT_SIZE, BORDER_RADIUS } from '../../constants/theme';
+import { COLORS, SPACING, SHADOWS, CATEGORY_PALETTE } from '../../constants/theme';
+import { Button, IconButton, StepDots, Slider } from '../../components/ui';
+
+const LIMIT_MIN = 5000;
+const LIMIT_MAX = 100000;
+const LIMIT_STEP = 1000;
 
 export function ProfileSetupScreen() {
-    const { currentStep, data, updateData, goNext } = useOnboarding();
-    const [showGoalPicker, setShowGoalPicker] = useState(false);
-
-    const handleContinue = () => {
-        goNext();
-    };
-
-    const handleSkip = () => {
-        goNext();
-    };
+    const insets = useSafeAreaInsets();
+    const { currentStep, data, updateData, goNext, goBack } = useOnboarding();
+    const { formatAmount } = useCurrency();
+    const limit = data.monthlySpendLimit ?? 30000;
+    const initial = (data.userName.trim()[0] || 'S').toUpperCase();
 
     return (
-        <View style={styles.container}>
-            {/* Header */}
-            <View style={styles.topHeader}>
-                <View style={{ width: 40 }} />
-                <Text style={styles.headerTitle}>PROFILE SETUP</Text>
-                <TouchableOpacity onPress={handleSkip}>
-                    <Text style={styles.skipText}>Skip</Text>
+        <KeyboardAvoidingView
+            style={[styles.container, { paddingTop: insets.top + SPACING.xxl, paddingBottom: insets.bottom + SPACING.xxl }]}
+            behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        >
+            <View style={styles.header}>
+                <IconButton icon="chevron-left" label="Back" onPress={goBack} iconSize={26} />
+                <View style={{ flex: 1 }}><StepDots total={ONBOARDING_STEPS} current={currentStep} /></View>
+                <TouchableOpacity onPress={goNext} accessibilityRole="button" hitSlop={10}>
+                    <Text style={styles.skip}>Skip</Text>
                 </TouchableOpacity>
             </View>
 
-            <OnboardingProgress currentStep={currentStep} />
+            <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
+                <Text style={styles.title} accessibilityRole="header">What should Sikku call you?</Text>
 
-            <ScrollView
-                style={styles.scrollView}
-                contentContainerStyle={styles.scrollContent}
-                showsVerticalScrollIndicator={false}
-            >
-                {/* Title */}
-                <Text style={styles.title}>What should we{'\n'}call you?</Text>
-                <Text style={styles.subtitle}>Personalize your local offline profile.</Text>
-
-                {/* Name Input */}
-                <Text style={styles.fieldLabel}>Your Name</Text>
-                <View style={styles.inputContainer}>
-                    <View style={{ marginRight: SPACING.md }}>
-                        <Icon name="person" size={20} color={COLORS.textMuted} />
-                    </View>
+                <View style={styles.nameRow}>
+                    <View style={styles.avatar}><Text style={styles.avatarText}>{initial}</Text></View>
                     <TextInput
-                        style={styles.textInput}
-                        placeholder="e.g. Nayan jyotipatwari"
-                        placeholderTextColor={COLORS.textMuted}
+                        style={styles.nameInput}
+                        placeholder="Your name"
                         value={data.userName}
-                        onChangeText={(text) => updateData({ userName: text })}
+                        onChangeText={(userName) => updateData({ userName })}
+                        accessibilityLabel="Your name"
+                        autoCapitalize="words"
+                        returnKeyType="done"
                     />
                 </View>
 
-                {/* Goal Selection */}
-                <Text style={styles.fieldLabel}>Primary Income Goal</Text>
-                <TouchableOpacity
-                    style={styles.dropdown}
-                    onPress={() => setShowGoalPicker(!showGoalPicker)}
-                    activeOpacity={0.7}
-                >
-                    <View style={{ marginRight: SPACING.md }}>
-                        <Icon name="track-changes" size={20} color={COLORS.textMuted} />
+                <View style={styles.limitCard}>
+                    <View style={styles.limitHead}>
+                        <Text style={styles.limitOver}>MONTHLY SPEND LIMIT</Text>
+                        <Text style={styles.limitHint}>powers "on pace"</Text>
                     </View>
-                    <Text style={[
-                        styles.dropdownText,
-                        !data.primaryGoal && styles.dropdownPlaceholder,
-                    ]}>
-                        {data.primaryGoal || 'Select a goal'}
-                    </Text>
-                    <Icon name="keyboard-arrow-down" size={20} color={COLORS.textMuted} />
-                </TouchableOpacity>
+                    <Text style={styles.limitValue}>{formatAmount(limit, true)}</Text>
+                    <Slider
+                        label="Monthly spend limit"
+                        value={limit}
+                        min={LIMIT_MIN}
+                        max={LIMIT_MAX}
+                        step={LIMIT_STEP}
+                        onChange={(monthlySpendLimit) => updateData({ monthlySpendLimit })}
+                        formatValue={(v) => formatAmount(v, true)}
+                    />
+                </View>
 
-                {showGoalPicker && (
-                    <View style={styles.goalPicker}>
-                        {USER_GOALS.map((goal) => (
+                <Text style={styles.overline}>YOUR MAIN GOAL</Text>
+                <View style={styles.goals} accessibilityRole="radiogroup" accessibilityLabel="Main goal">
+                    {USER_GOALS.map((g) => {
+                        const on = data.primaryGoal === g.value;
+                        const pair = CATEGORY_PALETTE[g.palette];
+                        return (
                             <TouchableOpacity
-                                key={goal}
-                                style={[
-                                    styles.goalOption,
-                                    data.primaryGoal === goal && styles.goalOptionActive,
-                                ]}
-                                onPress={() => {
-                                    updateData({ primaryGoal: goal });
-                                    setShowGoalPicker(false);
-                                }}
+                                key={g.value}
+                                accessibilityRole="radio"
+                                accessibilityState={{ checked: on }}
+                                onPress={() => updateData({ primaryGoal: g.value })}
+                                activeOpacity={0.85}
+                                style={[styles.goal, { backgroundColor: pair.bg }, on && styles.goalOn]}
                             >
-                                <Text style={styles.goalText}>{goal}</Text>
+                                <Icon name={g.icon as any} size={22} color={pair.fg} />
+                                <Text style={styles.goalLabel}>{g.label}</Text>
+                                {on && (
+                                    <View style={styles.goalCheck}><Icon name="check" size={13} color={COLORS.brand} /></View>
+                                )}
                             </TouchableOpacity>
-                        ))}
-                    </View>
-                )}
-
-                {/* Hide Balances Card */}
-                <View style={styles.hideBalancesCard}>
-                    <View style={styles.hideBalancesIconContainer}>
-                        <Icon name="visibility-off" size={24} color={COLORS.primary} />
-                    </View>
-                    <View style={styles.hideBalancesContent}>
-                        <View style={styles.hideBalancesHeader}>
-                            <Text style={styles.hideBalancesTitle}>Hide balances by default</Text>
-                            <Switch
-                                value={data.hideBalances}
-                                onValueChange={(value) => updateData({ hideBalances: value })}
-                                trackColor={{ false: COLORS.surfaceLight, true: COLORS.primaryMuted }}
-                                thumbColor={data.hideBalances ? COLORS.primary : COLORS.textMuted}
-                            />
-                        </View>
-                        <Text style={styles.hideBalancesDescription}>
-                            Masks numerical values with asterisks (****) on the dashboard.
-                            Useful when checking Sikka in busy markets or public spaces.
-                        </Text>
-                    </View>
+                        );
+                    })}
                 </View>
             </ScrollView>
 
-            {/* Continue Button */}
-            <View style={styles.footer}>
-                <TouchableOpacity style={styles.continueButton} onPress={handleContinue} activeOpacity={0.8}>
-                    <Text style={styles.continueButtonText}>Continue</Text>
-                    <Icon name="arrow-forward" size={20} color={COLORS.background} />
-                </TouchableOpacity>
-            </View>
-        </View>
+            <Button label="Continue" onPress={goNext} />
+        </KeyboardAvoidingView>
     );
 }
 
 const styles = StyleSheet.create({
-    container: {
-        flex: 1,
-        backgroundColor: COLORS.background,
-    },
-    topHeader: {
-        flexDirection: 'row',
+    container: { flex: 1, backgroundColor: COLORS.background, paddingHorizontal: SPACING.lg, gap: SPACING.lg },
+    header: { flexDirection: 'row', alignItems: 'center', gap: SPACING.md },
+    skip: { fontSize: 15, fontWeight: '800', color: COLORS.text, paddingVertical: 10, paddingHorizontal: 4 },
+    scroll: { gap: SPACING.lg, paddingBottom: SPACING.lg },
+    title: { fontSize: 32, lineHeight: 34, fontWeight: '800', letterSpacing: -0.8, color: COLORS.text },
+
+    nameRow: { flexDirection: 'row', alignItems: 'center', gap: SPACING.md },
+    avatar: {
+        width: 64,
+        height: 64,
+        borderRadius: 32,
+        backgroundColor: COLORS.brand,
+        borderWidth: 3,
+        borderColor: COLORS.night,
         alignItems: 'center',
+        justifyContent: 'center',
+    },
+    avatarText: { fontSize: 28, fontWeight: '800', color: COLORS.onBrand },
+    nameInput: {
+        flex: 1,
+        minWidth: 0,
+        height: 60,
+        borderRadius: 30,
+        backgroundColor: COLORS.surface,
+        paddingHorizontal: 22,
+        fontSize: 20,
+        fontWeight: '800',
+        color: COLORS.text,
+        ...SHADOWS.md,
+    },
+
+    limitCard: { backgroundColor: CATEGORY_PALETTE.bills.bg, borderRadius: 30, padding: 18, gap: SPACING.md },
+    limitHead: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'baseline' },
+    limitOver: { fontSize: 13, fontWeight: '800', color: CATEGORY_PALETTE.bills.fg, letterSpacing: 0.4 },
+    limitHint: { fontSize: 12, fontWeight: '700', color: CATEGORY_PALETTE.bills.fg },
+    limitValue: { fontSize: 40, lineHeight: 42, fontWeight: '800', letterSpacing: -1, color: COLORS.text },
+
+    overline: { fontSize: 13, fontWeight: '800', color: COLORS.textSecondary, marginTop: SPACING.xs, letterSpacing: 0.4 },
+    goals: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
+    goal: {
+        width: '48%',
+        flexGrow: 1,
+        height: 84,
+        borderRadius: 24,
+        paddingVertical: 12,
+        paddingHorizontal: 14,
         justifyContent: 'space-between',
-        paddingHorizontal: SPACING.xl,
-        paddingTop: 60,
-        paddingBottom: SPACING.md,
+        alignItems: 'flex-start',
     },
-    backButton: {
-        width: 40,
-        height: 40,
+    goalOn: { borderWidth: 3, borderColor: COLORS.night, paddingVertical: 9, paddingHorizontal: 11 },
+    goalLabel: { fontSize: 15, fontWeight: '800', color: COLORS.text },
+    goalCheck: {
+        position: 'absolute',
+        top: 10,
+        right: 10,
+        width: 22,
+        height: 22,
+        borderRadius: 11,
+        backgroundColor: COLORS.night,
         alignItems: 'center',
         justifyContent: 'center',
-    },
-    backIcon: {
-        fontSize: 24,
-        color: COLORS.text,
-    },
-    headerTitle: {
-        fontSize: FONT_SIZE.sm,
-        fontWeight: '600',
-        color: COLORS.textSecondary,
-        letterSpacing: 1,
-    },
-    skipText: {
-        fontSize: FONT_SIZE.md,
-        fontWeight: '600',
-        color: COLORS.primary,
-    },
-    scrollView: {
-        flex: 1,
-    },
-    scrollContent: {
-        paddingHorizontal: SPACING.xl,
-        paddingBottom: SPACING.xxxl,
-    },
-    title: {
-        fontSize: 32,
-        fontWeight: '700',
-        color: COLORS.text,
-        marginBottom: SPACING.sm,
-        lineHeight: 40,
-    },
-    subtitle: {
-        fontSize: FONT_SIZE.md,
-        color: COLORS.textSecondary,
-        marginBottom: SPACING.xxl,
-    },
-    fieldLabel: {
-        fontSize: FONT_SIZE.md,
-        color: COLORS.textSecondary,
-        marginBottom: SPACING.sm,
-        marginTop: SPACING.lg,
-    },
-    inputContainer: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        backgroundColor: COLORS.surface,
-        borderRadius: BORDER_RADIUS.lg,
-        padding: SPACING.lg,
-        borderWidth: 1,
-        borderColor: COLORS.border,
-    },
-    inputIcon: {
-        fontSize: 20,
-        marginRight: SPACING.md,
-    },
-    textInput: {
-        flex: 1,
-        fontSize: FONT_SIZE.md,
-        color: COLORS.text,
-    },
-    dropdown: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        backgroundColor: COLORS.surface,
-        borderRadius: BORDER_RADIUS.lg,
-        padding: SPACING.lg,
-        borderWidth: 1,
-        borderColor: COLORS.border,
-    },
-    dropdownIcon: {
-        fontSize: 20,
-        marginRight: SPACING.md,
-    },
-    dropdownText: {
-        flex: 1,
-        fontSize: FONT_SIZE.md,
-        color: COLORS.text,
-    },
-    dropdownPlaceholder: {
-        color: COLORS.textMuted,
-    },
-    dropdownArrow: {
-        fontSize: 20,
-        color: COLORS.textMuted,
-    },
-    goalPicker: {
-        backgroundColor: COLORS.surface,
-        borderRadius: BORDER_RADIUS.lg,
-        marginTop: SPACING.sm,
-        borderWidth: 1,
-        borderColor: COLORS.border,
-        overflow: 'hidden',
-    },
-    goalOption: {
-        padding: SPACING.lg,
-        borderBottomWidth: 1,
-        borderBottomColor: COLORS.border,
-    },
-    goalOptionActive: {
-        backgroundColor: 'rgba(34, 197, 94, 0.1)',
-    },
-    goalText: {
-        fontSize: FONT_SIZE.md,
-        color: COLORS.text,
-    },
-    hideBalancesCard: {
-        flexDirection: 'row',
-        backgroundColor: COLORS.surface,
-        borderRadius: BORDER_RADIUS.xl,
-        padding: SPACING.lg,
-        marginTop: SPACING.xxl,
-        borderWidth: 1,
-        borderColor: COLORS.border,
-    },
-    hideBalancesIconContainer: {
-        width: 48,
-        height: 48,
-        borderRadius: BORDER_RADIUS.md,
-        backgroundColor: 'rgba(34, 197, 94, 0.15)',
-        alignItems: 'center',
-        justifyContent: 'center',
-        marginRight: SPACING.lg,
-    },
-    hideBalancesIcon: {
-        fontSize: 24,
-    },
-    hideBalancesContent: {
-        flex: 1,
-    },
-    hideBalancesHeader: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        justifyContent: 'space-between',
-        marginBottom: SPACING.sm,
-    },
-    hideBalancesTitle: {
-        fontSize: FONT_SIZE.md,
-        fontWeight: '600',
-        color: COLORS.text,
-        flex: 1,
-    },
-    hideBalancesDescription: {
-        fontSize: FONT_SIZE.sm,
-        color: COLORS.textSecondary,
-        lineHeight: 20,
-    },
-    footer: {
-        paddingHorizontal: SPACING.xl,
-        paddingBottom: SPACING.xxl,
-        paddingTop: SPACING.lg,
-    },
-    continueButton: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        justifyContent: 'center',
-        backgroundColor: COLORS.primary,
-        borderRadius: BORDER_RADIUS.xl,
-        paddingVertical: SPACING.lg,
-        gap: SPACING.sm,
-    },
-    continueButtonText: {
-        fontSize: FONT_SIZE.lg,
-        fontWeight: '600',
-        color: COLORS.background,
-    },
-    continueArrow: {
-        fontSize: FONT_SIZE.lg,
-        color: COLORS.background,
     },
 });

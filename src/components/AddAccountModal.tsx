@@ -1,101 +1,24 @@
 /**
- * Sikka - Add Account Modal
- * Dynamic form that adapts based on selected account type.
+ * Sikka - New / edit account
+ * Design: design-system/screens/Add-account-v2.html
  *
- * - Bank/Cash/Wallet/Savings: Name + Balance
- * - Credit Card: Name + Credit Limit + Outstanding Balance + Billing Day + Due Day
- * - Investment/Crypto: Name + inline "Add Holding" rows (Ticker, Qty, Buy Price, Current Price)
+ * Type tiles · live preview card · fields that adapt to the type:
+ *  - Bank / cash / wallet / savings: name + balance
+ *  - Credit card: name + limit + outstanding + bill day + due day
+ *  - Investments / crypto: name + holdings (ticker, qty, avg buy, current)
  */
 
-import React, { useState } from 'react';
-import {
-    StyleSheet,
-    Text,
-    View,
-    Modal,
-    TouchableOpacity,
-    TouchableWithoutFeedback,
-    TextInput,
-    ScrollView,
-    KeyboardAvoidingView,
-} from 'react-native';
-import { COLORS, SPACING, FONT_SIZE, BORDER_RADIUS } from '../constants/theme';
+import React, { useEffect, useState } from 'react';
+import { StyleSheet, View, Modal, TouchableOpacity, ScrollView, KeyboardAvoidingView, Platform } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { Text, TextInput } from './Typography';
 import { Icon } from './Icon';
+import { COLORS, SPACING, SHADOWS, CATEGORY_PALETTE, getCategoryColors, getPaletteKey, ACCOUNT_ICONS } from '../constants/theme';
 import { AccountType, Account } from '../types';
-import { ACCOUNT_ICONS, ACCOUNT_TYPES } from '../context/AccountsContext';
 import { CreditCardDetails, InvestmentHoldingData } from '../types/accountTypes';
+import { useCurrency } from '../context/CurrencyContext';
+import { Button, IconButton, CategoryTile } from './ui';
 
-// ==================== HOLDING ROW COMPONENT ====================
-interface HoldingRowProps {
-    holding: Omit<InvestmentHoldingData, 'id'>;
-    index: number;
-    onChange: (index: number, field: string, value: string) => void;
-    onRemove: (index: number) => void;
-    canRemove: boolean;
-}
-
-function HoldingRow({ holding, index, onChange, onRemove, canRemove }: HoldingRowProps) {
-    return (
-        <View style={styles.holdingRow}>
-            <View style={styles.holdingHeader}>
-                <Text style={styles.holdingLabel}>HOLDING {index + 1}</Text>
-                {canRemove && (
-                    <TouchableOpacity onPress={() => onRemove(index)} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
-                        <Icon name="close" size={16} color={COLORS.error} />
-                    </TouchableOpacity>
-                )}
-            </View>
-            <View style={styles.holdingGrid}>
-                <View style={styles.holdingField}>
-                    <Text style={styles.fieldLabel}>Ticker</Text>
-                    <TextInput
-                        style={styles.holdingInput}
-                        placeholder="AAPL"
-                        placeholderTextColor={COLORS.textMuted}
-                        value={holding.ticker}
-                        onChangeText={(v) => onChange(index, 'ticker', v)}
-                        autoCapitalize="characters"
-                    />
-                </View>
-                <View style={styles.holdingField}>
-                    <Text style={styles.fieldLabel}>Quantity</Text>
-                    <TextInput
-                        style={styles.holdingInput}
-                        placeholder="10"
-                        placeholderTextColor={COLORS.textMuted}
-                        value={holding.quantity ? String(holding.quantity) : ''}
-                        onChangeText={(v) => onChange(index, 'quantity', v)}
-                        keyboardType="numeric"
-                    />
-                </View>
-                <View style={styles.holdingField}>
-                    <Text style={styles.fieldLabel}>Avg Buy Price</Text>
-                    <TextInput
-                        style={styles.holdingInput}
-                        placeholder="150.00"
-                        placeholderTextColor={COLORS.textMuted}
-                        value={holding.avgBuyPrice ? String(holding.avgBuyPrice) : ''}
-                        onChangeText={(v) => onChange(index, 'avgBuyPrice', v)}
-                        keyboardType="numeric"
-                    />
-                </View>
-                <View style={styles.holdingField}>
-                    <Text style={styles.fieldLabel}>Current Price</Text>
-                    <TextInput
-                        style={styles.holdingInput}
-                        placeholder="175.00"
-                        placeholderTextColor={COLORS.textMuted}
-                        value={holding.currentPrice ? String(holding.currentPrice) : ''}
-                        onChangeText={(v) => onChange(index, 'currentPrice', v)}
-                        keyboardType="numeric"
-                    />
-                </View>
-            </View>
-        </View>
-    );
-}
-
-// ==================== MAIN MODAL ====================
 interface AddAccountModalProps {
     visible: boolean;
     accountToEdit?: Account | null;
@@ -108,570 +31,282 @@ interface AddAccountModalProps {
     onUpdate?: (id: string, updates: Partial<Account>) => void;
 }
 
-const EMPTY_HOLDING: Omit<InvestmentHoldingData, 'id'> = {
-    ticker: '',
-    quantity: 0,
-    avgBuyPrice: 0,
-    currentPrice: 0,
+type Holding = Omit<InvestmentHoldingData, 'id'>;
+const EMPTY_HOLDING: Holding = { ticker: '', quantity: 0, avgBuyPrice: 0, currentPrice: 0 };
+
+const TYPES: { value: AccountType; label: string; noun: string }[] = [
+    { value: 'bank', label: 'Bank', noun: 'account' },
+    { value: 'cash', label: 'Cash', noun: 'cash' },
+    { value: 'wallet', label: 'Wallet', noun: 'wallet' },
+    { value: 'savings', label: 'Savings', noun: 'savings' },
+    { value: 'credit', label: 'Card', noun: 'card' },
+    { value: 'investment', label: 'Invest', noun: 'portfolio' },
+    { value: 'bitcoin', label: 'Crypto', noun: 'crypto' },
+];
+
+const PLACEHOLDER: Record<string, string> = {
+    bank: 'HDFC Savings',
+    cash: 'Cash in pocket',
+    wallet: 'Paytm wallet',
+    savings: 'SBI Fixed Deposit',
+    credit: 'HDFC Millennia',
+    investment: 'Zerodha',
+    bitcoin: 'WazirX',
 };
 
+const num = (s: string) => parseFloat(s.replace(/[^0-9.]/g, '')) || 0;
+
 export function AddAccountModal({ visible, accountToEdit, onClose, onAdd, onUpdate }: AddAccountModalProps) {
+    const insets = useSafeAreaInsets();
+    const { formatAmount } = useCurrency();
     const [name, setName] = useState('');
     const [type, setType] = useState<AccountType>('bank');
-    const [icon, setIcon] = useState('account-balance');
     const [balance, setBalance] = useState('');
-
-    // Credit Card fields
     const [creditLimit, setCreditLimit] = useState('');
-    const [billingCycleDate, setBillingCycleDate] = useState('');
-    const [dueDate, setDueDate] = useState('');
+    const [billingDay, setBillingDay] = useState('');
+    const [dueDay, setDueDay] = useState('');
+    const [holdings, setHoldings] = useState<Holding[]>([{ ...EMPTY_HOLDING }]);
 
-    // Investment holdings
-    const [holdings, setHoldings] = useState<Omit<InvestmentHoldingData, 'id'>[]>([{ ...EMPTY_HOLDING }]);
+    const isEdit = !!accountToEdit;
+    const isCredit = type === 'credit';
+    const isInvest = type === 'investment' || type === 'bitcoin';
 
-    // Derived: is the type Credit Card or Investment?
-    const isCreditCard = type === 'credit';
-    const isInvestment = type === 'investment' || type === 'bitcoin';
-    const isLiquid = !isCreditCard && !isInvestment;
-
-    // Type-to-icon auto mapping
-    const TYPE_DEFAULT_ICONS: Record<AccountType, string> = {
-        bank: 'account-balance',
-        cash: 'payments',
-        wallet: 'account-balance-wallet',
-        savings: 'savings',
-        credit: 'credit-card',
-        investment: 'trending-up',
-        bitcoin: 'currency-bitcoin',
-    };
-
-    // Load account data when modal opens
-    React.useEffect(() => {
-        if (visible) {
-            if (accountToEdit) {
-                setName(accountToEdit.name);
-                setType(accountToEdit.type);
-                setIcon(accountToEdit.icon);
-                setBalance(accountToEdit.balance.toString());
-                // Hydrate CC details
-                if (accountToEdit.creditCardDetails) {
-                    setCreditLimit(accountToEdit.creditCardDetails.creditLimit.toString());
-                    setBillingCycleDate(accountToEdit.creditCardDetails.billingCycleDate.toString());
-                    setDueDate(accountToEdit.creditCardDetails.dueDate.toString());
-                }
-                // Hydrate holdings
-                if (accountToEdit.holdings && accountToEdit.holdings.length > 0) {
-                    setHoldings(accountToEdit.holdings.map(h => ({
-                        ticker: h.ticker,
-                        quantity: h.quantity,
-                        avgBuyPrice: h.avgBuyPrice,
-                        currentPrice: h.currentPrice,
-                    })));
-                }
-            } else {
-                resetForm();
-            }
+    useEffect(() => {
+        if (!visible) return;
+        if (accountToEdit) {
+            setName(accountToEdit.name);
+            setType(accountToEdit.type);
+            const isCC = accountToEdit.type === 'credit';
+            setBalance(String(isCC ? Math.abs(accountToEdit.balance) : accountToEdit.balance));
+            setCreditLimit(accountToEdit.creditCardDetails ? String(accountToEdit.creditCardDetails.creditLimit) : '');
+            setBillingDay(accountToEdit.creditCardDetails ? String(accountToEdit.creditCardDetails.billingCycleDate) : '');
+            setDueDay(accountToEdit.creditCardDetails ? String(accountToEdit.creditCardDetails.dueDate) : '');
+            setHoldings(
+                accountToEdit.holdings?.length
+                    ? accountToEdit.holdings.map((h) => ({ ticker: h.ticker, quantity: h.quantity, avgBuyPrice: h.avgBuyPrice, currentPrice: h.currentPrice }))
+                    : [{ ...EMPTY_HOLDING }],
+            );
+        } else {
+            setName('');
+            setType('bank');
+            setBalance('');
+            setCreditLimit('');
+            setBillingDay('');
+            setDueDay('');
+            setHoldings([{ ...EMPTY_HOLDING }]);
         }
     }, [visible, accountToEdit]);
 
-    const resetForm = () => {
-        setName('');
-        setType('bank');
-        setIcon('account-balance');
-        setBalance('');
-        setCreditLimit('');
-        setBillingCycleDate('');
-        setDueDate('');
-        setHoldings([{ ...EMPTY_HOLDING }]);
-    };
+    const setHolding = (i: number, field: keyof Holding, value: string) =>
+        setHoldings((prev) => prev.map((h, j) => (j !== i ? h : { ...h, [field]: field === 'ticker' ? value.toUpperCase() : num(value) })));
 
-    // Auto-update icon when type changes
-    const handleTypeChange = (newType: AccountType) => {
-        setType(newType);
-        setIcon(TYPE_DEFAULT_ICONS[newType] || 'account-balance');
-    };
-
-    // Holdings management
-    const handleHoldingChange = (index: number, field: string, value: string) => {
-        setHoldings(prev => {
-            const updated = [...prev];
-            if (field === 'ticker') {
-                updated[index] = { ...updated[index], ticker: value };
-            } else {
-                updated[index] = { ...updated[index], [field]: parseFloat(value) || 0 };
-            }
-            return updated;
-        });
-    };
-
-    const addHoldingRow = () => {
-        setHoldings(prev => [...prev, { ...EMPTY_HOLDING }]);
-    };
-
-    const removeHoldingRow = (index: number) => {
-        setHoldings(prev => prev.filter((_, i) => i !== index));
-    };
+    const day = (s: string, fallback: number) => Math.min(31, Math.max(1, parseInt(s, 10) || fallback));
 
     const handleSave = () => {
         if (!name.trim()) return;
-
-        const balanceNum = parseFloat(balance) || 0;
+        // Card debt is stored negative, the same way spending on the card moves it.
+        const bal = isCredit ? -Math.abs(num(balance)) : num(balance);
+        const cc: CreditCardDetails | undefined = isCredit
+            ? { creditLimit: num(creditLimit), billingCycleDate: day(billingDay, 1), dueDate: day(dueDay, 15) }
+            : undefined;
+        const icon = ACCOUNT_ICONS[type] ?? 'account-balance';
 
         if (accountToEdit && onUpdate) {
-            // Edit mode — update main account + CC details
-            const updates: Partial<Account> = {
-                name: name.trim(),
-                type,
-                icon,
-                balance: balanceNum,
-            };
-            if (isCreditCard) {
-                updates.creditCardDetails = {
-                    creditLimit: parseFloat(creditLimit) || 0,
-                    billingCycleDate: parseInt(billingCycleDate) || 1,
-                    dueDate: parseInt(dueDate) || 15,
-                };
-            }
-            onUpdate(accountToEdit.id, updates);
+            onUpdate(accountToEdit.id, { name: name.trim(), type, icon, balance: bal, ...(cc ? { creditCardDetails: cc } : {}) });
         } else {
-            // Add mode
-            const ccDetails: CreditCardDetails | undefined = isCreditCard ? {
-                creditLimit: parseFloat(creditLimit) || 0,
-                billingCycleDate: parseInt(billingCycleDate) || 1,
-                dueDate: parseInt(dueDate) || 15,
-            } : undefined;
-
-            const holdingsData = isInvestment
-                ? holdings.filter(h => h.ticker.trim() !== '')
-                : undefined;
-
             onAdd(
-                {
-                    name: name.trim(),
-                    type,
-                    icon,
-                    balance: balanceNum,
-                    color: COLORS.primary,
-                },
-                ccDetails,
-                holdingsData,
+                { name: name.trim(), type, icon, balance: bal, color: getCategoryColors(type).bg },
+                cc,
+                isInvest ? holdings.filter((h) => h.ticker.trim()) : undefined,
             );
         }
-
-        resetForm();
         onClose();
     };
 
+    const pair = getCategoryColors(type);
+    const noun = TYPES.find((t) => t.value === type)?.noun ?? 'account';
+    const previewValue = isInvest
+        ? holdings.reduce((s, h) => s + h.quantity * h.currentPrice, 0)
+        : isCredit ? -Math.abs(num(balance)) : num(balance);
+
     return (
-        <Modal
-            visible={visible}
-            animationType="slide"
-            transparent={true}
-            onRequestClose={onClose}
-        >
+        <Modal visible={visible} animationType="slide" presentationStyle="fullScreen" onRequestClose={onClose}>
             <KeyboardAvoidingView
-                behavior={'padding'}
-                style={styles.modalOverlay}
+                behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+                style={[styles.container, { paddingTop: insets.top + SPACING.lg, paddingBottom: insets.bottom + SPACING.lg }]}
             >
-                <TouchableWithoutFeedback onPress={onClose}>
-                    <View style={styles.overlayBackdrop} />
-                </TouchableWithoutFeedback>
-
-                <View style={styles.modalContent}>
-                    {/* Drag Handle */}
-                    <View style={styles.dragHandleContainer}>
-                        <View style={styles.dragHandle} />
-                    </View>
-
-                    {/* Header */}
-                    <View style={styles.modalHeader}>
-                        <TouchableOpacity style={styles.cancelBtnContainer} onPress={onClose} activeOpacity={0.7}>
-                            <Icon name="close" size={20} color={COLORS.textSecondary} />
-                            <Text style={styles.cancelBtn}>Cancel</Text>
-                        </TouchableOpacity>
-                        <Text style={styles.modalTitle}>{accountToEdit ? 'Edit Account' : 'Add Account'}</Text>
-                        <TouchableOpacity
-                            style={[styles.saveBtnContainer, !name.trim() && styles.saveBtnDisabled]}
-                            onPress={handleSave}
-                            activeOpacity={0.7}
-                            disabled={!name.trim()}
-                        >
-                            <Icon name="check" size={18} color={name.trim() ? COLORS.background : COLORS.textMuted} />
-                            <Text style={[styles.saveBtn, !name.trim() && styles.saveBtnTextDisabled]}>
-                                {accountToEdit ? 'Save' : 'Add'}
-                            </Text>
-                        </TouchableOpacity>
-                    </View>
-
-                    <ScrollView showsVerticalScrollIndicator={false}>
-                        {/* Icon Selector */}
-                        <Text style={styles.label}>ICON</Text>
-                        <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.iconScroll}>
-                            {ACCOUNT_ICONS.map((ic) => (
-                                <TouchableOpacity
-                                    key={ic}
-                                    style={[styles.iconBtn, icon === ic && styles.iconBtnActive]}
-                                    onPress={() => setIcon(ic)}
-                                >
-                                    <Icon name={ic as any} size={24} color={icon === ic ? COLORS.primary : COLORS.text} />
-                                </TouchableOpacity>
-                            ))}
-                        </ScrollView>
-
-                        {/* Name Input */}
-                        <Text style={styles.label}>ACCOUNT NAME</Text>
-                        <TextInput
-                            style={styles.input}
-                            placeholder={isCreditCard ? "e.g. HDFC Credit Card" : isInvestment ? "e.g. Zerodha Demat" : "e.g. SBI Savings"}
-                            placeholderTextColor={COLORS.textMuted}
-                            value={name}
-                            onChangeText={setName}
-                        />
-
-                        {/* Type Selector */}
-                        <Text style={styles.label}>ACCOUNT TYPE</Text>
-                        <View style={styles.typeGrid}>
-                            {ACCOUNT_TYPES.map((t) => (
-                                <TouchableOpacity
-                                    key={t.value}
-                                    style={[styles.typeBtn, type === t.value && styles.typeBtnActive]}
-                                    onPress={() => handleTypeChange(t.value)}
-                                >
-                                    <Text style={[styles.typeText, type === t.value && styles.typeTextActive]}>
-                                        {t.label}
-                                    </Text>
-                                </TouchableOpacity>
-                            ))}
-                        </View>
-
-                        {/* ══════════ LIQUID ACCOUNTS ══════════ */}
-                        {isLiquid && (
-                            <>
-                                <Text style={styles.label}>INITIAL BALANCE</Text>
-                                <TextInput
-                                    style={styles.input}
-                                    placeholder="0.00"
-                                    placeholderTextColor={COLORS.textMuted}
-                                    value={balance}
-                                    onChangeText={setBalance}
-                                    keyboardType="numeric"
-                                />
-                                {(type === 'cash' || type === 'wallet') && (
-                                    <View style={styles.tipCard}>
-                                        <Icon name="lightbulb" size={16} color={COLORS.warning} />
-                                        <Text style={styles.tipText}>
-                                            Tip: You can Quick Adjust this balance anytime from the account screen.
-                                        </Text>
-                                    </View>
-                                )}
-                            </>
-                        )}
-
-                        {/* ══════════ CREDIT CARD ══════════ */}
-                        {isCreditCard && (
-                            <>
-                                <Text style={styles.label}>CREDIT LIMIT</Text>
-                                <TextInput
-                                    style={styles.input}
-                                    placeholder="e.g. 200000"
-                                    placeholderTextColor={COLORS.textMuted}
-                                    value={creditLimit}
-                                    onChangeText={setCreditLimit}
-                                    keyboardType="numeric"
-                                />
-                                <Text style={styles.label}>OUTSTANDING BALANCE (DEBT)</Text>
-                                <TextInput
-                                    style={styles.input}
-                                    placeholder="0.00"
-                                    placeholderTextColor={COLORS.textMuted}
-                                    value={balance}
-                                    onChangeText={setBalance}
-                                    keyboardType="numeric"
-                                />
-                                <View style={styles.twoColRow}>
-                                    <View style={styles.halfCol}>
-                                        <Text style={styles.label}>BILLING DAY</Text>
-                                        <TextInput
-                                            style={styles.input}
-                                            placeholder="1"
-                                            placeholderTextColor={COLORS.textMuted}
-                                            value={billingCycleDate}
-                                            onChangeText={setBillingCycleDate}
-                                            keyboardType="numeric"
-                                        />
-                                    </View>
-                                    <View style={styles.halfCol}>
-                                        <Text style={styles.label}>DUE DAY</Text>
-                                        <TextInput
-                                            style={styles.input}
-                                            placeholder="15"
-                                            placeholderTextColor={COLORS.textMuted}
-                                            value={dueDate}
-                                            onChangeText={setDueDate}
-                                            keyboardType="numeric"
-                                        />
-                                    </View>
-                                </View>
-                                <View style={styles.tipCard}>
-                                    <Icon name="info" size={16} color={COLORS.info} />
-                                    <Text style={styles.tipText}>
-                                        CC spending increases your debt. Pay Bill transactions reduce it.
-                                    </Text>
-                                </View>
-                            </>
-                        )}
-
-                        {/* ══════════ INVESTMENT / CRYPTO ══════════ */}
-                        {isInvestment && (
-                            <>
-                                <Text style={styles.label}>HOLDINGS</Text>
-                                {holdings.map((holding, index) => (
-                                    <HoldingRow
-                                        key={index}
-                                        holding={holding}
-                                        index={index}
-                                        onChange={handleHoldingChange}
-                                        onRemove={removeHoldingRow}
-                                        canRemove={holdings.length > 1}
-                                    />
-                                ))}
-                                <TouchableOpacity style={styles.addHoldingBtn} onPress={addHoldingRow}>
-                                    <Icon name="add" size={18} color={COLORS.primary} />
-                                    <Text style={styles.addHoldingText}>Add Another Holding</Text>
-                                </TouchableOpacity>
-                                <View style={styles.tipCard}>
-                                    <Icon name="lightbulb" size={16} color={COLORS.warning} />
-                                    <Text style={styles.tipText}>
-                                        You can add multiple holdings to one portfolio. Update prices anytime from the detail screen.
-                                    </Text>
-                                </View>
-                            </>
-                        )}
-
-                        {/* Bottom spacing for keyboard */}
-                        <View style={{ height: 40 }} />
-                    </ScrollView>
+                <View style={styles.header}>
+                    <IconButton icon="close" label="Close" onPress={onClose} />
+                    <Text style={styles.title} accessibilityRole="header">{isEdit ? 'Edit account' : 'New account'}</Text>
                 </View>
+
+                <ScrollView contentContainerStyle={styles.scroll} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
+                    <View style={styles.types} accessibilityRole="radiogroup" accessibilityLabel="Account type">
+                        {TYPES.map((t) => (
+                            <CategoryTile
+                                key={t.value}
+                                label={t.label}
+                                icon={(ACCOUNT_ICONS[t.value] ?? 'account-balance') as any}
+                                palette={getPaletteKey(t.value)}
+                                selected={type === t.value}
+                                onPress={() => setType(t.value)}
+                                height={72}
+                                style={styles.typeTile}
+                            />
+                        ))}
+                    </View>
+
+                    {/* Preview */}
+                    <View style={[styles.preview, { backgroundColor: pair.bg }]} accessibilityLabel="Preview">
+                        <View style={styles.previewBlob} pointerEvents="none" />
+                        <View style={styles.previewTop}>
+                            {isCredit ? <View style={styles.chip} /> : (
+                                <View style={styles.previewIcon}><Icon name={(ACCOUNT_ICONS[type] ?? 'account-balance') as any} size={20} color={pair.fg} /></View>
+                            )}
+                            <Text style={[styles.previewTag, { color: pair.fg }]}>Preview</Text>
+                        </View>
+                        <View style={styles.previewBottom}>
+                            <Text style={styles.previewName} numberOfLines={1}>{name.trim() || PLACEHOLDER[type]}</Text>
+                            <Text style={styles.previewValue}>{formatAmount(previewValue, true)}</Text>
+                        </View>
+                    </View>
+
+                    <Field label="Name">
+                        <TextInput style={styles.input} value={name} onChangeText={setName} placeholder={PLACEHOLDER[type]} accessibilityLabel="Name" />
+                    </Field>
+
+                    {!isCredit && !isInvest && (
+                        <Field label={isEdit ? 'Balance' : 'Balance today'}>
+                            <TextInput style={styles.input} value={balance} onChangeText={setBalance} placeholder="0" keyboardType="decimal-pad" accessibilityLabel="Balance" />
+                        </Field>
+                    )}
+
+                    {isCredit && (
+                        <>
+                            <View style={styles.row2}>
+                                <Field label="Limit" style={{ flex: 1 }}>
+                                    <TextInput style={styles.input} value={creditLimit} onChangeText={setCreditLimit} placeholder="1,50,000" keyboardType="decimal-pad" accessibilityLabel="Credit limit" />
+                                </Field>
+                                <Field label="Owed now" style={{ flex: 1 }}>
+                                    <TextInput style={styles.input} value={balance} onChangeText={setBalance} placeholder="0" keyboardType="decimal-pad" accessibilityLabel="Outstanding" />
+                                </Field>
+                            </View>
+                            <View style={styles.row2}>
+                                <Field label="Bill day" style={{ flex: 1 }}>
+                                    <TextInput style={styles.input} value={billingDay} onChangeText={setBillingDay} placeholder="1" keyboardType="number-pad" maxLength={2} accessibilityLabel="Billing day of month" />
+                                </Field>
+                                <Field label="Due day" style={{ flex: 1 }}>
+                                    <TextInput style={styles.input} value={dueDay} onChangeText={setDueDay} placeholder="15" keyboardType="number-pad" maxLength={2} accessibilityLabel="Due day of month" />
+                                </Field>
+                            </View>
+                        </>
+                    )}
+
+                    {isInvest && (
+                        isEdit ? (
+                            <View style={[styles.note, { backgroundColor: CATEGORY_PALETTE.bills.bg }]}>
+                                <Icon name="info-outline" size={20} color={CATEGORY_PALETTE.bills.fg} />
+                                <Text style={[styles.noteText, { color: CATEGORY_PALETTE.bills.fg }]}>Editing holdings after adding is coming soon.</Text>
+                            </View>
+                        ) : (
+                            <View style={{ gap: SPACING.sm }}>
+                                <Text style={styles.label}>Holdings</Text>
+                                {holdings.map((h, i) => (
+                                    <View key={i} style={styles.holding}>
+                                        <View style={styles.holdingHead}>
+                                            <TextInput
+                                                style={[styles.input, styles.ticker]}
+                                                value={h.ticker}
+                                                onChangeText={(v) => setHolding(i, 'ticker', v)}
+                                                placeholder="NIFTYBEES"
+                                                autoCapitalize="characters"
+                                                accessibilityLabel={`Holding ${i + 1} ticker`}
+                                            />
+                                            {holdings.length > 1 && (
+                                                <IconButton icon="close" label={`Remove holding ${i + 1}`} variant="ghost" size={40} onPress={() => setHoldings((p) => p.filter((_, j) => j !== i))} />
+                                            )}
+                                        </View>
+                                        <View style={styles.row3}>
+                                            {(['quantity', 'avgBuyPrice', 'currentPrice'] as const).map((f) => (
+                                                <View key={f} style={{ flex: 1, gap: 4 }}>
+                                                    <Text style={styles.miniLabel}>{f === 'quantity' ? 'Qty' : f === 'avgBuyPrice' ? 'Avg buy' : 'Now'}</Text>
+                                                    <TextInput
+                                                        style={[styles.input, styles.small]}
+                                                        value={h[f] ? String(h[f]) : ''}
+                                                        onChangeText={(v) => setHolding(i, f, v)}
+                                                        keyboardType="decimal-pad"
+                                                        placeholder="0"
+                                                        accessibilityLabel={`Holding ${i + 1} ${f}`}
+                                                    />
+                                                </View>
+                                            ))}
+                                        </View>
+                                    </View>
+                                ))}
+                                <TouchableOpacity style={styles.dashed} onPress={() => setHoldings((p) => [...p, { ...EMPTY_HOLDING }])} accessibilityRole="button">
+                                    <Icon name="add" size={18} color={COLORS.text} />
+                                    <Text style={styles.dashedText}>Add holding</Text>
+                                </TouchableOpacity>
+                            </View>
+                        )
+                    )}
+
+                    {!isEdit && (
+                        <View style={[styles.note, { backgroundColor: CATEGORY_PALETTE.groceries.bg }]}>
+                            <Icon name="lock-outline" size={20} color={CATEGORY_PALETTE.groceries.fg} />
+                            <Text style={[styles.noteText, { color: CATEGORY_PALETTE.groceries.fg }]}>
+                                {isInvest ? 'Prices stay on this phone. Sikka never fetches them.' : 'Balances stay on this phone. Sikka never connects to your bank.'}
+                            </Text>
+                        </View>
+                    )}
+                </ScrollView>
+
+                <Button label={isEdit ? 'Save changes' : `Add ${noun}`} icon="check" onPress={handleSave} disabled={!name.trim()} />
             </KeyboardAvoidingView>
         </Modal>
     );
 }
 
-// ==================== STYLES ====================
+function Field({ label, children, style }: { label: string; children: React.ReactNode; style?: any }) {
+    return (
+        <View style={[{ gap: 6 }, style]}>
+            <Text style={styles.label}>{label}</Text>
+            {children}
+        </View>
+    );
+}
+
 const styles = StyleSheet.create({
-    modalOverlay: {
-        flex: 1,
-        backgroundColor: 'transparent',
-        justifyContent: 'flex-end',
-    },
-    overlayBackdrop: {
-        flex: 1,
-        backgroundColor: 'rgba(0, 0, 0, 0.6)',
-    },
-    modalContent: {
-        backgroundColor: COLORS.surface,
-        borderTopLeftRadius: BORDER_RADIUS.xxl,
-        borderTopRightRadius: BORDER_RADIUS.xxl,
-        paddingHorizontal: SPACING.xl,
-        paddingBottom: 40,
-        maxHeight: '90%',
-    },
-    dragHandleContainer: {
-        alignItems: 'center',
-        paddingTop: SPACING.md,
-        paddingBottom: SPACING.xs,
-    },
-    dragHandle: {
-        width: 40,
-        height: 4,
-        borderRadius: 2,
-        backgroundColor: COLORS.textMuted,
-        opacity: 0.4,
-    },
-    modalHeader: {
-        flexDirection: 'row',
-        justifyContent: 'space-between',
-        alignItems: 'center',
-        paddingVertical: SPACING.md,
-        borderBottomWidth: 1,
-        borderBottomColor: COLORS.borderLight,
-        marginBottom: SPACING.lg,
-    },
-    modalTitle: {
-        fontSize: FONT_SIZE.lg,
-        fontWeight: '600',
-        color: COLORS.text,
-    },
-    cancelBtnContainer: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        backgroundColor: COLORS.surfaceLight,
-        paddingHorizontal: SPACING.md,
-        paddingVertical: SPACING.sm,
-        borderRadius: BORDER_RADIUS.full,
-        gap: SPACING.xs,
-    },
-    cancelBtn: {
-        fontSize: FONT_SIZE.md,
-        color: COLORS.textSecondary,
-        fontWeight: '500',
-    },
-    saveBtnContainer: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        backgroundColor: COLORS.primary,
-        paddingHorizontal: SPACING.md,
-        paddingVertical: SPACING.sm,
-        borderRadius: BORDER_RADIUS.full,
-        gap: SPACING.xs,
-    },
-    saveBtn: {
-        fontSize: FONT_SIZE.md,
-        fontWeight: '600',
-        color: COLORS.background,
-    },
-    saveBtnDisabled: {
-        backgroundColor: COLORS.surfaceLight,
-    },
-    saveBtnTextDisabled: {
-        color: COLORS.textMuted,
-    },
-    label: {
-        fontSize: FONT_SIZE.xs,
-        fontWeight: '600',
-        color: COLORS.textMuted,
-        letterSpacing: 1,
-        marginBottom: SPACING.sm,
-        marginTop: SPACING.lg,
-    },
-    iconScroll: {
-        marginHorizontal: -SPACING.xl,
-        paddingHorizontal: SPACING.xl,
-    },
-    iconBtn: {
-        width: 50,
-        height: 50,
-        borderRadius: BORDER_RADIUS.md,
-        backgroundColor: COLORS.surfaceLight,
-        alignItems: 'center',
-        justifyContent: 'center',
-        marginRight: SPACING.sm,
-    },
-    iconBtnActive: {
-        backgroundColor: COLORS.primaryMuted,
-        borderWidth: 2,
-        borderColor: COLORS.primary,
-    },
-    input: {
-        backgroundColor: COLORS.surfaceLight,
-        borderRadius: BORDER_RADIUS.md,
-        padding: SPACING.lg,
-        fontSize: FONT_SIZE.lg,
-        color: COLORS.text,
-    },
-    typeGrid: {
-        flexDirection: 'row',
-        flexWrap: 'wrap',
-        marginHorizontal: -SPACING.xs,
-    },
-    typeBtn: {
-        backgroundColor: COLORS.surfaceLight,
-        paddingHorizontal: SPACING.md,
-        paddingVertical: SPACING.sm,
-        borderRadius: BORDER_RADIUS.sm,
-        margin: SPACING.xs,
-    },
-    typeBtnActive: {
-        backgroundColor: COLORS.primary,
-    },
-    typeText: {
-        fontSize: FONT_SIZE.sm,
-        color: COLORS.textSecondary,
-    },
-    typeTextActive: {
-        color: COLORS.background,
-        fontWeight: '600',
-    },
+    container: { flex: 1, backgroundColor: COLORS.background, paddingHorizontal: SPACING.lg, gap: SPACING.md },
+    header: { flexDirection: 'row', alignItems: 'center', gap: SPACING.md },
+    title: { fontSize: 26, fontWeight: '800', color: COLORS.text },
+    scroll: { gap: 14, paddingBottom: SPACING.lg },
 
-    // Two-column layout for billing/due day
-    twoColRow: {
-        flexDirection: 'row',
-        gap: SPACING.md,
-    },
-    halfCol: {
-        flex: 1,
-    },
+    types: { flexDirection: 'row', flexWrap: 'wrap', gap: SPACING.sm },
+    typeTile: { flexBasis: '22%', flexGrow: 0, width: '23%' },
 
-    // Tip card
-    tipCard: {
-        flexDirection: 'row',
-        alignItems: 'flex-start',
-        backgroundColor: COLORS.surfaceLight,
-        borderRadius: BORDER_RADIUS.md,
-        padding: SPACING.md,
-        marginTop: SPACING.md,
-        gap: SPACING.sm,
-    },
-    tipText: {
-        flex: 1,
-        fontSize: FONT_SIZE.sm,
-        color: COLORS.textSecondary,
-        lineHeight: 18,
-    },
+    preview: { height: 130, borderRadius: 28, paddingVertical: SPACING.lg, paddingHorizontal: 18, justifyContent: 'space-between', overflow: 'hidden' },
+    previewBlob: { position: 'absolute', right: -24, top: -24, width: 96, height: 96, borderRadius: 48, backgroundColor: 'rgba(255,255,255,0.35)' },
+    previewTop: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+    chip: { width: 40, height: 28, borderRadius: 8, backgroundColor: COLORS.brand, borderWidth: 2, borderColor: COLORS.night },
+    previewIcon: { width: 36, height: 36, borderRadius: 12, backgroundColor: COLORS.surface, alignItems: 'center', justifyContent: 'center' },
+    previewTag: { fontSize: 12, fontWeight: '800' },
+    previewBottom: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-end', gap: SPACING.md },
+    previewName: { flex: 1, fontSize: 22, fontWeight: '800', color: COLORS.text },
+    previewValue: { fontSize: 16, fontWeight: '800', color: COLORS.text },
 
-    // Holding row
-    holdingRow: {
-        backgroundColor: COLORS.surfaceLight,
-        borderRadius: BORDER_RADIUS.md,
-        padding: SPACING.md,
-        marginBottom: SPACING.md,
-    },
-    holdingHeader: {
-        flexDirection: 'row',
-        justifyContent: 'space-between',
-        alignItems: 'center',
-        marginBottom: SPACING.sm,
-    },
-    holdingLabel: {
-        fontSize: FONT_SIZE.xs,
-        fontWeight: '700',
-        color: COLORS.textMuted,
-        letterSpacing: 1,
-    },
-    holdingGrid: {
-        flexDirection: 'row',
-        flexWrap: 'wrap',
-        gap: SPACING.sm,
-    },
-    holdingField: {
-        width: '47%',
-    },
-    fieldLabel: {
-        fontSize: FONT_SIZE.xs,
-        color: COLORS.textMuted,
-        marginBottom: 4,
-    },
-    holdingInput: {
-        backgroundColor: COLORS.surface,
-        borderRadius: BORDER_RADIUS.sm,
-        padding: SPACING.md,
-        fontSize: FONT_SIZE.md,
-        color: COLORS.text,
-    },
-    addHoldingBtn: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        justifyContent: 'center',
-        backgroundColor: COLORS.primaryMuted,
-        borderRadius: BORDER_RADIUS.md,
-        padding: SPACING.md,
-        gap: SPACING.xs,
-    },
-    addHoldingText: {
-        fontSize: FONT_SIZE.md,
-        fontWeight: '600',
-        color: COLORS.primary,
-    },
+    label: { fontSize: 13, fontWeight: '800', color: COLORS.textSecondary, paddingLeft: 6 },
+    miniLabel: { fontSize: 12, fontWeight: '800', color: COLORS.textSecondary, paddingLeft: 6 },
+    input: { height: 54, borderRadius: 27, backgroundColor: COLORS.surface, paddingHorizontal: 20, fontSize: 16, fontWeight: '700', color: COLORS.text, ...SHADOWS.sm },
+    small: { height: 48, borderRadius: 24, paddingHorizontal: 14, fontSize: 15 },
+    ticker: { flex: 1 },
+    row2: { flexDirection: 'row', gap: 10 },
+    row3: { flexDirection: 'row', gap: SPACING.sm },
+    holding: { backgroundColor: CATEGORY_PALETTE.bills.bg, borderRadius: 24, padding: SPACING.md, gap: SPACING.sm },
+    holdingHead: { flexDirection: 'row', alignItems: 'center', gap: SPACING.sm },
+    dashed: { height: 52, borderRadius: 26, borderWidth: 2, borderStyle: 'dashed', borderColor: '#BDB5A6', flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6 },
+    dashedText: { fontSize: 15, fontWeight: '800', color: COLORS.text },
+
+    note: { flexDirection: 'row', alignItems: 'center', gap: 10, borderRadius: 22, paddingVertical: 12, paddingHorizontal: 14 },
+    noteText: { flex: 1, fontSize: 14, fontWeight: '700' },
 });
-
-export default AddAccountModal;

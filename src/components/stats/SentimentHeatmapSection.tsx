@@ -1,5 +1,6 @@
 import React, { useMemo, useState } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, ScrollView } from 'react-native';
+import { View, StyleSheet, TouchableOpacity, ScrollView } from 'react-native';
+import { Text } from '../Typography';
 import { useTransactions } from '../../context/TransactionsContext';
 import { TransactionHeatmap } from './TransactionHeatmap';
 import { COLORS, SPACING, FONT_SIZE, BORDER_RADIUS } from '../../constants/theme';
@@ -69,7 +70,7 @@ export function SentimentHeatmapSection() {
                 <TouchableOpacity
                     style={[
                         styles.sentimentChip,
-                        isAll && { backgroundColor: COLORS.primary + '20', borderColor: COLORS.primary }
+                        isAll && { backgroundColor: COLORS.brand + '20', borderColor: COLORS.primary }
                     ]}
                     onPress={() => {
                         setActiveSentimentId('all');

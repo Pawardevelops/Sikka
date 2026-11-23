@@ -1,5 +1,6 @@
 import React from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Linking } from 'react-native';
+import { View, StyleSheet, ScrollView, TouchableOpacity, Linking } from 'react-native';
+import { Text } from '../components/Typography';
 import { useNavigation } from '../context/NavigationContext';
 import { COLORS, SPACING, FONT_SIZE, BORDER_RADIUS } from '../constants/theme';
 import { useSafeTop } from '../components/SafeScreen';
@@ -68,7 +69,7 @@ export function AboutUsScreen() {
                     </Text>
 
                     <TouchableOpacity style={styles.contactButton} onPress={handleContact}>
-                        <Icon name="mail" size={20} color={COLORS.background} style={{ marginRight: SPACING.md }} />
+                        <Icon name="mail" size={20} color={COLORS.onBrand} style={{ marginRight: SPACING.md }} />
                         <Text style={styles.contactButtonText}>Contact Team Sikka</Text>
                     </TouchableOpacity>
                 </View>
@@ -119,8 +120,8 @@ const styles = StyleSheet.create({
     },
     warningCard: {
         borderWidth: 1,
-        borderColor: 'rgba(245, 158, 11, 0.3)', // Warning color fade
-        backgroundColor: 'rgba(245, 158, 11, 0.05)',
+        borderColor: 'rgba(181, 71, 8, 0.3)', // Warning color fade
+        backgroundColor: COLORS.warningMuted,
     },
     iconCircle: {
         marginBottom: SPACING.sm,
@@ -129,7 +130,7 @@ const styles = StyleSheet.create({
         borderRadius: BORDER_RADIUS.full,
     },
     warningIconCircle: {
-        backgroundColor: 'rgba(245, 158, 11, 0.2)',
+        backgroundColor: COLORS.warningMuted,
     },
     introTitle: {
         fontSize: FONT_SIZE.lg,
@@ -179,12 +180,12 @@ const styles = StyleSheet.create({
         flexDirection: 'row',
         alignItems: 'center',
         justifyContent: 'center',
-        backgroundColor: COLORS.primary,
+        backgroundColor: COLORS.brand,
         paddingVertical: SPACING.md,
         borderRadius: BORDER_RADIUS.md,
     },
     contactButtonText: {
-        color: COLORS.background,
+        color: COLORS.onBrand,
         fontSize: FONT_SIZE.md,
         fontWeight: '700',
     },

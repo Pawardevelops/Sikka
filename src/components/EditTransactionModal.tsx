@@ -1,30 +1,26 @@
 /**
- * Sikka - Edit Transaction Modal
- * Modal for editing existing transactions
+ * Sikka - Payment story + edit
+ * Design: design-system/screens/Transaction-detail-v2.html
+ *
+ * Opens on the "payment story" (pastel hero, Felt/From/Category/Source tiles,
+ * timeline). "Edit" switches to an edit form in the Add-a-payment style.
  */
 
 import React, { useState, useEffect } from 'react';
-
-import {
-    StyleSheet,
-    Text,
-    View,
-    Modal,
-    TouchableOpacity,
-    TextInput,
-    ScrollView,
-    KeyboardAvoidingView,
-} from 'react-native';
+import { StyleSheet, View, Modal, TouchableOpacity, ScrollView, Platform } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import DateTimePicker from '@react-native-community/datetimepicker';
-import { COLORS, SPACING, FONT_SIZE, BORDER_RADIUS } from '../constants/theme';
-import { useSafeTop } from './SafeScreen';
+import { Text, TextInput } from './Typography';
 import { Icon } from './Icon';
 import { CustomModal } from './CustomModal';
+import { COLORS, SPACING, SHADOWS, SIKKA, CATEGORY_PALETTE, getCategoryColors, getPaletteKey, ACCOUNT_ICONS } from '../constants/theme';
 import { Transaction, TransactionCategory } from '../types';
 import { useAccounts } from '../context/AccountsContext';
-import { CATEGORY_ICONS, CATEGORY_LABELS, useTransactions } from '../context/TransactionsContext';
-import { SENTIMENT_LIST } from '../constants/sentiments';
-import { Platform } from 'react-native';
+import { useCurrency } from '../context/CurrencyContext';
+import { CATEGORY_ICONS, useTransactions } from '../context/TransactionsContext';
+import { CATEGORY_LABELS, formatTime } from './TransactionRow';
+import { SPEND_CATEGORIES } from './AddTransactionModal';
+import { Button, IconButton, CategoryTile, MoodFace, MoodPicker, MOODS, Keypad, applyKey } from './ui';
 
 interface EditTransactionModalProps {
     visible: boolean;
@@ -34,512 +30,361 @@ interface EditTransactionModalProps {
     onDelete: (id: string) => Promise<void>;
 }
 
-const CATEGORIES: TransactionCategory[] = [
-    'groceries', 'dining', 'transport', 'shopping', 'entertainment',
-    'utilities', 'health', 'income', 'transfer', 'other',
-];
-
 export function EditTransactionModal({ visible, transaction, onClose, onEdit, onDelete }: EditTransactionModalProps) {
-    const { activeAccounts } = useAccounts();
+    const insets = useSafeAreaInsets();
+    const { activeAccounts, getAccount } = useAccounts();
     const { refreshTransactions } = useTransactions();
+    const { formatAmount, currency } = useCurrency();
+
+    const [mode, setMode] = useState<'story' | 'edit'>('story');
     const [merchant, setMerchant] = useState('');
     const [amount, setAmount] = useState('');
     const [category, setCategory] = useState<TransactionCategory>('other');
     const [accountId, setAccountId] = useState('');
     const [notes, setNotes] = useState('');
-    const [type, setType] = useState<'income' | 'expense' | 'transfer'>('expense');
-
-    // Date/Time specific
+    const [mood, setMood] = useState<string | undefined>();
     const [date, setDate] = useState(new Date());
-    const [showDatePicker, setShowDatePicker] = useState(false);
-    const [showTimePicker, setShowTimePicker] = useState(false);
-
-    // Sentiments (Multi-select)
-    const [sentimentIds, setSentimentIds] = useState<string[]>([]);
-    const safeTop = useSafeTop();
-
-    // Custom modal states
+    const [dateStep, setDateStep] = useState<null | 'date' | 'time'>(null);
+    const [editingAmount, setEditingAmount] = useState(false);
     const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
     const [showTransferWarning, setShowTransferWarning] = useState(false);
 
-    const toggleSentiment = (id: string) => {
-        setSentimentIds(prev =>
-            prev.includes(id)
-                ? prev.filter(s => s !== id)
-                : [...prev, id]
-        );
-    };
-
-    // Populate form when transaction changes
     useEffect(() => {
         if (visible && transaction) {
+            setMode('story');
             setMerchant(transaction.merchant);
             setAmount(String(Math.abs(transaction.amount)));
             setCategory(transaction.category);
             setAccountId(transaction.accountId);
             setNotes(transaction.notes || '');
-            setSentimentIds(transaction.sentimentIds || []);
+            setMood(transaction.sentimentIds?.[0]);
             setDate(new Date(transaction.timestamp));
-
-            // Determine type from transaction data
-            if (transaction.category === 'transfer') {
-                setType('transfer');
-            } else if (transaction.amount >= 0) {
-                setType('income');
-            } else {
-                setType('expense');
-            }
+            setEditingAmount(false);
         }
     }, [visible, transaction]);
 
-    const onDateChange = (_event: any, selectedDate?: Date) => {
-        setShowDatePicker(Platform.OS === 'ios');
-        if (selectedDate) {
-            const updatedDate = new Date(selectedDate);
-            updatedDate.setHours(date.getHours());
-            updatedDate.setMinutes(date.getMinutes());
-            setDate(updatedDate);
-        }
-    };
+    if (!transaction) return null;
 
-    const onTimeChange = (_event: any, selectedTime?: Date) => {
-        setShowTimePicker(Platform.OS === 'ios');
-        if (selectedTime) {
-            const updatedDate = new Date(date);
-            updatedDate.setHours(selectedTime.getHours());
-            updatedDate.setMinutes(selectedTime.getMinutes());
-            setDate(updatedDate);
-        }
+    const isTransfer = transaction.category === 'transfer';
+    const isIncome = transaction.amount > 0 && !isTransfer;
+    const pair = getCategoryColors(transaction.category);
+    const account = getAccount(transaction.accountId);
+    const accPair = getCategoryColors(account?.type);
+    const txMood = transaction.sentimentIds?.[0];
+    const when = new Date(transaction.timestamp);
+
+    const startEdit = () => {
+        if (isTransfer) setShowTransferWarning(true);
+        else setMode('edit');
     };
 
     const handleSave = async () => {
-        if (!transaction) return;
-        if (!amount.trim()) return;
-        const numAmount = parseFloat(amount);
-        if (isNaN(numAmount)) return;
-
-        // For transfers, show warning via custom modal
-        if (type === 'transfer') {
-            setShowTransferWarning(true);
-            return;
-        }
-
-        if (!merchant.trim() || !accountId) return;
-
-        const finalAmount = type === 'expense' ? -Math.abs(numAmount) : Math.abs(numAmount);
-
+        const num = parseFloat(amount);
+        if (!num || !merchant.trim() || !accountId) return;
         await onEdit(transaction.id, {
             accountId,
             merchant: merchant.trim(),
-            category,
-            amount: finalAmount,
+            category: isIncome ? 'income' : category,
+            amount: isIncome ? Math.abs(num) : -Math.abs(num),
             notes: notes.trim() || undefined,
-            type: type === 'income' ? 'credit' : 'debit',
+            type: isIncome ? 'credit' : 'debit',
             timestamp: date.getTime(),
-            sentimentIds: type === 'expense' ? sentimentIds : [],
+            sentimentIds: !isIncome && mood ? [mood] : [],
+            isImpulse: mood === 'impulse',
         });
-
         await refreshTransactions();
         onClose();
     };
 
-    const handleDelete = () => {
-        if (!transaction) return;
-        setShowDeleteConfirm(true);
-    };
-
     const confirmDelete = async () => {
-        if (!transaction) return;
         setShowDeleteConfirm(false);
         await onDelete(transaction.id);
         await refreshTransactions();
         onClose();
     };
 
-    const isExpense = type === 'expense';
-    const isIncome = type === 'income';
-    const isTransfer = type === 'transfer';
+    // ── Story timeline entries ──
+    const story: { icon: string; bg: string; fg: string; title: string; body?: string; bubble?: string }[] = [
+        transaction.isAuto
+            ? { icon: 'chat-bubble-outline', bg: COLORS.night, fg: COLORS.brand, title: 'Caught from payment SMS', body: formatTime(transaction.timestamp) }
+            : { icon: 'edit', bg: COLORS.night, fg: COLORS.brand, title: 'Added by you', body: formatTime(transaction.timestamp) },
+        { icon: (ACCOUNT_ICONS[account?.type ?? 'bank'] ?? 'account-balance') as string, bg: accPair.bg, fg: accPair.fg, title: isIncome ? `Into ${account?.name ?? 'account'}` : `From ${account?.name ?? 'account'}`, body: account ? `Balance now ${formatAmount(account.balance)}` : undefined },
+    ];
+    if (transaction.notes) story.push({ icon: 'notes', bg: CATEGORY_PALETTE.fun.bg, fg: CATEGORY_PALETTE.fun.fg, title: 'Note', bubble: transaction.notes });
+    if (txMood) story.push({ icon: 'mood', bg: CATEGORY_PALETTE.bills.bg, fg: CATEGORY_PALETTE.bills.fg, title: `Felt ${MOODS.find((m) => m.id === txMood)?.label.toLowerCase() ?? txMood}` });
+    story.push({ icon: 'check', bg: COLORS.brand, fg: COLORS.onBrand, title: 'Recorded', body: 'Sikka only records this — it never moves money' });
 
     return (
-        <Modal visible={visible} animationType="slide" transparent={true} onRequestClose={onClose}>
-            <KeyboardAvoidingView
-                style={styles.modalContainer}
-                behavior={'padding'}
-            >
-                <View style={[styles.modalHeader, { paddingTop: safeTop }]}>
-                    <TouchableOpacity style={styles.cancelBtnContainer} onPress={onClose} activeOpacity={0.7}>
-                        <Icon name="close" size={20} color={COLORS.textSecondary} />
-                        <Text style={styles.cancelBtn}>Cancel</Text>
-                    </TouchableOpacity>
-                    <Text style={styles.modalTitle}>Edit Transaction</Text>
-                    <TouchableOpacity
-                        style={[styles.saveBtnContainer, (!amount || !accountId) && styles.saveBtnDisabledContainer]}
-                        onPress={handleSave}
-                        disabled={!amount || !accountId}
-                        activeOpacity={0.7}
-                    >
-                        <Icon name="check" size={18} color={(amount && accountId) ? COLORS.background : COLORS.textMuted} />
-                        <Text style={[styles.saveBtn, (!amount || !accountId) && styles.saveBtnDisabled]}>Save</Text>
-                    </TouchableOpacity>
-                </View>
+        <Modal visible={visible} animationType="slide" presentationStyle="fullScreen" onRequestClose={mode === 'edit' ? () => setMode('story') : onClose}>
+            <View style={[styles.container, { paddingTop: insets.top + SPACING.lg, paddingBottom: insets.bottom + SPACING.lg }]}>
+                {mode === 'story' ? (
+                    <>
+                        <View style={styles.header}>
+                            <IconButton icon="chevron-left" label="Back" onPress={onClose} iconSize={26} />
+                            <View style={{ flex: 1 }} />
+                            <TouchableOpacity style={styles.editBtn} onPress={startEdit} accessibilityRole="button" activeOpacity={0.85}>
+                                <Text style={styles.editText}>Edit</Text>
+                            </TouchableOpacity>
+                            <TouchableOpacity
+                                style={styles.deleteBtn}
+                                onPress={() => setShowDeleteConfirm(true)}
+                                accessibilityRole="button"
+                                accessibilityLabel="Delete payment"
+                            >
+                                <Icon name="delete-outline" size={22} color={CATEGORY_PALETTE.shopping.fg} />
+                            </TouchableOpacity>
+                        </View>
 
-                <ScrollView style={styles.modalContent} contentContainerStyle={styles.modalContentContainer} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
-                    {/* Type Toggle */}
-                    <View style={styles.typeToggle}>
-                        <TouchableOpacity
-                            style={[styles.typeBtn, isExpense && styles.typeBtnActive]}
-                            onPress={() => setType('expense')}
-                        >
-                            <Text style={[styles.typeBtnText, isExpense && styles.typeBtnTextActive]}>Expense</Text>
-                        </TouchableOpacity>
-                        <TouchableOpacity
-                            style={[styles.typeBtn, isIncome && styles.typeBtnActive]}
-                            onPress={() => setType('income')}
-                        >
-                            <Text style={[styles.typeBtnText, isIncome && styles.typeBtnTextActive]}>Income</Text>
-                        </TouchableOpacity>
-                        <TouchableOpacity
-                            style={[styles.typeBtn, isTransfer && styles.typeBtnActive]}
-                            onPress={() => setType('transfer')}
-                            disabled={true}
-                        >
-                            <Text style={[styles.typeBtnText, isTransfer && styles.typeBtnTextActive]}>Transfer</Text>
-                        </TouchableOpacity>
-                    </View>
-
-                    {/* Amount */}
-                    <View style={styles.amountSection}>
-                        <Text style={[styles.currencySymbol, isExpense ? styles.expenseColor : (isIncome ? styles.incomeColor : styles.transferColor)]}>
-                            ₹
-                        </Text>
-                        <TextInput
-                            style={[styles.amountInput, isExpense ? styles.expenseColor : (isIncome ? styles.incomeColor : styles.transferColor)]}
-                            placeholder="0"
-                            placeholderTextColor={COLORS.textMuted}
-                            value={amount}
-                            onChangeText={setAmount}
-                            keyboardType="decimal-pad"
-                        />
-                    </View>
-
-                    {/* Transaction Time */}
-                    <Text style={styles.inputLabel}>TRANSACTION TIME</Text>
-                    <View style={styles.manualTimeContainer}>
-                        <TouchableOpacity
-                            style={styles.dateDisplayBtn}
-                            onPress={() => setShowDatePicker(true)}
-                        >
-                            <Icon name="calendar-today" size={20} color={COLORS.primary} />
-                            <Text style={styles.dateDisplayText}>
-                                {date.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}
-                            </Text>
-                        </TouchableOpacity>
-
-                        <TouchableOpacity
-                            style={styles.dateDisplayBtn}
-                            onPress={() => setShowTimePicker(true)}
-                        >
-                            <Icon name="access-time" size={20} color={COLORS.primary} />
-                            <Text style={styles.dateDisplayText}>
-                                {date.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: true })}
-                            </Text>
-                        </TouchableOpacity>
-
-                        {showDatePicker && (
-                            <DateTimePicker
-                                value={date}
-                                mode="date"
-                                display={Platform.OS === 'ios' ? 'spinner' : 'default'}
-                                onChange={onDateChange}
-                            />
-                        )}
-                        {showTimePicker && (
-                            <DateTimePicker
-                                value={date}
-                                mode="time"
-                                display={Platform.OS === 'ios' ? 'spinner' : 'default'}
-                                onChange={onTimeChange}
-                            />
-                        )}
-                    </View>
-
-                    {/* Account Selector */}
-                    <Text style={styles.inputLabel}>Account</Text>
-                    <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.accountSelector}>
-                        {activeAccounts
-                            .filter(acc => {
-                                if (!isTransfer && (acc.type === 'investment' || acc.type === 'bitcoin')) return false;
-                                return true;
-                            })
-                            .map(acc => (
-                                <TouchableOpacity
-                                    key={acc.id}
-                                    style={[styles.accountChip, accountId === acc.id && styles.accountChipActive]}
-                                    onPress={() => setAccountId(acc.id)}
-                                >
-                                    <View style={{ marginRight: SPACING.sm }}>
-                                        <Icon name={acc.icon as any} size={18} color={accountId === acc.id ? COLORS.background : COLORS.text} />
-                                    </View>
-                                    <Text style={[styles.accountChipText, accountId === acc.id && styles.accountChipTextActive]}>
-                                        {acc.name}
+                        <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
+                            <View style={[styles.hero, { backgroundColor: pair.bg }]}>
+                                <View style={styles.heroBlob} pointerEvents="none" />
+                                <View style={styles.heroIcon}>
+                                    <Icon name={(CATEGORY_ICONS[transaction.category] || 'receipt-long') as any} size={28} color={pair.fg} />
+                                </View>
+                                <View style={{ flex: 1 }}>
+                                    <Text style={styles.heroTitle} accessibilityRole="header" numberOfLines={2}>{transaction.merchant}</Text>
+                                    <Text style={[styles.heroMeta, { color: pair.fg }]}>
+                                        {when.toLocaleDateString('en-IN', { weekday: 'short', day: 'numeric', month: 'short' })} · {formatTime(transaction.timestamp)}
                                     </Text>
-                                </TouchableOpacity>
-                            ))}
-                    </ScrollView>
+                                </View>
+                                <Text style={[styles.heroAmount, isIncome && { color: COLORS.primary }]}>
+                                    {isIncome ? '+' : ''}{formatAmount(transaction.amount, true)}
+                                </Text>
+                            </View>
 
-                    {/* Merchant & Category (Hide for Transfer) */}
-                    {!isTransfer && (
-                        <>
-                            <Text style={styles.inputLabel}>Description</Text>
-                            <TextInput
-                                style={styles.textInput}
-                                placeholder="e.g. Swiggy, Amazon, Salary..."
-                                placeholderTextColor={COLORS.textMuted}
-                                value={merchant}
-                                onChangeText={setMerchant}
-                            />
+                            <View style={styles.facts}>
+                                <View style={[styles.fact, styles.factWhite]}>
+                                    <Text style={styles.factOver}>FELT</Text>
+                                    {txMood ? <MoodFace mood={txMood} size={30} /> : <Text style={styles.factValue}>—</Text>}
+                                </View>
+                                <View style={[styles.fact, { backgroundColor: accPair.bg }]}>
+                                    <Text style={[styles.factOver, { color: accPair.fg }]}>{isIncome ? 'INTO' : 'FROM'}</Text>
+                                    <Text style={[styles.factValue, styles.factSmall]} numberOfLines={2}>{account?.name ?? '—'}</Text>
+                                </View>
+                                <View style={[styles.fact, { backgroundColor: pair.bg }]}>
+                                    <Text style={[styles.factOver, { color: pair.fg }]}>TYPE</Text>
+                                    <Text style={styles.factValue} numberOfLines={1}>{CATEGORY_LABELS[transaction.category]}</Text>
+                                </View>
+                                <View style={[styles.fact, { backgroundColor: CATEGORY_PALETTE.bills.bg }]}>
+                                    <Text style={[styles.factOver, { color: CATEGORY_PALETTE.bills.fg }]}>VIA</Text>
+                                    <Text style={styles.factValue}>{transaction.isAuto ? 'SMS' : 'You'}</Text>
+                                </View>
+                            </View>
 
-                            <Text style={styles.inputLabel}>Category</Text>
-                            <View style={styles.categoryGrid}>
-                                {CATEGORIES.filter(c => c !== 'transfer').map(cat => (
-                                    <TouchableOpacity
-                                        key={cat}
-                                        style={[styles.categoryChip, category === cat && styles.categoryChipActive]}
-                                        onPress={() => setCategory(cat)}
-                                    >
-                                        <View style={{ marginRight: SPACING.xs }}>
-                                            <Icon name={CATEGORY_ICONS[cat] as any} size={16} color={category === cat ? COLORS.background : COLORS.text} />
+                            <View style={styles.storyCard}>
+                                <Text style={styles.storyTitle}>Payment story</Text>
+                                {story.map((s, i) => (
+                                    <View key={i} style={styles.storyRow}>
+                                        <View style={styles.storyRail}>
+                                            <View style={[styles.storyDot, { backgroundColor: s.bg }]}>
+                                                <Icon name={s.icon as any} size={16} color={s.fg} />
+                                            </View>
+                                            {i < story.length - 1 && <View style={styles.storyLine} />}
                                         </View>
-                                        <Text style={[styles.categoryChipText, category === cat && styles.categoryChipTextActive]}>
-                                            {CATEGORY_LABELS[cat]}
-                                        </Text>
-                                    </TouchableOpacity>
+                                        <View style={styles.storyText}>
+                                            <Text style={styles.storyRowTitle}>{s.title}</Text>
+                                            {!!s.body && <Text style={styles.storyRowBody}>{s.body}</Text>}
+                                            {!!s.bubble && <Text style={styles.bubble}>"{s.bubble}"</Text>}
+                                        </View>
+                                    </View>
                                 ))}
                             </View>
-                        </>
-                    )}
-
-                    {/* Sentiment Selector - Only show for expenses */}
-                    {isExpense && (
-                        <View style={styles.sentimentSection}>
-                            <Text style={styles.inputLabel}>How did this spend feel?</Text>
-                            <ScrollView
-                                horizontal
-                                showsHorizontalScrollIndicator={false}
-                                style={styles.sentimentScroll}
-                                contentContainerStyle={styles.sentimentContainer}
-                            >
-                                {SENTIMENT_LIST.map((sentiment) => {
-                                    const isSelected = sentimentIds.includes(sentiment.id);
-                                    return (
-                                        <TouchableOpacity
-                                            key={sentiment.id}
-                                            style={[
-                                                styles.sentimentChip,
-                                                isSelected && { backgroundColor: sentiment.color + '20', borderColor: sentiment.color }
-                                            ]}
-                                            onPress={() => toggleSentiment(sentiment.id)}
-                                            activeOpacity={0.7}
-                                        >
-                                            <Text style={[
-                                                styles.sentimentLabel,
-                                                isSelected && { color: sentiment.color, fontWeight: '700' }
-                                            ]}>
-                                                {sentiment.label}
-                                            </Text>
-                                        </TouchableOpacity>
-                                    );
-                                })}
-                            </ScrollView>
+                        </ScrollView>
+                    </>
+                ) : (
+                    <>
+                        <View style={styles.header}>
+                            <IconButton icon="close" label="Cancel editing" onPress={() => setMode('story')} />
+                            <Text style={styles.editTitle} accessibilityRole="header">Edit payment</Text>
                         </View>
-                    )}
 
-                    {/* Notes */}
-                    <Text style={styles.inputLabel}>Notes (optional)</Text>
-                    <TextInput
-                        style={[styles.textInput, styles.notesInput]}
-                        placeholder="Add any notes..."
-                        placeholderTextColor={COLORS.textMuted}
-                        value={notes}
-                        onChangeText={setNotes}
-                        multiline
-                    />
+                        <ScrollView contentContainerStyle={styles.scroll} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
+                            <View style={styles.amountHero}>
+                                <TouchableOpacity
+                                    onPress={() => setEditingAmount((v) => !v)}
+                                    accessibilityRole="button"
+                                    accessibilityLabel={`Amount ${amount}. Change`}
+                                    activeOpacity={0.8}
+                                >
+                                    <Text style={styles.amount} numberOfLines={1} adjustsFontSizeToFit>
+                                        <Text style={styles.currency}>{currency.symbol}</Text>
+                                        {amount || '0'}
+                                    </Text>
+                                </TouchableOpacity>
+                                <TouchableOpacity style={styles.when} onPress={() => setDateStep('date')} accessibilityRole="button">
+                                    <Text style={styles.whenText}>
+                                        {date.toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })} · {formatTime(date.getTime())}
+                                    </Text>
+                                </TouchableOpacity>
+                            </View>
+                            {editingAmount && <Keypad onKey={(k) => setAmount((a) => applyKey(a, k))} />}
 
-                    {/* Delete Button */}
-                    <TouchableOpacity
-                        style={styles.deleteBtn}
-                        onPress={handleDelete}
-                        activeOpacity={0.7}
-                    >
-                        <Icon name="delete" size={20} color={COLORS.error} />
-                        <Text style={styles.deleteBtnText}>Delete Transaction</Text>
-                    </TouchableOpacity>
+                            <TextInput style={styles.input} value={merchant} onChangeText={setMerchant} placeholder="Who was this?" accessibilityLabel="Payee" />
 
-                    <View style={{ height: 40 }} />
-                </ScrollView>
+                            {!isIncome && (
+                                <View style={styles.catGrid}>
+                                    {SPEND_CATEGORIES.map((c) => (
+                                        <CategoryTile
+                                            key={c}
+                                            label={CATEGORY_LABELS[c]}
+                                            icon={CATEGORY_ICONS[c] as any}
+                                            palette={getPaletteKey(c)}
+                                            selected={category === c}
+                                            onPress={() => setCategory(c)}
+                                            height={76}
+                                            style={styles.catTile}
+                                        />
+                                    ))}
+                                </View>
+                            )}
 
-                {/* Delete Confirmation Modal */}
+                            <Text style={styles.label}>ACCOUNT</Text>
+                            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: SPACING.sm }}>
+                                {activeAccounts
+                                    .filter((a) => a.type !== 'investment' && a.type !== 'bitcoin')
+                                    .map((a) => {
+                                        const p = getCategoryColors(a.type);
+                                        const on = a.id === accountId;
+                                        return (
+                                            <TouchableOpacity
+                                                key={a.id}
+                                                onPress={() => setAccountId(a.id)}
+                                                style={[styles.accChip, { backgroundColor: p.bg }, on && styles.accChipOn]}
+                                                accessibilityRole="radio"
+                                                accessibilityState={{ checked: on }}
+                                            >
+                                                <Icon name={(ACCOUNT_ICONS[a.type] ?? 'account-balance') as any} size={16} color={p.fg} />
+                                                <Text style={styles.accChipText}>{a.name}</Text>
+                                            </TouchableOpacity>
+                                        );
+                                    })}
+                            </ScrollView>
+
+                            <TextInput
+                                style={[styles.input, styles.noteInput]}
+                                value={notes}
+                                onChangeText={setNotes}
+                                placeholder="Add a note"
+                                multiline
+                                accessibilityLabel="Note"
+                            />
+
+                            {!isIncome && (
+                                <>
+                                    <Text style={styles.label}>HOW DID IT FEEL?</Text>
+                                    <MoodPicker value={mood} onChange={setMood} />
+                                </>
+                            )}
+                        </ScrollView>
+
+                        <Button label="Save changes" icon="check" onPress={handleSave} disabled={!parseFloat(amount) || !merchant.trim()} />
+
+                        {dateStep && (
+                            <DateTimePicker
+                                value={date}
+                                mode={dateStep}
+                                maximumDate={new Date()}
+                                display={Platform.OS === 'ios' ? 'spinner' : 'default'}
+                                onChange={(_e: any, picked?: Date) => {
+                                    if (!picked) { setDateStep(null); return; }
+                                    const next = new Date(date);
+                                    if (dateStep === 'date') {
+                                        next.setFullYear(picked.getFullYear(), picked.getMonth(), picked.getDate());
+                                        setDate(next);
+                                        setDateStep(Platform.OS === 'ios' ? null : 'time');
+                                    } else {
+                                        next.setHours(picked.getHours(), picked.getMinutes());
+                                        setDate(next);
+                                        setDateStep(null);
+                                    }
+                                }}
+                            />
+                        )}
+                    </>
+                )}
+
                 <CustomModal
                     visible={showDeleteConfirm}
-                    title="Delete Transaction"
-                    message="Are you sure you want to delete this transaction? The account balance will be adjusted automatically."
+                    title="Delete this payment?"
+                    message="Sikka will put the money back in the account's balance."
                     type="error"
                     icon="delete"
                     onClose={() => setShowDeleteConfirm(false)}
                     actions={[
-                        { text: 'Cancel', onPress: () => setShowDeleteConfirm(false), style: 'cancel' },
+                        { text: 'Keep it', onPress: () => setShowDeleteConfirm(false), style: 'cancel' },
                         { text: 'Delete', onPress: confirmDelete, style: 'destructive' },
                     ]}
                 />
-
-                {/* Transfer Warning Modal */}
                 <CustomModal
                     visible={showTransferWarning}
-                    title="Transfer Editing"
-                    message="To modify a transfer, please delete it and create a new one."
+                    title="Transfers can't be edited"
+                    message="Delete this transfer and add it again with the right details."
                     type="info"
                     icon="swap-horiz"
                     onClose={() => setShowTransferWarning(false)}
-                    actions={[
-                        { text: 'Got it', onPress: () => setShowTransferWarning(false), style: 'primary' },
-                    ]}
+                    actions={[{ text: 'Got it', onPress: () => setShowTransferWarning(false), style: 'primary' }]}
                 />
-            </KeyboardAvoidingView>
+            </View>
         </Modal>
     );
 }
 
 const styles = StyleSheet.create({
-    modalContainer: { flex: 1, backgroundColor: COLORS.background },
-    modalHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: SPACING.lg, borderBottomWidth: 1, borderBottomColor: COLORS.border },
-    modalTitle: { fontSize: FONT_SIZE.lg, fontWeight: '600', color: COLORS.text },
-    cancelBtnContainer: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        backgroundColor: COLORS.surfaceLight,
-        paddingHorizontal: SPACING.md,
-        paddingVertical: SPACING.sm,
-        borderRadius: BORDER_RADIUS.full,
-        gap: SPACING.xs,
-    },
-    cancelBtn: { fontSize: FONT_SIZE.md, color: COLORS.textSecondary, fontWeight: '500' },
-    saveBtnContainer: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        backgroundColor: COLORS.primary,
-        paddingHorizontal: SPACING.md,
-        paddingVertical: SPACING.sm,
-        borderRadius: BORDER_RADIUS.full,
-        gap: SPACING.xs,
-    },
-    saveBtn: { fontSize: FONT_SIZE.md, fontWeight: '600', color: COLORS.background },
-    saveBtnDisabledContainer: { backgroundColor: COLORS.surfaceLight },
-    saveBtnDisabled: { color: COLORS.textMuted },
-    modalContent: { flex: 1, padding: SPACING.xl },
-    modalContentContainer: { flexGrow: 1, paddingBottom: 100 },
+    container: { flex: 1, backgroundColor: COLORS.background, paddingHorizontal: SPACING.lg, gap: SPACING.md },
+    header: { flexDirection: 'row', alignItems: 'center', gap: 10, minHeight: 48 },
+    editBtn: { height: 44, paddingHorizontal: 18, borderRadius: 22, backgroundColor: COLORS.surface, justifyContent: 'center', ...SHADOWS.sm },
+    editText: { fontSize: 15, fontWeight: '800', color: COLORS.text },
+    deleteBtn: { width: 44, height: 44, borderRadius: 22, backgroundColor: CATEGORY_PALETTE.shopping.bg, alignItems: 'center', justifyContent: 'center' },
+    editTitle: { flex: 1, fontSize: 24, fontWeight: '800', color: COLORS.text },
+    scroll: { gap: SPACING.md, paddingBottom: SPACING.lg },
 
-    // Type Toggle
-    typeToggle: { flexDirection: 'row', backgroundColor: COLORS.surface, borderRadius: BORDER_RADIUS.md, padding: SPACING.xs, marginBottom: SPACING.xxl },
-    typeBtn: { flex: 1, paddingVertical: SPACING.md, alignItems: 'center', borderRadius: BORDER_RADIUS.sm },
-    typeBtnActive: { backgroundColor: COLORS.primary },
-    typeBtnText: { fontSize: FONT_SIZE.md, fontWeight: '600', color: COLORS.textMuted },
-    typeBtnTextActive: { color: COLORS.white },
+    hero: { borderRadius: 32, padding: 18, flexDirection: 'row', alignItems: 'center', gap: 14, overflow: 'hidden' },
+    heroBlob: { position: 'absolute', right: -30, top: -30, width: 110, height: 110, borderRadius: 55, backgroundColor: 'rgba(255,255,255,0.35)' },
+    heroIcon: { width: 60, height: 60, borderRadius: 20, backgroundColor: COLORS.surface, alignItems: 'center', justifyContent: 'center' },
+    heroTitle: { fontSize: 20, fontWeight: '800', color: COLORS.text },
+    heroMeta: { fontSize: 13, fontWeight: '600', marginTop: 2 },
+    heroAmount: { fontSize: 32, fontWeight: '800', letterSpacing: -1, color: COLORS.text },
 
-    // Amount
-    amountSection: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', marginBottom: SPACING.xxl },
-    currencySymbol: { fontSize: 40, fontWeight: '700' },
-    amountInput: { fontSize: 56, fontWeight: '700', minWidth: 100, textAlign: 'center' },
-    expenseColor: { color: COLORS.error },
-    incomeColor: { color: COLORS.success },
-    transferColor: { color: COLORS.primary },
+    facts: { flexDirection: 'row', gap: SPACING.sm },
+    fact: { flex: 1, borderRadius: 20, padding: 10, alignItems: 'center', gap: 6, minHeight: 74 },
+    factWhite: { backgroundColor: COLORS.surface, ...SHADOWS.sm },
+    factOver: { fontSize: 11, fontWeight: '800', color: COLORS.textSecondary, letterSpacing: 0.4 },
+    factValue: { fontSize: 14, fontWeight: '800', color: COLORS.text, marginTop: 2, textAlign: 'center' },
+    factSmall: { fontSize: 12, lineHeight: 15 },
 
-    manualTimeContainer: {
-        flexDirection: 'row',
-        gap: SPACING.md,
-        marginBottom: SPACING.sm,
-    },
-    dateDisplayBtn: {
-        flex: 1,
-        flexDirection: 'row',
-        alignItems: 'center',
-        justifyContent: 'center',
-        backgroundColor: COLORS.surface,
-        borderRadius: BORDER_RADIUS.md,
-        paddingVertical: SPACING.md,
-        gap: SPACING.sm,
-        borderWidth: 1,
-        borderColor: COLORS.border,
-    },
-    dateDisplayText: {
-        fontSize: FONT_SIZE.md,
-        color: COLORS.text,
-        fontWeight: '500',
-    },
-
-    // Inputs
-    inputLabel: { fontSize: FONT_SIZE.sm, fontWeight: '600', color: COLORS.textMuted, letterSpacing: 0.5, marginBottom: SPACING.sm, marginTop: SPACING.lg },
-    textInput: { backgroundColor: COLORS.surface, borderRadius: BORDER_RADIUS.md, padding: SPACING.lg, fontSize: FONT_SIZE.md, color: COLORS.text },
-    notesInput: { minHeight: 80, textAlignVertical: 'top' },
-
-    // Account Selector
-    accountSelector: { marginBottom: SPACING.md },
-    accountChip: { flexDirection: 'row', alignItems: 'center', backgroundColor: COLORS.surface, paddingHorizontal: SPACING.lg, paddingVertical: SPACING.md, borderRadius: BORDER_RADIUS.md, marginRight: SPACING.sm },
-    accountChipActive: { backgroundColor: COLORS.primary },
-    accountChipText: { fontSize: FONT_SIZE.md, color: COLORS.textSecondary },
-    accountChipTextActive: { color: COLORS.background, fontWeight: '600' },
-
-    // Category Grid
-    categoryGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: SPACING.sm },
-    categoryChip: { flexDirection: 'row', alignItems: 'center', backgroundColor: COLORS.surface, paddingHorizontal: SPACING.md, paddingVertical: SPACING.sm, borderRadius: BORDER_RADIUS.md },
-    categoryChipActive: { backgroundColor: COLORS.primary },
-    categoryChipText: { fontSize: FONT_SIZE.sm, color: COLORS.textSecondary },
-    categoryChipTextActive: { color: COLORS.background, fontWeight: '600' },
-
-    // Sentiment Selector
-    sentimentSection: {
-        marginBottom: SPACING.xl,
-    },
-    sentimentScroll: {
-        maxHeight: 50,
-    },
-    sentimentContainer: {
-        paddingRight: SPACING.xl,
-        gap: SPACING.sm,
-    },
-    sentimentChip: {
-        paddingHorizontal: SPACING.lg,
-        paddingVertical: SPACING.sm + 4,
-        borderRadius: BORDER_RADIUS.full,
-        backgroundColor: COLORS.surface,
-        borderWidth: 1,
-        borderColor: COLORS.surfaceLight,
-        alignItems: 'center',
-        justifyContent: 'center',
-    },
-    sentimentLabel: {
-        fontSize: FONT_SIZE.sm,
-        fontWeight: '500',
-        color: COLORS.textSecondary,
-    },
-
-    // Delete
-    deleteBtn: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        justifyContent: 'center',
-        backgroundColor: COLORS.error + '15',
-        borderRadius: BORDER_RADIUS.md,
-        paddingVertical: SPACING.lg,
-        marginTop: SPACING.xxl,
-        gap: SPACING.sm,
-        borderWidth: 1,
-        borderColor: COLORS.error + '30',
-    },
-    deleteBtnText: {
-        fontSize: FONT_SIZE.md,
+    storyCard: { backgroundColor: COLORS.surface, borderRadius: 30, padding: 18, ...SHADOWS.md },
+    storyTitle: { fontSize: 20, fontWeight: '800', color: COLORS.text, marginBottom: 14 },
+    storyRow: { flexDirection: 'row', gap: SPACING.md },
+    storyRail: { alignItems: 'center' },
+    storyDot: { width: 34, height: 34, borderRadius: 17, alignItems: 'center', justifyContent: 'center' },
+    storyLine: { width: 3, flex: 1, minHeight: 12, borderRadius: 2, backgroundColor: SIKKA.line },
+    storyText: { flex: 1, paddingBottom: SPACING.md },
+    storyRowTitle: { fontSize: 15, fontWeight: '800', color: COLORS.text, marginTop: 6 },
+    storyRowBody: { fontSize: 13, color: COLORS.textSecondary, marginTop: 2 },
+    bubble: {
+        marginTop: 6,
+        fontSize: 14,
         fontWeight: '600',
-        color: COLORS.error,
+        color: COLORS.text,
+        backgroundColor: '#F3EFFF',
+        borderRadius: 16,
+        borderBottomLeftRadius: 4,
+        paddingVertical: 8,
+        paddingHorizontal: 12,
+        overflow: 'hidden',
     },
-});
 
-export default EditTransactionModal;
+    amountHero: { backgroundColor: CATEGORY_PALETTE.bills.bg, borderRadius: 32, padding: 18, alignItems: 'center' },
+    amount: { fontSize: 56, lineHeight: 60, fontWeight: '800', letterSpacing: -2, color: COLORS.text },
+    currency: { fontSize: 32, fontWeight: '800', color: '#7A5600' },
+    when: { marginTop: SPACING.sm, backgroundColor: COLORS.surface, borderRadius: 999, paddingVertical: 5, paddingHorizontal: 12 },
+    whenText: { fontSize: 13, fontWeight: '800', color: COLORS.text },
+    input: { minHeight: 54, borderRadius: 27, backgroundColor: COLORS.surface, paddingHorizontal: 20, fontSize: 16, fontWeight: '700', color: COLORS.text, ...SHADOWS.sm },
+    noteInput: { borderRadius: 24, paddingVertical: 14, minHeight: 80, textAlignVertical: 'top' },
+    catGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: SPACING.sm },
+    catTile: { flexBasis: '22%', flexGrow: 1 },
+    label: { fontSize: 13, fontWeight: '800', letterSpacing: 0.4, color: COLORS.textSecondary, marginTop: SPACING.xs },
+    accChip: { flexDirection: 'row', alignItems: 'center', gap: 6, height: 44, paddingHorizontal: 14, borderRadius: 22 },
+    accChipOn: { borderWidth: 3, borderColor: COLORS.night },
+    accChipText: { fontSize: 14, fontWeight: '800', color: COLORS.text },
+});

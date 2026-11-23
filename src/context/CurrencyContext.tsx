@@ -117,13 +117,16 @@ export function CurrencyProvider({ children }: CurrencyProviderProps) {
             return `***`;
         }
 
-        const formatted = Math.abs(amount).toLocaleString('en-IN', {
-            minimumFractionDigits: 2,
+        // Design system: Indian grouping (₹1,00,000) unless "millions" is chosen,
+        // no trailing .00, and a true minus sign for money out (−₹240).
+        const locale = onboardingData?.numberSystem === 'millions' ? 'en-US' : 'en-IN';
+        const formatted = Math.abs(amount).toLocaleString(locale, {
+            minimumFractionDigits: 0,
             maximumFractionDigits: 2,
         });
-        const sign = amount < 0 ? '-' : '';
+        const sign = amount < 0 ? '−' : '';
         return `${sign}${currency.symbol}${formatted}`;
-    }, [currency, balancesVisible]);
+    }, [currency, balancesVisible, onboardingData?.numberSystem]);
 
     return (
         <CurrencyContext.Provider value={{

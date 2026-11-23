@@ -1,17 +1,14 @@
 
-import React, { useEffect, useState } from 'react';
-import {
-    Modal,
-    View,
-    Text,
-    StyleSheet,
-    TouchableOpacity,
-    TouchableWithoutFeedback,
-    Animated,
-    Dimensions,
-} from 'react-native';
-import { Icon } from './Icon';
-import { COLORS, SPACING, FONT_SIZE, BORDER_RADIUS, SHADOWS } from '../constants/theme';
+import React from 'react';
+import { Modal, View, StyleSheet, TouchableOpacity, Pressable } from 'react-native';
+import Animated, { ZoomIn } from 'react-native-reanimated';
+import { EASE, fadeIn } from '../motion';
+import { Text } from './Typography';
+import { Icon, IconName } from './Icon';
+import { COLORS, SPACING, FONT_SIZE, BORDER_RADIUS, SHADOWS, MOTION } from '../constants/theme';
+
+
+const cardIn = ZoomIn.withInitialValues({ transform: [{ scale: 0.95 }] }).duration(MOTION.durBase).easing(EASE.spring);
 
 export type ModalType = 'default' | 'success' | 'warning' | 'error' | 'info';
 
@@ -26,14 +23,12 @@ interface CustomModalProps {
     visible: boolean;
     title: string;
     message?: string;
-    icon?: string;
+    icon?: IconName;
     type?: ModalType;
     actions: ModalAction[];
     onClose?: () => void;
     children?: React.ReactNode;
 }
-
-const { width } = Dimensions.get('window');
 
 export function CustomModal({
     visible,
@@ -45,33 +40,6 @@ export function CustomModal({
     onClose,
     children,
 }: CustomModalProps) {
-    const [fadeAnim] = useState(new Animated.Value(0));
-    const [scaleAnim] = useState(new Animated.Value(0.95));
-
-    useEffect(() => {
-        if (visible) {
-            Animated.parallel([
-                Animated.timing(fadeAnim, {
-                    toValue: 1,
-                    duration: 200,
-                    useNativeDriver: true,
-                }),
-                Animated.spring(scaleAnim, {
-                    toValue: 1,
-                    friction: 8,
-                    tension: 40,
-                    useNativeDriver: true,
-                }),
-            ]).start();
-        } else {
-            Animated.timing(fadeAnim, {
-                toValue: 0,
-                duration: 150,
-                useNativeDriver: true,
-            }).start();
-        }
-    }, [visible]);
-
     if (!visible) return null;
 
     const getIconColor = () => {
@@ -84,7 +52,7 @@ export function CustomModal({
         }
     };
 
-    const getIconName = () => {
+    const getIconName = (): IconName => {
         if (icon) return icon;
         switch (type) {
             case 'success': return 'check-circle';
@@ -102,15 +70,9 @@ export function CustomModal({
             animationType="none"
             onRequestClose={onClose}
         >
-            <TouchableWithoutFeedback onPress={onClose}>
-                <Animated.View style={[styles.overlay, { opacity: fadeAnim }]}>
-                    <TouchableWithoutFeedback>
-                        <Animated.View
-                            style={[
-                                styles.container,
-                                { transform: [{ scale: scaleAnim }] },
-                            ]}
-                        >
+            <Animated.View entering={fadeIn} style={styles.overlay}>
+                <Pressable style={StyleSheet.absoluteFill} onPress={onClose} accessibilityLabel="Close" />
+                <Animated.View entering={cardIn} style={styles.container}>
                             {/* Header Icon */}
                             <View style={[styles.iconContainer, { backgroundColor: `${getIconColor()}15` }]}>
                                 <Icon
@@ -130,18 +92,18 @@ export function CustomModal({
                                 styles.actionsContainer,
                                 actions.length > 2 && styles.actionsVertical // Stack if > 2 actions
                             ]}>
-                                {actions.map((action, index) => {
+                                {actions.map((action) => {
                                     const isPrimary = action.style === 'primary';
                                     const isDestructive = action.style === 'destructive';
                                     const isCancel = action.style === 'cancel';
 
                                     return (
                                         <TouchableOpacity
-                                            key={index}
+                                            key={action.text}
                                             style={[
                                                 styles.button,
                                                 actions.length > 2 && styles.buttonFull,
-                                                isPrimary && { backgroundColor: COLORS.primary },
+                                                isPrimary && { backgroundColor: COLORS.brand },
                                                 isDestructive && { backgroundColor: `${COLORS.error}20` },
                                                 isCancel && { backgroundColor: 'transparent', borderWidth: 1, borderColor: COLORS.border },
                                             ]}
@@ -159,10 +121,8 @@ export function CustomModal({
                                     );
                                 })}
                             </View>
-                        </Animated.View>
-                    </TouchableWithoutFeedback>
                 </Animated.View>
-            </TouchableWithoutFeedback>
+            </Animated.View>
         </Modal>
     );
 }
@@ -170,7 +130,7 @@ export function CustomModal({
 const styles = StyleSheet.create({
     overlay: {
         flex: 1,
-        backgroundColor: 'rgba(0, 0, 0, 0.7)',
+        backgroundColor: COLORS.overlay,
         justifyContent: 'center',
         alignItems: 'center',
         padding: SPACING.xl,

@@ -39,7 +39,7 @@ export function SafeScreen({ children, style, edges = ['top'] }: SafeScreenProps
     return (
         <View style={[styles.container, paddingStyle, style]}>
             <StatusBar
-                barStyle="light-content"
+                barStyle="dark-content"
                 backgroundColor={COLORS.background}
                 translucent={Platform.OS === 'android'}
             />

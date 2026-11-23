@@ -1,53 +1,40 @@
 /**
- * Sikka - Add Transaction Modal
- * Modal for adding new transactions
+ * Sikka - Add a payment
+ * Design: design-system/screens/Add-transaction-v2.html
+ *
+ * Spent / Got / Moved · butter amount hero with date chip · description ·
+ * category + account tiles · keypad · "Save ₹450".
  */
 
-import React, { useState, useRef, useCallback } from 'react';
-
-import {
-    StyleSheet,
-    Text,
-    View,
-    Modal,
-    TouchableOpacity,
-    TextInput,
-    ScrollView,
-    KeyboardAvoidingView,
-    Platform,
-    Alert,
-    Animated,
-    Vibration,
-} from 'react-native';
+import React, { useEffect, useState } from 'react';
+import { StyleSheet, View, Modal, TouchableOpacity, ScrollView, Platform, Alert, Vibration } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import DateTimePicker from '@react-native-community/datetimepicker';
-import { COLORS, SPACING, FONT_SIZE, BORDER_RADIUS } from '../constants/theme';
-import { useSafeTop } from './SafeScreen';
+import { Text, TextInput } from './Typography';
 import { Icon } from './Icon';
+import { COLORS, SPACING, SHADOWS, CATEGORY_PALETTE, getCategoryColors, getPaletteKey, ACCOUNT_ICONS } from '../constants/theme';
 import { TransactionCategory, Account } from '../types';
 import { useAccounts } from '../context/AccountsContext';
-import { CATEGORY_ICONS, CATEGORY_LABELS } from '../context/TransactionsContext';
-import { SENTIMENT_LIST } from '../constants/sentiments';
+import { useCurrency } from '../context/CurrencyContext';
+import { CATEGORY_ICONS } from '../context/TransactionsContext';
+import { CATEGORY_LABELS } from './TransactionRow';
+import { Button, IconButton, Segmented, Keypad, applyKey, CategoryTile } from './ui';
 
-/**
- * Returns the spendable amount for a given account.
- * - CC: available credit = limit − outstanding
- * - Investment/Crypto: 0 (not spendable via transactions)
- * - All others: balance
- */
-function getSpendableAmount(account: Account): number {
+/** CC: available credit · investments: not spendable · others: balance. */
+export function getSpendableAmount(account: Account): number {
     if (account.type === 'credit') {
         const limit = account.creditCardDetails?.creditLimit ?? 0;
         return Math.max(0, limit - Math.abs(account.balance));
     }
-    if (account.type === 'investment' || account.type === 'bitcoin') {
-        return 0; // Holdings-based, not spendable
-    }
+    if (account.type === 'investment' || account.type === 'bitcoin') return 0;
     return account.balance;
 }
 
+type Mode = 'expense' | 'income' | 'transfer';
+
 interface AddTransactionModalProps {
     visible: boolean;
-    initialProps?: { type?: 'income' | 'expense' | 'transfer', accountId?: string } | null;
+    initialProps?: { type?: Mode; accountId?: string } | null;
     onClose: () => void;
     onAdd: (transaction: {
         accountId: string;
@@ -63,589 +50,342 @@ interface AddTransactionModalProps {
     }) => void;
 }
 
-const CATEGORIES: TransactionCategory[] = [
-    'groceries', 'dining', 'transport', 'shopping', 'entertainment',
-    'utilities', 'health', 'income', 'transfer', 'other',
+export const SPEND_CATEGORIES: TransactionCategory[] = [
+    'dining', 'groceries', 'transport', 'shopping', 'entertainment', 'utilities', 'health', 'other',
 ];
 
+function whenLabel(d: Date) {
+    const today = new Date();
+    const y = new Date(); y.setDate(today.getDate() - 1);
+    const same = (a: Date, b: Date) => a.toDateString() === b.toDateString();
+    const day = same(d, today) ? 'Today' : same(d, y) ? 'Yesterday' : d.toLocaleDateString('en-IN', { day: 'numeric', month: 'short' });
+    return `${day} · ${d.toLocaleTimeString('en-IN', { hour: 'numeric', minute: '2-digit' })}`;
+}
+
+function notify(title: string, message: string) {
+    if (Platform.OS === 'web') window.alert(`${title}\n\n${message}`);
+    else Alert.alert(title, message);
+}
+
 export function AddTransactionModal({ visible, initialProps, onClose, onAdd }: AddTransactionModalProps) {
+    const insets = useSafeAreaInsets();
     const { activeAccounts } = useAccounts();
-    const [merchant, setMerchant] = useState('');
+    const { currency, formatAmount } = useCurrency();
+
+    const [mode, setMode] = useState<Mode>('expense');
     const [amount, setAmount] = useState('');
+    const [description, setDescription] = useState('');
     const [category, setCategory] = useState<TransactionCategory>('other');
     const [accountId, setAccountId] = useState(activeAccounts[0]?.id || '');
-
-    // Transfer specific
     const [toAccountId, setToAccountId] = useState('');
-
-    const [notes, setNotes] = useState('');
-    const [type, setType] = useState<'income' | 'expense' | 'transfer'>('expense');
-
-    // Date/Time specific
     const [date, setDate] = useState(new Date());
-    const [showDatePicker, setShowDatePicker] = useState(false);
-    const [showTimePicker, setShowTimePicker] = useState(false);
+    const [picker, setPicker] = useState<null | 'category' | 'account' | 'to'>(null);
+    const [dateStep, setDateStep] = useState<null | 'date' | 'time'>(null);
 
-    // Sentiments (Multi-select)
-    const [sentimentIds, setSentimentIds] = useState<string[]>([]);
-    const safeTop = useSafeTop();
-
-    // Validation
-    const [errors, setErrors] = useState<Record<string, boolean>>({});
-    const shakeAnims = useRef<Record<string, Animated.Value>>({
-        amount: new Animated.Value(0),
-        account: new Animated.Value(0),
-        merchant: new Animated.Value(0),
-        toAccount: new Animated.Value(0),
-    }).current;
-
-    const shakeField = useCallback((field: string) => {
-        shakeAnims[field].setValue(0);
-        Animated.sequence([
-            Animated.timing(shakeAnims[field], { toValue: 10, duration: 50, useNativeDriver: true }),
-            Animated.timing(shakeAnims[field], { toValue: -10, duration: 50, useNativeDriver: true }),
-            Animated.timing(shakeAnims[field], { toValue: 8, duration: 50, useNativeDriver: true }),
-            Animated.timing(shakeAnims[field], { toValue: -8, duration: 50, useNativeDriver: true }),
-            Animated.timing(shakeAnims[field], { toValue: 4, duration: 50, useNativeDriver: true }),
-            Animated.timing(shakeAnims[field], { toValue: 0, duration: 50, useNativeDriver: true }),
-        ]).start();
-    }, [shakeAnims]);
-
-    const toggleSentiment = (id: string) => {
-        setSentimentIds(prev =>
-            prev.includes(id)
-                ? prev.filter(s => s !== id)
-                : [...prev, id]
-        );
-    };
-
-    // Handle Initial Props
-    React.useEffect(() => {
-        if (visible && initialProps) {
-            if (initialProps.type) setType(initialProps.type);
-            if (initialProps.accountId) setAccountId(initialProps.accountId);
-        } else if (visible) {
-            // Reset to defaults if no props
-            setType('expense');
-            setDate(new Date());
-            if (activeAccounts.length > 0) setAccountId(activeAccounts[0].id);
-        }
+    useEffect(() => {
+        if (!visible) return;
+        setMode(initialProps?.type ?? 'expense');
+        setAccountId(initialProps?.accountId ?? activeAccounts[0]?.id ?? '');
+        setDate(new Date());
+        setAmount('');
+        setDescription('');
+        setCategory('other');
+        setToAccountId('');
+        setPicker(null);
     }, [visible, initialProps]);
 
-    const onDateChange = (_event: any, selectedDate?: Date) => {
-        setShowDatePicker(Platform.OS === 'ios');
-        if (selectedDate) {
-            const updatedDate = new Date(selectedDate);
-            updatedDate.setHours(date.getHours());
-            updatedDate.setMinutes(date.getMinutes());
-            setDate(updatedDate);
-        }
+    const account = activeAccounts.find((a) => a.id === accountId);
+    const toAccount = activeAccounts.find((a) => a.id === toAccountId);
+    const num = parseFloat(amount) || 0;
+    const shownCategory: TransactionCategory = mode === 'income' ? 'income' : mode === 'transfer' ? 'transfer' : category;
+
+    const fail = (title: string, message: string) => {
+        Vibration.vibrate(150);
+        notify(title, message);
     };
 
-    const onTimeChange = (_event: any, selectedTime?: Date) => {
-        setShowTimePicker(Platform.OS === 'ios');
-        if (selectedTime) {
-            const updatedDate = new Date(date);
-            updatedDate.setHours(selectedTime.getHours());
-            updatedDate.setMinutes(selectedTime.getMinutes());
-            setDate(updatedDate);
-        }
-    };
+    const handleSave = () => {
+        if (num <= 0) return fail('How much?', 'Type the amount first.');
+        if (!account) return fail('Which account?', 'Pick the account this came from.');
 
-    const handleAdd = () => {
-        // Validate mandatory fields
-        const newErrors: Record<string, boolean> = {};
-        if (!amount.trim() || isNaN(parseFloat(amount))) newErrors.amount = true;
-        if (!accountId) newErrors.account = true;
-        if (type === 'transfer' && !toAccountId) newErrors.toAccount = true;
-        if (type !== 'transfer' && !merchant.trim()) newErrors.merchant = true;
-
-        if (Object.keys(newErrors).length > 0) {
-            setErrors(newErrors);
-            Object.keys(newErrors).forEach(field => shakeField(field));
-            Vibration.vibrate(200);
-            return;
-        }
-        setErrors({});
-
-        const numAmount = parseFloat(amount);
-
-        if (type === 'transfer') {
-            if (!accountId || !toAccountId) {
-                Alert.alert('Missing Details', 'Please select both From and To accounts.');
-                return;
+        if (mode === 'transfer') {
+            if (!toAccount) return fail('Moved where?', 'Pick the account the money went to.');
+            if (toAccount.id === account.id) return fail('Same account', 'Pick two different accounts.');
+            const available = getSpendableAmount(account);
+            if (num > available) {
+                return fail('Not enough money', `${account.name} has ${formatAmount(available, true)} ${account.type === 'credit' ? 'credit left' : 'available'}.`);
             }
-            if (accountId === toAccountId) {
-                Alert.alert('Invalid Transfer', 'Cannot transfer to the same account.');
-                return;
-            }
-            // Check available funds (type-aware)
-            const fromAccount = activeAccounts.find(acc => acc.id === accountId);
-            if (fromAccount) {
-                const available = getSpendableAmount(fromAccount);
-                if (numAmount > available) {
-                    const label = fromAccount.type === 'credit' ? 'Available Credit' : 'Balance';
-                    Alert.alert('Insufficient Funds', `${label} on "${fromAccount.name}" is ₹${available.toLocaleString()}.`);
-                    return;
-                }
-            }
-
-            // Add OUT transaction (Debit)
+            const note = description.trim();
             onAdd({
-                accountId,
+                accountId: account.id,
                 merchant: 'Transfer Out',
                 category: 'transfer',
-                amount: -Math.abs(numAmount),
-                notes: notes ? `To: ${activeAccounts.find(a => a.id === toAccountId)?.name}. ${notes}` : `To: ${activeAccounts.find(a => a.id === toAccountId)?.name}`,
+                amount: -num,
+                notes: `To: ${toAccount.name}${note ? `. ${note}` : ''}`,
                 isAuto: false,
                 type: 'debit',
                 timestamp: date.getTime(),
             });
-
-            // Add IN transaction (Credit)
-            // Note: onAdd currently only adds one. The parent needs to handle this or we call it twice.
-            // Since onAdd adds to context, calling it twice is fine.
-            // Add IN transaction (Credit)
-            // Note: onAdd currently only adds one. The parent needs to handle this or we call it twice.
-            // Since onAdd adds to context, calling it twice is fine.
             onAdd({
-                accountId: toAccountId,
+                accountId: toAccount.id,
                 merchant: 'Transfer In',
                 category: 'transfer',
-                amount: Math.abs(numAmount),
-                notes: notes ? `From: ${activeAccounts.find(a => a.id === accountId)?.name}. ${notes}` : `From: ${activeAccounts.find(a => a.id === accountId)?.name}`,
+                amount: num,
+                notes: `From: ${account.name}${note ? `. ${note}` : ''}`,
                 isAuto: false,
                 type: 'credit',
                 timestamp: date.getTime(),
             });
-
         } else {
-            // Regular Expense/Income
-            if (!merchant.trim() || !accountId) return;
-
-            // Check for insufficient funds on expenses (type-aware)
-            if (type === 'expense') {
-                const selectedAccount = activeAccounts.find(acc => acc.id === accountId);
-                if (selectedAccount) {
-                    const available = getSpendableAmount(selectedAccount);
-                    if (Math.abs(numAmount) > available) {
-                        const label = selectedAccount.type === 'credit' ? 'available credit' : 'balance';
-                        const message = `Your "${selectedAccount.name}" only has ₹${available.toLocaleString()} ${label}. You can't spend ₹${Math.abs(numAmount).toLocaleString()}.`;
-                        if (Platform.OS === 'web') {
-                            window.alert(`Insufficient Funds\n\n${message}`);
-                        } else {
-                            Alert.alert('Insufficient Funds', message, [{ text: 'OK' }]);
-                        }
-                        return;
-                    }
+            if (!description.trim()) return fail('Who was this?', 'Add a short description, like "Auto to Indiranagar".');
+            if (mode === 'expense') {
+                const available = getSpendableAmount(account);
+                if (num > available) {
+                    return fail('Not enough money', `${account.name} only has ${formatAmount(available, true)} ${account.type === 'credit' ? 'credit left' : 'available'}.`);
                 }
             }
-
             onAdd({
-                accountId,
-                merchant: merchant.trim(),
-                category,
-                amount: type === 'expense' ? -Math.abs(numAmount) : Math.abs(numAmount),
-                notes: notes.trim() || undefined,
+                accountId: account.id,
+                merchant: description.trim(),
+                category: shownCategory,
+                amount: mode === 'expense' ? -num : num,
                 isAuto: false,
-                sentimentIds: type === 'expense' ? sentimentIds : [],
-                isImpulse: type === 'expense' ? sentimentIds.includes('impulse') : undefined,
-                type: type === 'income' ? 'credit' : 'debit',
+                type: mode === 'income' ? 'credit' : 'debit',
                 timestamp: date.getTime(),
             });
         }
-
-        // Reset form
-        setMerchant('');
-        setAmount('');
-        setCategory('other');
-        setNotes('');
-        setType('expense');
-        setSentimentIds([]);
-        setToAccountId('');
         onClose();
     };
 
-    const isExpense = type === 'expense';
-    const isIncome = type === 'income';
-    const isTransfer = type === 'transfer';
+    const pair = getCategoryColors(shownCategory);
+    const accPair = getCategoryColors(account?.type);
+    const toPair = getCategoryColors(toAccount?.type);
+    const saveLabel = num > 0 ? `${mode === 'transfer' ? 'Move' : 'Save'} ${formatAmount(num, true)}` : mode === 'transfer' ? 'Move money' : 'Save payment';
 
     return (
-        <Modal visible={visible} animationType="slide" presentationStyle="pageSheet" onRequestClose={onClose}>
-            <KeyboardAvoidingView
-                style={styles.modalContainer}
-                behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-                enabled={Platform.OS === 'ios'}
-            >
-                <View style={[styles.modalHeader, { paddingTop: safeTop }]}>
-                    <TouchableOpacity style={styles.cancelBtnContainer} onPress={onClose} activeOpacity={0.7}>
-                        <Icon name="close" size={20} color={COLORS.textSecondary} />
-                        <Text style={styles.cancelBtn}>Cancel</Text>
-                    </TouchableOpacity>
-                    <Text style={styles.modalTitle}>Add Transaction</Text>
-                    <TouchableOpacity
-                        style={[styles.saveBtnContainer, (!amount || !accountId || (isTransfer && !toAccountId)) && styles.saveBtnDisabledContainer]}
-                        onPress={handleAdd}
-                        disabled={!amount || !accountId || (isTransfer && !toAccountId)}
-                        activeOpacity={0.7}
-                    >
-                        <Icon name="check" size={18} color={(amount && accountId) ? COLORS.background : COLORS.textMuted} />
-                        <Text style={[styles.saveBtn, (!amount || !accountId) && styles.saveBtnDisabled]}>Save</Text>
-                    </TouchableOpacity>
+        <Modal visible={visible} animationType="slide" presentationStyle="fullScreen" onRequestClose={onClose}>
+            <View style={[styles.container, { paddingTop: insets.top + SPACING.lg, paddingBottom: insets.bottom + SPACING.lg }]}>
+                <View style={styles.header}>
+                    <IconButton icon="close" label="Close" onPress={onClose} />
+                    <Segmented
+                        label="Type"
+                        style={{ flex: 1 }}
+                        value={mode}
+                        onChange={(m) => { setMode(m); setPicker(null); }}
+                        options={[
+                            { value: 'expense', label: 'Spent' },
+                            { value: 'income', label: 'Got' },
+                            { value: 'transfer', label: 'Moved' },
+                        ]}
+                    />
                 </View>
 
-                <ScrollView style={styles.modalContent} contentContainerStyle={styles.modalContentContainer} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled" nestedScrollEnabled={true}>
-                    {/* Type Toggle */}
-                    <View style={styles.typeToggle}>
-                        <TouchableOpacity
-                            style={[styles.typeBtn, isExpense && styles.typeBtnActiveExpense]}
-                            onPress={() => setType('expense')}
-                        >
-                            <Text style={[styles.typeBtnText, isExpense && styles.typeBtnTextActive]}>Expense</Text>
-                        </TouchableOpacity>
-                        <TouchableOpacity
-                            style={[styles.typeBtn, isIncome && styles.typeBtnActiveIncome]}
-                            onPress={() => setType('income')}
-                        >
-                            <Text style={[styles.typeBtnText, isIncome && styles.typeBtnTextActive]}>Income</Text>
-                        </TouchableOpacity>
-                        <TouchableOpacity
-                            style={[styles.typeBtn, isTransfer && styles.typeBtnActiveTransfer]}
-                            onPress={() => setType('transfer')}
-                        >
-                            <Text style={[styles.typeBtnText, isTransfer && styles.typeBtnTextActive]}>Transfer</Text>
-                        </TouchableOpacity>
-                    </View>
-
-                    {/* Amount */}
-                    <Animated.View style={[styles.amountSection, errors.amount && styles.errorHighlight, { transform: [{ translateX: shakeAnims.amount }] }]}>
-                        <Text style={[styles.currencySymbol, isExpense ? styles.expenseColor : (isIncome ? styles.incomeColor : styles.transferColor)]}>
-                            ₹
+                <ScrollView contentContainerStyle={styles.scroll} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
+                    {/* Amount hero */}
+                    <View style={styles.hero}>
+                        <View style={styles.heroBlob} pointerEvents="none" />
+                        <Text style={styles.amount} accessibilityLabel={`Amount ${amount || 0}`} numberOfLines={1} adjustsFontSizeToFit>
+                            <Text style={styles.currency}>{currency.symbol}</Text>
+                            {amount || '0'}
                         </Text>
-                        <TextInput
-                            style={[styles.amountInput, isExpense ? styles.expenseColor : (isIncome ? styles.incomeColor : styles.transferColor)]}
-                            placeholder="0"
-                            placeholderTextColor={COLORS.textMuted}
-                            value={amount}
-                            onChangeText={(v) => { setAmount(v); if (errors.amount) setErrors(e => ({ ...e, amount: false })); }}
-                            keyboardType="decimal-pad"
-                        />
-                    </Animated.View>
-
-                    {/* Transaction Time */}
-                    <Text style={styles.inputLabel}>TRANSACTION TIME</Text>
-                    <View style={styles.manualTimeContainer}>
                         <TouchableOpacity
-                            style={styles.dateDisplayBtn}
-                            onPress={() => setShowDatePicker(true)}
+                            style={styles.when}
+                            onPress={() => setDateStep('date')}
+                            accessibilityRole="button"
+                            accessibilityLabel={`When: ${whenLabel(date)}. Change`}
                         >
-                            <Icon name="calendar-today" size={20} color={COLORS.primary} />
-                            <Text style={styles.dateDisplayText}>
-                                {date.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}
-                            </Text>
+                            <Text style={styles.whenText}>{whenLabel(date)}</Text>
                         </TouchableOpacity>
+                    </View>
 
-                        <TouchableOpacity
-                            style={styles.dateDisplayBtn}
-                            onPress={() => setShowTimePicker(true)}
-                        >
-                            <Icon name="access-time" size={20} color={COLORS.primary} />
-                            <Text style={styles.dateDisplayText}>
-                                {date.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: true })}
-                            </Text>
-                        </TouchableOpacity>
+                    <TextInput
+                        style={styles.input}
+                        placeholder={mode === 'transfer' ? 'Note (optional)' : mode === 'income' ? 'Who paid you?' : 'What was it for?'}
+                        value={description}
+                        onChangeText={setDescription}
+                        accessibilityLabel="Description"
+                        returnKeyType="done"
+                    />
 
-                        {showDatePicker && (
-                            <DateTimePicker
-                                value={date}
-                                mode="date"
-                                display={Platform.OS === 'ios' ? 'spinner' : 'default'}
-                                onChange={onDateChange}
+                    {/* Category + account tiles */}
+                    <View style={styles.pickRow}>
+                        {mode === 'transfer' ? (
+                            <PickTile
+                                label={account?.name ?? 'From'}
+                                hint="From"
+                                icon={(ACCOUNT_ICONS[account?.type ?? 'bank'] ?? 'account-balance') as any}
+                                pair={accPair}
+                                onPress={() => setPicker(picker === 'account' ? null : 'account')}
+                            />
+                        ) : (
+                            <PickTile
+                                label={CATEGORY_LABELS[shownCategory]}
+                                hint="Category"
+                                icon={CATEGORY_ICONS[shownCategory] as any}
+                                pair={pair}
+                                onPress={mode === 'expense' ? () => setPicker(picker === 'category' ? null : 'category') : undefined}
                             />
                         )}
-                        {showTimePicker && (
-                            <DateTimePicker
-                                value={date}
-                                mode="time"
-                                display={Platform.OS === 'ios' ? 'spinner' : 'default'}
-                                onChange={onTimeChange}
+                        {mode === 'transfer' ? (
+                            <PickTile
+                                label={toAccount?.name ?? 'Pick account'}
+                                hint="To"
+                                icon={(ACCOUNT_ICONS[toAccount?.type ?? 'bank'] ?? 'account-balance') as any}
+                                pair={toAccount ? toPair : { bg: COLORS.surface, fg: COLORS.text }}
+                                onPress={() => setPicker(picker === 'to' ? null : 'to')}
+                            />
+                        ) : (
+                            <PickTile
+                                label={account?.name ?? 'Pick account'}
+                                hint="Account"
+                                icon={(ACCOUNT_ICONS[account?.type ?? 'bank'] ?? 'account-balance') as any}
+                                pair={accPair}
+                                onPress={() => setPicker(picker === 'account' ? null : 'account')}
                             />
                         )}
                     </View>
 
-                    {/* From Account Selector */}
-                    <Text style={styles.inputLabel}>{isTransfer ? 'From Account' : 'Account'}<Text style={styles.mandatoryStar}> *</Text></Text>
-                    <Animated.View style={[errors.account && styles.errorHighlight, styles.errorHighlightRow, { transform: [{ translateX: shakeAnims.account }] }]}>
-                        <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.accountSelector} nestedScrollEnabled={true}>
-                            {activeAccounts
-                                .filter(acc => {
-                                    // Hide investment/crypto from expense/income (they use holdings, not transactions)
-                                    if (!isTransfer && (acc.type === 'investment' || acc.type === 'bitcoin')) return false;
-                                    return true;
-                                })
-                                .map(acc => {
-                                    const isCC = acc.type === 'credit';
-                                    const avail = getSpendableAmount(acc);
-                                    return (
-                                        <TouchableOpacity
-                                            key={acc.id}
-                                            style={[styles.accountChip, accountId === acc.id && styles.accountChipActive]}
-                                            onPress={() => { setAccountId(acc.id); if (errors.account) setErrors(e => ({ ...e, account: false })); }}
-                                        >
-                                            <View style={{ marginRight: SPACING.sm }}>
-                                                <Icon name={acc.icon as any} size={18} color={accountId === acc.id ? COLORS.background : COLORS.text} />
-                                            </View>
-                                            <View>
-                                                <Text style={[styles.accountChipText, accountId === acc.id && styles.accountChipTextActive]}>
-                                                    {acc.name}
-                                                </Text>
-                                                {isCC && isExpense && (
-                                                    <Text style={[styles.accountChipSubtext, accountId === acc.id && { color: COLORS.background + 'AA' }]}>
-                                                        Avail: ₹{avail.toLocaleString()}
-                                                    </Text>
-                                                )}
-                                            </View>
-                                        </TouchableOpacity>
-                                    );
-                                })}
-                        </ScrollView>
-                    </Animated.View>
-
-                    {/* To Account Selector (Transfer Only) */}
-                    {isTransfer && (
-                        <>
-                            <Text style={styles.inputLabel}>To Account<Text style={styles.mandatoryStar}> *</Text></Text>
-                            <Animated.View style={[errors.toAccount && styles.errorHighlight, styles.errorHighlightRow, { transform: [{ translateX: shakeAnims.toAccount }] }]}>
-                                <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.accountSelector} nestedScrollEnabled={true}>
-                                    {activeAccounts.filter(a => a.id !== accountId).map(acc => (
-                                        <TouchableOpacity
-                                            key={acc.id}
-                                            style={[styles.accountChip, toAccountId === acc.id && styles.accountChipActive]}
-                                            onPress={() => { setToAccountId(acc.id); if (errors.toAccount) setErrors(e => ({ ...e, toAccount: false })); }}
-                                        >
-                                            <View style={{ marginRight: SPACING.sm }}>
-                                                <Icon name={acc.icon as any} size={18} color={toAccountId === acc.id ? COLORS.background : COLORS.text} />
-                                            </View>
-                                            <Text style={[styles.accountChipText, toAccountId === acc.id && styles.accountChipTextActive]}>
-                                                {acc.name}
-                                            </Text>
-                                        </TouchableOpacity>
-                                    ))}
-                                </ScrollView>
-                            </Animated.View>
-                        </>
-                    )}
-
-                    {/* Merchant & Category (Hide for Transfer) */}
-                    {!isTransfer && (
-                        <>
-                            <Text style={styles.inputLabel}>Description<Text style={styles.mandatoryStar}> *</Text></Text>
-                            <Animated.View style={{ transform: [{ translateX: shakeAnims.merchant }] }}>
-                                <TextInput
-                                    style={[styles.textInput, errors.merchant && styles.errorHighlight]}
-                                    placeholder="e.g. Swiggy, Amazon, Salary..."
-                                    placeholderTextColor={COLORS.textMuted}
-                                    value={merchant}
-                                    onChangeText={(v) => { setMerchant(v); if (errors.merchant) setErrors(e => ({ ...e, merchant: false })); }}
-                                />
-                            </Animated.View>
-
-                            <Text style={styles.inputLabel}>Category</Text>
-                            <View style={styles.categoryGrid}>
-                                {CATEGORIES.filter(c => c !== 'transfer').map(cat => (
-                                    <TouchableOpacity
-                                        key={cat}
-                                        style={[styles.categoryChip, category === cat && styles.categoryChipActive]}
-                                        onPress={() => setCategory(cat)}
-                                    >
-                                        <View style={{ marginRight: SPACING.xs }}>
-                                            <Icon name={CATEGORY_ICONS[cat] as any} size={16} color={category === cat ? COLORS.background : COLORS.text} />
-                                        </View>
-                                        <Text style={[styles.categoryChipText, category === cat && styles.categoryChipTextActive]}>
-                                            {CATEGORY_LABELS[cat]}
-                                        </Text>
-                                    </TouchableOpacity>
-                                ))}
-                            </View>
-                        </>
-                    )}
-
-                    {/* Sentiment Selector - Only show for expenses */}
-                    {isExpense && (
-                        <View style={styles.sentimentSection}>
-                            <Text style={styles.inputLabel}>How did this spend feel?</Text>
-                            <ScrollView
-                                horizontal
-                                showsHorizontalScrollIndicator={false}
-                                style={styles.sentimentScroll}
-                                contentContainerStyle={styles.sentimentContainer}
-                                nestedScrollEnabled={true}
-                            >
-                                {SENTIMENT_LIST.map((sentiment) => {
-                                    const isSelected = sentimentIds.includes(sentiment.id);
-                                    return (
-                                        <TouchableOpacity
-                                            key={sentiment.id}
-                                            style={[
-                                                styles.sentimentChip,
-                                                isSelected && { backgroundColor: sentiment.color + '20', borderColor: sentiment.color }
-                                            ]}
-                                            onPress={() => toggleSentiment(sentiment.id)}
-                                            activeOpacity={0.7}
-                                        >
-                                            <Text style={[
-                                                styles.sentimentLabel,
-                                                isSelected && { color: sentiment.color, fontWeight: '700' }
-                                            ]}>
-                                                {sentiment.label}
-                                            </Text>
-                                        </TouchableOpacity>
-                                    );
-                                })}
-                            </ScrollView>
+                    {picker === 'category' && (
+                        <View style={styles.catGrid}>
+                            {SPEND_CATEGORIES.map((c) => {
+                                return (
+                                    <CategoryTile
+                                        key={c}
+                                        label={CATEGORY_LABELS[c]}
+                                        icon={CATEGORY_ICONS[c] as any}
+                                        palette={getPaletteKey(c)}
+                                        selected={category === c}
+                                        height={76}
+                                        style={styles.catTile}
+                                        onPress={() => { setCategory(c); setPicker(null); }}
+                                    />
+                                );
+                            })}
                         </View>
                     )}
 
-                    {/* Notes */}
-                    <Text style={styles.inputLabel}>Notes (optional)</Text>
-                    <TextInput
-                        style={[styles.textInput, styles.notesInput]}
-                        placeholder="Add any notes..."
-                        placeholderTextColor={COLORS.textMuted}
-                        value={notes}
-                        onChangeText={setNotes}
-                        multiline
-                    />
+                    {(picker === 'account' || picker === 'to') && (
+                        <View style={styles.accList}>
+                            {activeAccounts
+                                .filter((a) => a.type !== 'investment' && a.type !== 'bitcoin')
+                                .map((a) => {
+                                    const p = getCategoryColors(a.type);
+                                    const on = picker === 'to' ? a.id === toAccountId : a.id === accountId;
+                                    return (
+                                        <TouchableOpacity
+                                            key={a.id}
+                                            style={[styles.accItem, { backgroundColor: p.bg }, on && styles.accItemOn]}
+                                            onPress={() => {
+                                                if (picker === 'to') setToAccountId(a.id);
+                                                else setAccountId(a.id);
+                                                setPicker(null);
+                                            }}
+                                            accessibilityRole="radio"
+                                            accessibilityState={{ checked: on }}
+                                        >
+                                            <Icon name={(ACCOUNT_ICONS[a.type] ?? 'account-balance') as any} size={18} color={p.fg} />
+                                            <Text style={styles.accName} numberOfLines={1}>{a.name}</Text>
+                                            <Text style={[styles.accBal, { color: p.fg }]}>{formatAmount(getSpendableAmount(a))}</Text>
+                                        </TouchableOpacity>
+                                    );
+                                })}
+                        </View>
+                    )}
+
+                    {!picker && <Keypad onKey={(k) => setAmount((a) => applyKey(a, k))} />}
                 </ScrollView>
-            </KeyboardAvoidingView>
+
+                <Button label={saveLabel} icon="check" onPress={handleSave} disabled={num <= 0} />
+
+                {dateStep && (
+                    <DateTimePicker
+                        value={date}
+                        mode={dateStep}
+                        maximumDate={new Date()}
+                        display={Platform.OS === 'ios' ? 'spinner' : 'default'}
+                        onChange={(_e: any, picked?: Date) => {
+                            if (!picked) { setDateStep(null); return; }
+                            const next = new Date(date);
+                            if (dateStep === 'date') {
+                                next.setFullYear(picked.getFullYear(), picked.getMonth(), picked.getDate());
+                                setDate(next);
+                                setDateStep(Platform.OS === 'ios' ? null : 'time');
+                            } else {
+                                next.setHours(picked.getHours(), picked.getMinutes());
+                                setDate(next);
+                                setDateStep(null);
+                            }
+                        }}
+                    />
+                )}
+            </View>
         </Modal>
     );
 }
 
+function PickTile({
+    label,
+    hint,
+    icon,
+    pair,
+    onPress,
+}: {
+    label: string;
+    hint: string;
+    icon: any;
+    pair: { bg: string; fg: string };
+    onPress?: () => void;
+}) {
+    return (
+        <TouchableOpacity
+            style={[styles.pick, { backgroundColor: pair.bg }]}
+            onPress={onPress}
+            disabled={!onPress}
+            activeOpacity={0.85}
+            accessibilityRole="button"
+            accessibilityLabel={`${hint}: ${label}${onPress ? '. Change' : ''}`}
+        >
+            <View style={styles.pickIcon}><Icon name={icon} size={18} color={pair.fg} /></View>
+            <Text style={styles.pickLabel} numberOfLines={1}>{label}</Text>
+            {onPress && <Icon name="expand-more" size={18} color={pair.fg} />}
+        </TouchableOpacity>
+    );
+}
+
 const styles = StyleSheet.create({
-    modalContainer: { flex: 1, backgroundColor: COLORS.background },
-    modalHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: SPACING.lg, borderBottomWidth: 1, borderBottomColor: COLORS.border },
-    modalTitle: { fontSize: FONT_SIZE.lg, fontWeight: '600', color: COLORS.text },
-    cancelBtnContainer: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        backgroundColor: COLORS.surfaceLight,
-        paddingHorizontal: SPACING.md,
-        paddingVertical: SPACING.sm,
-        borderRadius: BORDER_RADIUS.full,
-        gap: SPACING.xs,
-    },
-    cancelBtn: { fontSize: FONT_SIZE.md, color: COLORS.textSecondary, fontWeight: '500' },
-    saveBtnContainer: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        backgroundColor: COLORS.primary,
-        paddingHorizontal: SPACING.md,
-        paddingVertical: SPACING.sm,
-        borderRadius: BORDER_RADIUS.full,
-        gap: SPACING.xs,
-    },
-    saveBtn: { fontSize: FONT_SIZE.md, fontWeight: '600', color: COLORS.background },
-    saveBtnDisabledContainer: { backgroundColor: COLORS.surfaceLight },
-    saveBtnDisabled: { color: COLORS.textMuted },
-    modalContent: { flex: 1, padding: SPACING.xl },
-    modalContentContainer: { flexGrow: 1, paddingBottom: 100 },
+    container: { flex: 1, backgroundColor: COLORS.background, paddingHorizontal: SPACING.lg, gap: SPACING.md },
+    header: { flexDirection: 'row', alignItems: 'center', gap: SPACING.md },
+    scroll: { gap: SPACING.md, paddingBottom: SPACING.sm },
 
-    // Type Toggle
-    typeToggle: { flexDirection: 'row', backgroundColor: COLORS.surface, borderRadius: BORDER_RADIUS.md, padding: SPACING.xs, marginBottom: SPACING.xxl },
-    typeBtn: { flex: 1, paddingVertical: SPACING.md, alignItems: 'center', borderRadius: BORDER_RADIUS.sm },
-    typeBtnActiveExpense: { backgroundColor: COLORS.primary },
-    typeBtnActiveIncome: { backgroundColor: COLORS.success },
-    typeBtnActiveTransfer: { backgroundColor: COLORS.primary },
-    typeBtnText: { fontSize: FONT_SIZE.md, fontWeight: '600', color: COLORS.textMuted },
-    typeBtnTextActive: { color: COLORS.white },
+    hero: { backgroundColor: CATEGORY_PALETTE.bills.bg, borderRadius: 32, padding: 18, alignItems: 'center', overflow: 'hidden' },
+    heroBlob: { position: 'absolute', left: -20, top: -20, width: 80, height: 80, borderRadius: 40, backgroundColor: '#FFD45C' },
+    amount: { fontSize: 62, lineHeight: 66, fontWeight: '800', letterSpacing: -2, color: COLORS.text },
+    currency: { fontSize: 36, fontWeight: '800', color: '#7A5600' },
+    when: { marginTop: SPACING.sm, backgroundColor: COLORS.surface, borderRadius: 999, paddingVertical: 5, paddingHorizontal: 12 },
+    whenText: { fontSize: 13, fontWeight: '800', color: COLORS.text },
 
-    // Amount
-    amountSection: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', marginBottom: SPACING.xxl },
-    currencySymbol: { fontSize: 40, fontWeight: '700' },
-    amountInput: { fontSize: 56, fontWeight: '700', minWidth: 100, textAlign: 'center' },
-    expenseColor: { color: COLORS.error },
-    incomeColor: { color: COLORS.success },
-    transferColor: { color: COLORS.primary },
-
-
-
-    manualTimeContainer: {
-        flexDirection: 'row',
-        gap: SPACING.md,
-        marginBottom: SPACING.sm,
-    },
-    dateDisplayBtn: {
-        flex: 1,
-        flexDirection: 'row',
-        alignItems: 'center',
-        justifyContent: 'center',
+    input: {
+        height: 54,
+        borderRadius: 27,
         backgroundColor: COLORS.surface,
-        borderRadius: BORDER_RADIUS.md,
-        paddingVertical: SPACING.md,
-        gap: SPACING.sm,
-        borderWidth: 1,
-        borderColor: COLORS.border,
-    },
-    dateDisplayText: {
-        fontSize: FONT_SIZE.md,
+        paddingHorizontal: 20,
+        fontSize: 16,
+        fontWeight: '700',
         color: COLORS.text,
-        fontWeight: '500',
+        ...SHADOWS.sm,
     },
 
-    // Inputs
-    inputLabel: { fontSize: FONT_SIZE.sm, fontWeight: '600', color: COLORS.textMuted, letterSpacing: 0.5, marginBottom: SPACING.sm, marginTop: SPACING.lg },
-    textInput: { backgroundColor: COLORS.surface, borderRadius: BORDER_RADIUS.md, padding: SPACING.lg, fontSize: FONT_SIZE.md, color: COLORS.text },
-    notesInput: { minHeight: 80, textAlignVertical: 'top' },
+    pickRow: { flexDirection: 'row', gap: SPACING.sm },
+    pick: { flex: 1, height: 56, borderRadius: 22, flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 12 },
+    pickIcon: { width: 34, height: 34, borderRadius: 12, backgroundColor: COLORS.surface, alignItems: 'center', justifyContent: 'center' },
+    pickLabel: { flex: 1, fontSize: 15, fontWeight: '800', color: COLORS.text },
 
-    // Account Selector
-    accountSelector: { marginBottom: SPACING.md, flexGrow: 0 },
-    accountChip: { flexDirection: 'row', alignItems: 'center', backgroundColor: COLORS.surface, paddingHorizontal: SPACING.lg, paddingVertical: SPACING.md, borderRadius: BORDER_RADIUS.md, marginRight: SPACING.sm },
-    accountChipActive: { backgroundColor: COLORS.primary },
-    accountChipIcon: { fontSize: 18, marginRight: SPACING.sm },
-    accountChipText: { fontSize: FONT_SIZE.md, color: COLORS.textSecondary },
-    accountChipTextActive: { color: COLORS.background, fontWeight: '600' },
-    accountChipSubtext: { fontSize: FONT_SIZE.xs, color: COLORS.textMuted, marginTop: 1 },
+    catGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: SPACING.sm },
+    catTile: { flexBasis: '22%', flexGrow: 1 },
 
-    // Category Grid
-    categoryGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: SPACING.sm },
-    categoryChip: { flexDirection: 'row', alignItems: 'center', backgroundColor: COLORS.surface, paddingHorizontal: SPACING.md, paddingVertical: SPACING.sm, borderRadius: BORDER_RADIUS.md },
-    categoryChipActive: { backgroundColor: COLORS.primary },
-    categoryChipIcon: { fontSize: 16, marginRight: SPACING.xs },
-    categoryChipText: { fontSize: FONT_SIZE.sm, color: COLORS.textSecondary },
-    categoryChipTextActive: { color: COLORS.background, fontWeight: '600' },
-
-    // Sentiment Selector
-    sentimentSection: {
-        marginBottom: SPACING.xl,
-    },
-    sentimentScroll: {
-        maxHeight: 50,
-    },
-    sentimentContainer: {
-        paddingRight: SPACING.xl,
-        gap: SPACING.sm,
-    },
-    sentimentChip: {
-        paddingHorizontal: SPACING.lg,
-        paddingVertical: SPACING.sm + 4,
-        borderRadius: BORDER_RADIUS.full,
-        backgroundColor: COLORS.surface,
-        borderWidth: 1,
-        borderColor: COLORS.surfaceLight,
-        alignItems: 'center',
-        justifyContent: 'center',
-    },
-    sentimentLabel: {
-        fontSize: FONT_SIZE.sm,
-        fontWeight: '500',
-        color: COLORS.textSecondary,
-    },
-
-    // Mandatory & Error
-    mandatoryStar: { color: COLORS.success, fontWeight: '700', fontSize: FONT_SIZE.md },
-    errorHighlight: { borderWidth: 1.5, borderColor: COLORS.error, borderRadius: BORDER_RADIUS.md },
-    errorHighlightRow: { borderRadius: BORDER_RADIUS.md, overflow: 'hidden' },
+    accList: { gap: SPACING.sm },
+    accItem: { height: 52, borderRadius: 20, flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 14 },
+    accItemOn: { borderWidth: 3, borderColor: COLORS.night },
+    accName: { flex: 1, fontSize: 15, fontWeight: '800', color: COLORS.text },
+    accBal: { fontSize: 14, fontWeight: '800' },
 });
-
-export default AddTransactionModal;

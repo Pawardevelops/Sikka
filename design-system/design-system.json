@@ -1,0 +1,396 @@
+{
+  "v": 3,
+  "assetGroups": {
+    "Icons": {
+      "files": {
+        "arrow-right.svg": {
+          "blob": "807af1d8909f385a5f6c5d3d32a45837",
+          "name": "arrow-right.svg",
+          "size": 216,
+          "type": "image/svg+xml"
+        },
+        "arrow-up-right.svg": {
+          "blob": "65f21e1811489db63da9c86957158e8b",
+          "name": "arrow-up-right.svg",
+          "size": 213,
+          "type": "image/svg+xml"
+        },
+        "bank.svg": {
+          "blob": "1d8a82429eac66a3b3c3183c9cbfa1bf",
+          "name": "bank.svg",
+          "size": 247,
+          "type": "image/svg+xml"
+        },
+        "bell.svg": {
+          "blob": "eb3d45a3b4611dbbdfe1f690222314e6",
+          "name": "bell.svg",
+          "size": 244,
+          "type": "image/svg+xml"
+        },
+        "bills.svg": {
+          "blob": "f07eb13fc6a46bbc1ec3547b8013be47",
+          "name": "bills.svg",
+          "size": 221,
+          "type": "image/svg+xml"
+        },
+        "card.svg": {
+          "blob": "4eb20824e30a11e607c5451713adac53",
+          "name": "card.svg",
+          "size": 259,
+          "type": "image/svg+xml"
+        },
+        "cash.svg": {
+          "blob": "a49f403d6b1f6f530106a972f89cdb38",
+          "name": "cash.svg",
+          "size": 265,
+          "type": "image/svg+xml"
+        },
+        "check.svg": {
+          "blob": "760d024b49127819f8d4dc628c75a2d5",
+          "name": "check.svg",
+          "size": 209,
+          "type": "image/svg+xml"
+        },
+        "chevron-left.svg": {
+          "blob": "a5a6500846ae671e60ef70a3c2c9447b",
+          "name": "chevron-left.svg",
+          "size": 208,
+          "type": "image/svg+xml"
+        },
+        "chevron-right.svg": {
+          "blob": "5ea45ad0898b280bc89db64615a2bd33",
+          "name": "chevron-right.svg",
+          "size": 207,
+          "type": "image/svg+xml"
+        },
+        "clock.svg": {
+          "blob": "2fb24d9209a825deb48c31d2a2ec2942",
+          "name": "clock.svg",
+          "size": 237,
+          "type": "image/svg+xml"
+        },
+        "close.svg": {
+          "blob": "e7d4cdb5019ea16123f530fac0ed74ef",
+          "name": "close.svg",
+          "size": 215,
+          "type": "image/svg+xml"
+        },
+        "cloud.svg": {
+          "blob": "4d35b86fe088b83dda80b1dcd9d9e97c",
+          "name": "cloud.svg",
+          "size": 250,
+          "type": "image/svg+xml"
+        },
+        "dining.svg": {
+          "blob": "e04e0231f47241cea421ca985299b412",
+          "name": "dining.svg",
+          "size": 291,
+          "type": "image/svg+xml"
+        },
+        "download.svg": {
+          "blob": "d4ef6a81fdfcb72dd11ba67777d9a4e7",
+          "name": "download.svg",
+          "size": 227,
+          "type": "image/svg+xml"
+        },
+        "edit.svg": {
+          "blob": "18cf3378252a3c5b6a6f71c38737a100",
+          "name": "edit.svg",
+          "size": 218,
+          "type": "image/svg+xml"
+        },
+        "eye.svg": {
+          "blob": "8735989398fa7e5c929231b4062b59af",
+          "name": "eye.svg",
+          "size": 274,
+          "type": "image/svg+xml"
+        },
+        "fingerprint.svg": {
+          "blob": "64322be2e13df36e01dec0447c397ac4",
+          "name": "fingerprint.svg",
+          "size": 341,
+          "type": "image/svg+xml"
+        },
+        "flame.svg": {
+          "blob": "0a05ed7aa2e7dafcdf0823497f8ba76e",
+          "name": "flame.svg",
+          "size": 265,
+          "type": "image/svg+xml"
+        },
+        "fun.svg": {
+          "blob": "b82512c6b73d39a26b44759b32193f7b",
+          "name": "fun.svg",
+          "size": 265,
+          "type": "image/svg+xml"
+        },
+        "groceries.svg": {
+          "blob": "c83e99bda1cbd8012ca48c15688204c2",
+          "name": "groceries.svg",
+          "size": 241,
+          "type": "image/svg+xml"
+        },
+        "health.svg": {
+          "blob": "c6c84c2cb522829e67e1bb663529be5a",
+          "name": "health.svg",
+          "size": 262,
+          "type": "image/svg+xml"
+        },
+        "home.svg": {
+          "blob": "f9c5cb25283a256ca20e711c8bda2b7c",
+          "name": "home.svg",
+          "size": 257,
+          "type": "image/svg+xml"
+        },
+        "lock.svg": {
+          "blob": "1ab1624cf80ef0188a91f914e632408f",
+          "name": "lock.svg",
+          "size": 268,
+          "type": "image/svg+xml"
+        },
+        "message.svg": {
+          "blob": "e293470008d99af4c02bff2ff0dab649",
+          "name": "message.svg",
+          "size": 213,
+          "type": "image/svg+xml"
+        },
+        "mic.svg": {
+          "blob": "de854c7a20f1d64e8002b0804f89771a",
+          "name": "mic.svg",
+          "size": 271,
+          "type": "image/svg+xml"
+        },
+        "moon.svg": {
+          "blob": "1222702a428d87415683e04fbd399fd4",
+          "name": "moon.svg",
+          "size": 242,
+          "type": "image/svg+xml"
+        },
+        "pin.svg": {
+          "blob": "85d393dcdcfd00335042b55c1c2bbbe0",
+          "name": "pin.svg",
+          "size": 287,
+          "type": "image/svg+xml"
+        },
+        "plus.svg": {
+          "blob": "d1b9b967589e27432214bdcab4abf325",
+          "name": "plus.svg",
+          "size": 211,
+          "type": "image/svg+xml"
+        },
+        "refresh.svg": {
+          "blob": "83e5c92af056798309bd185124ca22d6",
+          "name": "refresh.svg",
+          "size": 265,
+          "type": "image/svg+xml"
+        },
+        "review.svg": {
+          "blob": "dd41525a98a8ccf73e693ff967d050b2",
+          "name": "review.svg",
+          "size": 273,
+          "type": "image/svg+xml"
+        },
+        "search.svg": {
+          "blob": "e8b19fcf3a1bf380156bf36aa7a4342f",
+          "name": "search.svg",
+          "size": 240,
+          "type": "image/svg+xml"
+        },
+        "settings.svg": {
+          "blob": "e192c24ff3018365381d309f3ca909e2",
+          "name": "settings.svg",
+          "size": 285,
+          "type": "image/svg+xml"
+        },
+        "shopping.svg": {
+          "blob": "1e485df61ab50b1b222e227603251265",
+          "name": "shopping.svg",
+          "size": 245,
+          "type": "image/svg+xml"
+        },
+        "stats.svg": {
+          "blob": "f54556319c93f2372d5052a8b1cb8e0e",
+          "name": "stats.svg",
+          "size": 220,
+          "type": "image/svg+xml"
+        },
+        "transport.svg": {
+          "blob": "6c8a9a910e7810100d8157bbae0c396d",
+          "name": "transport.svg",
+          "size": 314,
+          "type": "image/svg+xml"
+        },
+        "trash.svg": {
+          "blob": "8e8b4e2714a4f8b12982c1cbf1a1380c",
+          "name": "trash.svg",
+          "size": 245,
+          "type": "image/svg+xml"
+        },
+        "trending-up.svg": {
+          "blob": "6db4d776adecec97bf6e3c916db36914",
+          "name": "trending-up.svg",
+          "size": 222,
+          "type": "image/svg+xml"
+        },
+        "upload.svg": {
+          "blob": "d6b1200d90a575219337e2c0b931f9f3",
+          "name": "upload.svg",
+          "size": 226,
+          "type": "image/svg+xml"
+        },
+        "users.svg": {
+          "blob": "ff65ae5dc4bdb6645a343d92a0be3f8f",
+          "name": "users.svg",
+          "size": 315,
+          "type": "image/svg+xml"
+        },
+        "wallet.svg": {
+          "blob": "639b1914a108864bcff75c9d5b1ead80",
+          "name": "wallet.svg",
+          "size": 260,
+          "type": "image/svg+xml"
+        }
+      },
+      "name": "Icons",
+      "order": [
+        "home.svg",
+        "review.svg",
+        "mic.svg",
+        "stats.svg",
+        "wallet.svg",
+        "plus.svg",
+        "settings.svg",
+        "dining.svg",
+        "groceries.svg",
+        "transport.svg",
+        "shopping.svg",
+        "fun.svg",
+        "bills.svg",
+        "health.svg",
+        "bank.svg",
+        "cash.svg",
+        "card.svg",
+        "trending-up.svg",
+        "message.svg",
+        "bell.svg",
+        "pin.svg",
+        "clock.svg",
+        "flame.svg",
+        "moon.svg",
+        "lock.svg",
+        "fingerprint.svg",
+        "eye.svg",
+        "search.svg",
+        "check.svg",
+        "close.svg",
+        "chevron-left.svg",
+        "chevron-right.svg",
+        "arrow-right.svg",
+        "arrow-up-right.svg",
+        "edit.svg",
+        "trash.svg",
+        "refresh.svg",
+        "download.svg",
+        "upload.svg",
+        "cloud.svg",
+        "users.svg"
+      ],
+      "tile": "xs"
+    },
+    "Logos": {
+      "files": {
+        "sikka-app-icon.svg": {
+          "blob": "ff942d143e66e9f8e81c48f96d5abda3",
+          "name": "sikka-app-icon.svg",
+          "size": 470,
+          "type": "image/svg+xml"
+        },
+        "sikka-mark.svg": {
+          "blob": "8b05094b95bda9fe6425eac6e5e580b7",
+          "name": "sikka-mark.svg",
+          "size": 431,
+          "type": "image/svg+xml"
+        }
+      },
+      "name": "Logos",
+      "order": [
+        "sikka-app-icon.svg",
+        "sikka-mark.svg"
+      ],
+      "tile": "l"
+    },
+    "Mascot": {
+      "files": {
+        "sikku-celebrate.svg": {
+          "blob": "e5d0dae2a028f50d57e01f578ec793af",
+          "name": "sikku-celebrate.svg",
+          "size": 585,
+          "type": "image/svg+xml"
+        },
+        "sikku-happy.svg": {
+          "blob": "c964e90b54d8cf7ba7a6ae1c3e1cef9e",
+          "name": "sikku-happy.svg",
+          "size": 668,
+          "type": "image/svg+xml"
+        },
+        "sikku-sleepy.svg": {
+          "blob": "340e240c6b97cf522311db7305e86f8e",
+          "name": "sikku-sleepy.svg",
+          "size": 594,
+          "type": "image/svg+xml"
+        },
+        "sikku-thinking.svg": {
+          "blob": "ad4ee47093c7338c0329f6bf8f39e79a",
+          "name": "sikku-thinking.svg",
+          "size": 555,
+          "type": "image/svg+xml"
+        },
+        "sikku-wink.svg": {
+          "blob": "bfbe58f478e365dfdcba4ec80c36b1bc",
+          "name": "sikku-wink.svg",
+          "size": 672,
+          "type": "image/svg+xml"
+        }
+      },
+      "name": "Mascot",
+      "order": [
+        "sikku-happy.svg",
+        "sikku-wink.svg",
+        "sikku-celebrate.svg",
+        "sikku-thinking.svg",
+        "sikku-sleepy.svg"
+      ],
+      "tile": "l"
+    },
+    "Motion": {
+      "files": {},
+      "name": "Motion",
+      "order": [],
+      "tile": "m"
+    }
+  },
+  "blobs": {},
+  "createdOnFiles": {
+    "at": "2026-11-02T09:55:00Z",
+    "v": 1
+  },
+  "docs": {
+    "sections": []
+  },
+  "groups": [
+    "Logos",
+    "Mascot",
+    "Icons",
+    "Motion"
+  ],
+  "lastChange": {
+    "at": "2026-11-02T09:55:00Z",
+    "by": "Sachin Pawar",
+    "note": "First version of the Sikka v2 design system",
+    "via": "Claude chat"
+  },
+  "layout": "files",
+  "libraries": [],
+  "namespace": "Sikka",
+  "sections": {},
+  "title": "Sikka"
+}

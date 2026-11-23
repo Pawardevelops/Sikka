@@ -2,8 +2,20 @@ module.exports = function (api) {
     api.cache(true);
     return {
         presets: ['babel-preset-expo'],
+        overrides: [
+            {
+                // WatermelonDB models (.ts) use legacy decorators on `field!:` declarations.
+                // Strip TypeScript first so the decorators plugin never sees `!` fields
+                // (otherwise the web bundle fails with "Definitely assigned fields...").
+                test: /\.ts$/,
+                plugins: [
+                    ['@babel/plugin-transform-typescript', { allowDeclareFields: true }],
+                    ['@babel/plugin-proposal-decorators', { legacy: true }],
+                    ['@babel/plugin-transform-class-properties', { loose: true }],
+                ],
+            },
+        ],
         plugins: [
-            ['@babel/plugin-proposal-decorators', { legacy: true }],
             [
                 'module-resolver',
                 {

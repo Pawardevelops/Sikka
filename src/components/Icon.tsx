@@ -2,8 +2,10 @@ import React from 'react';
 import { MaterialIcons } from '@expo/vector-icons';
 import { COLORS } from '../constants/theme';
 
+export type IconName = keyof typeof MaterialIcons.glyphMap;
+
 interface IconProps {
-    name: keyof typeof MaterialIcons.glyphMap;
+    name: IconName;
     size?: number;
     color?: string;
     style?: any;

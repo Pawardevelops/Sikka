@@ -1,393 +1,146 @@
 /**
- * Sikka - Welcome Screen (Onboarding Step 1)
- * Language, currency, and number system selection
+ * Sikka - Welcome (Onboarding 1 of 4)
+ * Design: design-system/screens/Welcome-v2.html
+ * Sikku hero, language, currency and number format.
  */
 
 import React, { useState } from 'react';
-import {
-    StyleSheet,
-    Text,
-    View,
-    TouchableOpacity,
-    ScrollView,
-} from 'react-native';
-import { useOnboarding, LANGUAGES, NUMBER_SYSTEMS } from '../../context/OnboardingContext';
+import { StyleSheet, View, TouchableOpacity, ScrollView } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { Text } from '../../components/Typography';
+import { useOnboarding, ONBOARDING_STEPS } from '../../context/OnboardingContext';
 import { CURRENCIES } from '../../context/CurrencyContext';
-import { OnboardingProgress } from '../../components/OnboardingProgress';
-import { COLORS, SPACING, FONT_SIZE, BORDER_RADIUS } from '../../constants/theme';
-import { Icon } from '../../components/Icon';
-import { Language, NumberSystem, CurrencyCode } from '../../types';
+import { COLORS, SPACING, CATEGORY_PALETTE } from '../../constants/theme';
+import { Button, Segmented, StepDots, Sikku, Chip } from '../../components/ui';
+import { Language } from '../../types';
+
+const LANGUAGE_OPTIONS: { value: Language; label: string }[] = [
+    { value: 'en', label: 'English' },
+    { value: 'hi', label: 'हिन्दी' },
+    { value: 'hinglish', label: 'Hinglish' },
+];
 
 export function WelcomeScreen() {
+    const insets = useSafeAreaInsets();
     const { currentStep, data, updateData, goNext } = useOnboarding();
-    const [showCurrencyPicker, setShowCurrencyPicker] = useState(false);
-
-    const handleLanguageSelect = (language: Language) => {
-        updateData({ language });
-    };
-
-    const handleCurrencySelect = (currency: CurrencyCode) => {
-        updateData({ currency });
-        setShowCurrencyPicker(false);
-    };
-
-    const handleNumberSystemSelect = (numberSystem: NumberSystem) => {
-        updateData({ numberSystem });
-    };
-
-    const selectedCurrency = CURRENCIES.find(c => c.code === data.currency);
+    const [showCurrencies, setShowCurrencies] = useState(false);
+    const currency = CURRENCIES.find((c) => c.code === data.currency) ?? CURRENCIES[0];
+    const isLakhs = data.numberSystem === 'lakhs';
 
     return (
-        <View style={styles.container}>
-            <OnboardingProgress currentStep={currentStep} />
+        <View style={[styles.container, { paddingTop: insets.top + SPACING.xxl, paddingBottom: insets.bottom + SPACING.xxl }]}>
+            <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
+                <StepDots total={ONBOARDING_STEPS} current={currentStep} />
 
-            <ScrollView
-                style={styles.scrollView}
-                contentContainerStyle={styles.scrollContent}
-                showsVerticalScrollIndicator={false}
-            >
-                {/* Header */}
-                <View style={styles.header}>
-                    <View style={styles.iconContainer}>
-                        <Icon name="waving-hand" size={40} color={COLORS.primary} />
-                    </View>
-                    <Text style={styles.title}>Namaste</Text>
-                    <Text style={styles.subtitle}>
-                        Select your preferred language to get started with Sikka.
-                    </Text>
+                {/* Hero: Sikku on lilac with coin stack */}
+                <View style={styles.hero} accessibilityElementsHidden importantForAccessibility="no-hide-descendants">
+                    <View style={[styles.blob, styles.blobPeach]} />
+                    <View style={[styles.blob, styles.blobLime]} />
+                    <View style={[styles.coin, { bottom: 76 }]} />
+                    <View style={[styles.coin, { bottom: 58 }]} />
+                    <View style={[styles.coin, { bottom: 40 }]} />
+                    <View style={styles.sikku}><Sikku size={170} /></View>
+                    <View style={styles.speech}><Text style={styles.speechText}>Namaste! I'm Sikku</Text></View>
                 </View>
 
-                {/* Language Selection */}
-                <Text style={styles.sectionLabel}>SELECT LANGUAGE</Text>
-                <View style={styles.languageList}>
-                    {LANGUAGES.map((lang) => (
-                        <TouchableOpacity
-                            key={lang.value}
-                            style={[
-                                styles.languageOption,
-                                data.language === lang.value && styles.languageOptionActive,
-                            ]}
-                            onPress={() => handleLanguageSelect(lang.value)}
-                            activeOpacity={0.7}
-                        >
-                            <View style={[
-                                styles.languageIcon,
-                                data.language === lang.value && styles.languageIconActive,
-                            ]}>
-                                <Text style={[
-                                    styles.languageIconText,
-                                    data.language === lang.value && styles.languageIconTextActive,
-                                ]}>
-                                    {lang.icon}
-                                </Text>
-                            </View>
-                            <Text style={styles.languageLabel}>{lang.label}</Text>
-                            <View style={[
-                                styles.radioOuter,
-                                data.language === lang.value && styles.radioOuterActive,
-                            ]}>
-                                {data.language === lang.value && <View style={styles.radioInner} />}
-                            </View>
-                        </TouchableOpacity>
-                    ))}
+                <View>
+                    <Text style={styles.title} accessibilityRole="header">Money that tracks itself.</Text>
+                    <Text style={styles.body}>Sikka reads payment SMS, asks one tiny question, and never leaves your phone.</Text>
                 </View>
 
-                {/* Regional Settings */}
-                <Text style={styles.sectionLabel}>REGIONAL SETTINGS</Text>
+                <Segmented
+                    label="Language"
+                    options={LANGUAGE_OPTIONS}
+                    value={data.language}
+                    onChange={(language) => updateData({ language })}
+                    tone="pills"
+                />
 
-                {/* Currency Dropdown */}
-                <Text style={styles.fieldLabel}>Currency</Text>
-                <TouchableOpacity
-                    style={styles.dropdown}
-                    onPress={() => setShowCurrencyPicker(!showCurrencyPicker)}
-                    activeOpacity={0.7}
-                >
-                    <View style={{ marginRight: SPACING.md }}>
-                        <Icon name="attach-money" size={20} color={COLORS.text} />
-                    </View>
-                    <Text style={styles.dropdownText}>
-                        {selectedCurrency?.name} ({selectedCurrency?.symbol})
-                    </Text>
-                    <Icon name="keyboard-arrow-down" size={20} color={COLORS.textMuted} />
-                </TouchableOpacity>
+                <View style={styles.tiles}>
+                    <TouchableOpacity
+                        style={[styles.tile, { backgroundColor: CATEGORY_PALETTE.bills.bg }]}
+                        onPress={() => setShowCurrencies((v) => !v)}
+                        accessibilityRole="button"
+                        accessibilityLabel={`Currency ${currency.name}. Change`}
+                        activeOpacity={0.85}
+                    >
+                        <Text style={[styles.tileOver, { color: CATEGORY_PALETTE.bills.fg }]}>CURRENCY</Text>
+                        <Text style={styles.tileValue}>{currency.symbol} {currency.code}</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                        style={[styles.tile, { backgroundColor: CATEGORY_PALETTE.transport.bg }]}
+                        onPress={() => updateData({ numberSystem: isLakhs ? 'millions' : 'lakhs' })}
+                        accessibilityRole="button"
+                        accessibilityLabel={`Number format ${isLakhs ? 'lakhs' : 'millions'}. Switch`}
+                        activeOpacity={0.85}
+                    >
+                        <Text style={[styles.tileOver, { color: CATEGORY_PALETTE.transport.fg }]}>NUMBERS</Text>
+                        <Text style={styles.tileValue}>{isLakhs ? '1,00,000' : '100,000'}</Text>
+                    </TouchableOpacity>
+                </View>
 
-                {showCurrencyPicker && (
-                    <View style={styles.currencyPicker}>
-                        {CURRENCIES.map((currency) => (
-                            <TouchableOpacity
-                                key={currency.code}
-                                style={[
-                                    styles.currencyOption,
-                                    data.currency === currency.code && styles.currencyOptionActive,
-                                ]}
-                                onPress={() => handleCurrencySelect(currency.code)}
-                            >
-                                <Text style={styles.currencyText}>
-                                    {currency.symbol} {currency.name}
-                                </Text>
-                            </TouchableOpacity>
+                {showCurrencies && (
+                    <View style={styles.currencyList}>
+                        {CURRENCIES.map((c) => (
+                            <Chip
+                                key={c.code}
+                                label={`${c.symbol} ${c.code}`}
+                                selected={c.code === currency.code}
+                                tone={c.code === currency.code ? 'night' : 'surface'}
+                                onPress={() => {
+                                    updateData({ currency: c.code });
+                                    setShowCurrencies(false);
+                                }}
+                            />
                         ))}
                     </View>
                 )}
-
-                {/* Number System Toggle */}
-                <View style={styles.numberSystemContainer}>
-                    <View>
-                        <Text style={styles.numberSystemTitle}>Number System</Text>
-                        <Text style={styles.numberSystemSubtitle}>Format for large numbers</Text>
-                    </View>
-                    <View style={styles.toggleContainer}>
-                        {NUMBER_SYSTEMS.map((system) => (
-                            <TouchableOpacity
-                                key={system.value}
-                                style={[
-                                    styles.toggleOption,
-                                    data.numberSystem === system.value && styles.toggleOptionActive,
-                                ]}
-                                onPress={() => handleNumberSystemSelect(system.value)}
-                            >
-                                <Text style={[
-                                    styles.toggleText,
-                                    data.numberSystem === system.value && styles.toggleTextActive,
-                                ]}>
-                                    {system.label}
-                                </Text>
-                            </TouchableOpacity>
-                        ))}
-                    </View>
-                </View>
             </ScrollView>
 
-            {/* Continue Button */}
-            <View style={styles.footer}>
-                <TouchableOpacity style={styles.continueButton} onPress={goNext} activeOpacity={0.8}>
-                    <Text style={styles.continueButtonText}>Continue</Text>
-                    <Icon name="arrow-forward" size={20} color={COLORS.background} />
-                </TouchableOpacity>
-            </View>
+            <Button label="Let's start" onPress={goNext} style={styles.cta} />
         </View>
     );
 }
 
 const styles = StyleSheet.create({
-    container: {
-        flex: 1,
-        backgroundColor: COLORS.background,
+    container: { flex: 1, backgroundColor: COLORS.background, paddingHorizontal: SPACING.lg },
+    scroll: { gap: SPACING.lg, paddingBottom: SPACING.lg },
+
+    hero: { height: 300, borderRadius: 36, backgroundColor: CATEGORY_PALETTE.fun.bg, overflow: 'hidden' },
+    blob: { position: 'absolute', borderRadius: 999 },
+    blobPeach: { left: -40, bottom: -60, width: 200, height: 200, backgroundColor: CATEGORY_PALETTE.dining.bg },
+    blobLime: { right: -30, top: -30, width: 150, height: 150, backgroundColor: CATEGORY_PALETTE.groceries.bg },
+    coin: {
+        position: 'absolute',
+        right: 36,
+        width: 70,
+        height: 20,
+        borderRadius: 10,
+        backgroundColor: CATEGORY_PALETTE.bills.bg,
+        borderWidth: 3,
+        borderColor: COLORS.night,
     },
-    scrollView: {
-        flex: 1,
-    },
-    scrollContent: {
-        paddingHorizontal: SPACING.xl,
-        paddingBottom: SPACING.xxxl,
-    },
-    header: {
-        alignItems: 'center',
-        marginBottom: SPACING.xxl,
-    },
-    iconContainer: {
-        width: 80,
-        height: 80,
-        borderRadius: 40,
-        backgroundColor: 'rgba(34, 197, 94, 0.15)',
-        alignItems: 'center',
-        justifyContent: 'center',
-        marginBottom: SPACING.lg,
-    },
-    waveIcon: {
-        fontSize: 40,
-    },
-    title: {
-        fontSize: 36,
-        fontWeight: '700',
-        color: COLORS.text,
-        marginBottom: SPACING.sm,
-    },
-    subtitle: {
-        fontSize: FONT_SIZE.md,
-        color: COLORS.textSecondary,
-        textAlign: 'center',
-        lineHeight: 22,
-    },
-    sectionLabel: {
-        fontSize: FONT_SIZE.sm,
-        fontWeight: '600',
-        color: COLORS.textMuted,
-        letterSpacing: 1,
-        marginBottom: SPACING.md,
-        marginTop: SPACING.lg,
-    },
-    languageList: {
-        gap: SPACING.md,
-    },
-    languageOption: {
-        flexDirection: 'row',
-        alignItems: 'center',
+    sikku: { position: 'absolute', left: 0, right: 0, top: 62, alignItems: 'center' },
+    speech: {
+        position: 'absolute',
+        left: 18,
+        top: 18,
         backgroundColor: COLORS.surface,
-        borderRadius: BORDER_RADIUS.xl,
-        padding: SPACING.lg,
-        borderWidth: 1,
-        borderColor: COLORS.border,
+        borderRadius: 999,
+        paddingVertical: 7,
+        paddingHorizontal: 12,
     },
-    languageOptionActive: {
-        backgroundColor: 'rgba(34, 197, 94, 0.1)',
-        borderColor: COLORS.primary,
-    },
-    languageIcon: {
-        width: 44,
-        height: 44,
-        borderRadius: BORDER_RADIUS.md,
-        backgroundColor: COLORS.surfaceLight,
-        alignItems: 'center',
-        justifyContent: 'center',
-        marginRight: SPACING.lg,
-    },
-    languageIconActive: {
-        backgroundColor: COLORS.primary,
-    },
-    languageIconText: {
-        fontSize: FONT_SIZE.lg,
-        fontWeight: '700',
-        color: COLORS.text,
-    },
-    languageIconTextActive: {
-        color: COLORS.background,
-    },
-    languageLabel: {
-        flex: 1,
-        fontSize: FONT_SIZE.lg,
-        fontWeight: '500',
-        color: COLORS.text,
-    },
-    radioOuter: {
-        width: 24,
-        height: 24,
-        borderRadius: 12,
-        borderWidth: 2,
-        borderColor: COLORS.border,
-        alignItems: 'center',
-        justifyContent: 'center',
-    },
-    radioOuterActive: {
-        borderColor: COLORS.primary,
-    },
-    radioInner: {
-        width: 12,
-        height: 12,
-        borderRadius: 6,
-        backgroundColor: COLORS.primary,
-    },
-    fieldLabel: {
-        fontSize: FONT_SIZE.md,
-        color: COLORS.textSecondary,
-        marginBottom: SPACING.sm,
-    },
-    dropdown: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        backgroundColor: COLORS.surface,
-        borderRadius: BORDER_RADIUS.lg,
-        padding: SPACING.lg,
-        borderWidth: 1,
-        borderColor: COLORS.border,
-    },
-    dropdownIcon: {
-        fontSize: 20,
-        marginRight: SPACING.md,
-    },
-    dropdownText: {
-        flex: 1,
-        fontSize: FONT_SIZE.md,
-        color: COLORS.text,
-    },
-    dropdownArrow: {
-        fontSize: 20,
-        color: COLORS.textMuted,
-    },
-    currencyPicker: {
-        backgroundColor: COLORS.surface,
-        borderRadius: BORDER_RADIUS.lg,
-        marginTop: SPACING.sm,
-        borderWidth: 1,
-        borderColor: COLORS.border,
-        overflow: 'hidden',
-    },
-    currencyOption: {
-        padding: SPACING.lg,
-        borderBottomWidth: 1,
-        borderBottomColor: COLORS.border,
-    },
-    currencyOptionActive: {
-        backgroundColor: 'rgba(34, 197, 94, 0.1)',
-    },
-    currencyText: {
-        fontSize: FONT_SIZE.md,
-        color: COLORS.text,
-    },
-    numberSystemContainer: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        justifyContent: 'space-between',
-        backgroundColor: COLORS.surface,
-        borderRadius: BORDER_RADIUS.lg,
-        padding: SPACING.lg,
-        marginTop: SPACING.md,
-        borderWidth: 1,
-        borderColor: COLORS.border,
-    },
-    numberSystemTitle: {
-        fontSize: FONT_SIZE.md,
-        fontWeight: '600',
-        color: COLORS.text,
-    },
-    numberSystemSubtitle: {
-        fontSize: FONT_SIZE.sm,
-        color: COLORS.textMuted,
-        marginTop: 2,
-    },
-    toggleContainer: {
-        flexDirection: 'row',
-        backgroundColor: COLORS.surfaceLight,
-        borderRadius: BORDER_RADIUS.md,
-        padding: 4,
-    },
-    toggleOption: {
-        paddingHorizontal: SPACING.lg,
-        paddingVertical: SPACING.sm,
-        borderRadius: BORDER_RADIUS.sm,
-    },
-    toggleOptionActive: {
-        backgroundColor: COLORS.primary,
-    },
-    toggleText: {
-        fontSize: FONT_SIZE.sm,
-        fontWeight: '600',
-        color: COLORS.textSecondary,
-    },
-    toggleTextActive: {
-        color: COLORS.background,
-    },
-    footer: {
-        paddingHorizontal: SPACING.xl,
-        paddingBottom: SPACING.xxl,
-        paddingTop: SPACING.lg,
-    },
-    continueButton: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        justifyContent: 'center',
-        backgroundColor: COLORS.primary,
-        borderRadius: BORDER_RADIUS.xl,
-        paddingVertical: SPACING.lg,
-        gap: SPACING.sm,
-    },
-    continueButtonText: {
-        fontSize: FONT_SIZE.lg,
-        fontWeight: '600',
-        color: COLORS.background,
-    },
-    continueArrow: {
-        fontSize: FONT_SIZE.lg,
-        color: COLORS.background,
-    },
+    speechText: { fontSize: 13, fontWeight: '800', color: COLORS.text },
+
+    title: { fontSize: 36, lineHeight: 38, fontWeight: '800', letterSpacing: -1, color: COLORS.text },
+    body: { fontSize: 16, lineHeight: 23, color: COLORS.textSecondary, marginTop: SPACING.sm },
+
+    tiles: { flexDirection: 'row', gap: 10 },
+    tile: { flex: 1, borderRadius: 24, padding: 14 },
+    tileOver: { fontSize: 12, fontWeight: '800', letterSpacing: 0.4 },
+    tileValue: { fontSize: 22, fontWeight: '800', color: COLORS.text, marginTop: 2 },
+
+    currencyList: { flexDirection: 'row', flexWrap: 'wrap', gap: SPACING.sm },
+
+    cta: { marginTop: SPACING.md },
 });

@@ -1,145 +1,127 @@
 /**
- * Sikka - All Transactions Screen
- * Shows complete transaction history
+ * Sikka - Activity
+ * Design: design-system/screens/Activity-v2.html
+ * Search · category chips · day groups with day totals · transaction rows.
  */
 
-import React, { useEffect, useRef } from 'react';
-import {
-    StyleSheet,
-    Text,
-    View,
-    ScrollView,
-    TouchableOpacity,
-    Animated,
-} from 'react-native';
+import React, { useMemo, useState } from 'react';
+import { StyleSheet, View, ScrollView, TouchableOpacity } from 'react-native';
+import { Text, TextInput } from '../components/Typography';
 import { useCurrency } from '../context/CurrencyContext';
-import { useAccounts } from '../context/AccountsContext';
-import { useTransactions, CATEGORY_ICONS, formatTimeAgo } from '../context/TransactionsContext';
-import { COLORS, SPACING, FONT_SIZE, BORDER_RADIUS } from '../constants/theme';
+import { useTransactions } from '../context/TransactionsContext';
+import { useNavigation } from '../context/NavigationContext';
+import { COLORS, SPACING, SHADOWS, getPaletteKey } from '../constants/theme';
 import { useSafeTop } from '../components/SafeScreen';
 import { Icon } from '../components/Icon';
-import { useNavigation } from '../context/NavigationContext';
+import { IconButton, Chip, Sikku } from '../components/ui';
+import { TransactionRow, CATEGORY_LABELS } from '../components/TransactionRow';
+import { TransactionCategory } from '../types';
 
 interface AllTransactionsScreenProps {
     onBack: () => void;
 }
 
+const FILTERS: (TransactionCategory | 'all')[] = ['all', 'dining', 'groceries', 'transport', 'shopping', 'entertainment', 'utilities', 'health', 'income', 'transfer'];
+
+function dayLabel(ts: number) {
+    const d = new Date(ts);
+    const today = new Date();
+    const y = new Date(); y.setDate(today.getDate() - 1);
+    if (d.toDateString() === today.toDateString()) return 'Today';
+    if (d.toDateString() === y.toDateString()) return 'Yesterday';
+    return d.toLocaleDateString('en-IN', { weekday: 'short', day: 'numeric', month: 'short' });
+}
+
 export function AllTransactionsScreen({ onBack }: AllTransactionsScreenProps) {
     const { formatAmount } = useCurrency();
-    const { getAccount } = useAccounts();
     const { activeTransactions } = useTransactions();
-    const { selectTransaction } = useNavigation();
-
-    // Animation refs
-    const fadeAnim = useRef(new Animated.Value(0)).current;
-    const transactionAnims = useRef(activeTransactions.map(() => new Animated.Value(0))).current;
+    const { selectTransaction, openAddTransactionModal } = useNavigation();
     const safeTop = useSafeTop();
+    const [query, setQuery] = useState('');
+    const [filter, setFilter] = useState<TransactionCategory | 'all'>('all');
 
-    useEffect(() => {
-        Animated.timing(fadeAnim, {
-            toValue: 1,
-            duration: 300,
-            useNativeDriver: true,
-        }).start();
-
-        Animated.stagger(50, transactionAnims.map(anim =>
-            Animated.spring(anim, {
-                toValue: 1,
-                friction: 8,
-                tension: 40,
-                useNativeDriver: true,
-            })
-        )).start();
-    }, []);
-
-    // Group transactions by date
-    const groupedTransactions = activeTransactions.reduce((groups, tx) => {
-        const date = new Date(tx.timestamp).toLocaleDateString('en-IN', {
-            weekday: 'long',
-            day: 'numeric',
-            month: 'short',
+    const groups = useMemo(() => {
+        const q = query.trim().toLowerCase();
+        const list = activeTransactions
+            .filter((t) => t.status !== 'pending')
+            .filter((t) => filter === 'all' || t.category === filter)
+            .filter((t) => !q || t.merchant.toLowerCase().includes(q) || (t.notes ?? '').toLowerCase().includes(q))
+            .sort((a, b) => b.timestamp - a.timestamp);
+        const out: { label: string; total: number; items: typeof list }[] = [];
+        list.forEach((t) => {
+            const label = dayLabel(t.timestamp);
+            let g = out[out.length - 1];
+            if (!g || g.label !== label) { g = { label, total: 0, items: [] }; out.push(g); }
+            g.items.push(t);
+            if (t.category !== 'transfer') g.total += t.amount;
         });
-        if (!groups[date]) {
-            groups[date] = [];
-        }
-        groups[date].push(tx);
-        return groups;
-    }, {} as Record<string, typeof activeTransactions>);
+        return out;
+    }, [activeTransactions, query, filter]);
 
     return (
         <View style={styles.container}>
-            {/* Header */}
-            <Animated.View style={[styles.header, { opacity: fadeAnim, paddingTop: safeTop }]}>
-                <TouchableOpacity onPress={onBack} style={styles.backBtn}>
-                    <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                        <Icon name="arrow-back" size={24} color={COLORS.primary} />
-                        <Text style={[styles.backBtnText, { marginLeft: 4 }]}>Back</Text>
-                    </View>
-                </TouchableOpacity>
-                <Text style={styles.screenTitle}>All Transactions</Text>
-                <View style={styles.placeholder} />
-            </Animated.View>
+            <ScrollView
+                contentContainerStyle={[styles.scroll, { paddingTop: safeTop + SPACING.sm }]}
+                keyboardShouldPersistTaps="handled"
+                showsVerticalScrollIndicator={false}
+                stickyHeaderIndices={[]}
+            >
+                <View style={styles.header}>
+                    <IconButton icon="chevron-left" label="Back" onPress={onBack} iconSize={26} />
+                    <Text style={styles.title} accessibilityRole="header">Activity</Text>
+                    <IconButton icon="add" label="Add by hand" variant="lime" onPress={() => openAddTransactionModal()} />
+                </View>
 
-            <ScrollView style={styles.scrollView} showsVerticalScrollIndicator={false}>
-                {activeTransactions.length === 0 ? (
-                    <View style={styles.emptyState}>
-                        <Icon name="receipt-long" size={48} color={COLORS.textMuted} style={{ marginBottom: SPACING.lg }} />
-                        <Text style={styles.emptyTitle}>No transactions yet</Text>
-                        <Text style={styles.emptySubtitle}>Add your first transaction from the dashboard</Text>
+                <View style={styles.search}>
+                    <Icon name="search" size={20} color={COLORS.textSecondary} />
+                    <TextInput
+                        style={styles.searchInput}
+                        placeholder="Search payees and notes"
+                        value={query}
+                        onChangeText={setQuery}
+                        accessibilityLabel="Search"
+                        returnKeyType="search"
+                    />
+                    {!!query && (
+                        <TouchableOpacity onPress={() => setQuery('')} accessibilityLabel="Clear search" hitSlop={10}>
+                            <Icon name="close" size={18} color={COLORS.textSecondary} />
+                        </TouchableOpacity>
+                    )}
+                </View>
+
+                <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.chips} style={styles.chipsWrap}>
+                    {FILTERS.map((f) => (
+                        <Chip
+                            key={f}
+                            label={f === 'all' ? 'All' : CATEGORY_LABELS[f]}
+                            palette={f === 'all' || filter === f ? undefined : getPaletteKey(f)}
+                            tone={filter === f ? 'night' : undefined}
+                            selected={false}
+                            onPress={() => setFilter(f)}
+                        />
+                    ))}
+                </ScrollView>
+
+                {groups.length === 0 ? (
+                    <View style={styles.empty}>
+                        <Sikku size={72} mood="thinking" />
+                        <Text style={styles.emptyTitle}>{query || filter !== 'all' ? 'Nothing matches' : 'No payments yet'}</Text>
+                        <Text style={styles.emptyBody}>
+                            {query || filter !== 'all' ? 'Try another word or category.' : 'Payments you add or Sikka catches will show up here.'}
+                        </Text>
                     </View>
                 ) : (
-                    Object.entries(groupedTransactions).map(([date, txs]) => (
-                        <View key={date} style={styles.dateGroup}>
-                            <Text style={styles.dateHeader}>{date}</Text>
-                            {txs.map((tx) => {
-                                const account = getAccount(tx.accountId);
-                                const animIndex = activeTransactions.findIndex(t => t.id === tx.id);
-                                return (
-                                    <Animated.View
-                                        key={tx.id}
-                                        style={{
-                                            opacity: transactionAnims[animIndex] || 1,
-                                            transform: [{
-                                                translateX: (transactionAnims[animIndex] || new Animated.Value(1)).interpolate({
-                                                    inputRange: [0, 1],
-                                                    outputRange: [30, 0],
-                                                }),
-                                            }],
-                                        }}
-                                    >
-                                        <TouchableOpacity
-                                            style={styles.transactionRow}
-                                            activeOpacity={0.7}
-                                            onPress={() => selectTransaction(tx)}
-                                        >
-                                            <View style={styles.txIcon}>
-                                                <Icon name={CATEGORY_ICONS[tx.category] as any} size={24} color={COLORS.text} />
-                                            </View>
-                                            <View style={styles.txContent}>
-                                                <View style={styles.txTitleRow}>
-                                                    <Text style={styles.txMerchant}>{tx.merchant}</Text>
-                                                    {tx.isAuto && (
-                                                        <View style={styles.autoBadge}>
-                                                            <Text style={styles.autoBadgeText}>AUTO</Text>
-                                                        </View>
-                                                    )}
-                                                </View>
-                                                <Text style={styles.txCategory}>
-                                                    {account?.name || 'Unknown'} • {formatTimeAgo(tx.timestamp)}
-                                                </Text>
-                                            </View>
-                                            <View style={styles.txAmount}>
-                                                <Text style={[
-                                                    styles.txAmountText,
-                                                    tx.amount >= 0 ? styles.incomeText : styles.expenseText
-                                                ]}>
-                                                    {tx.amount >= 0 ? '+' : ''}{formatAmount(tx.amount, true)}
-                                                </Text>
-                                            </View>
-                                        </TouchableOpacity>
-                                    </Animated.View>
-                                );
-                            })}
+                    groups.map((g) => (
+                        <View key={g.label} style={styles.group}>
+                            <View style={styles.groupHead}>
+                                <Text style={styles.groupTitle}>{g.label}</Text>
+                                <View style={styles.groupTotal}>
+                                    <Text style={styles.groupTotalText}>{g.total > 0 ? '+' : ''}{formatAmount(g.total)}</Text>
+                                </View>
+                            </View>
+                            {g.items.map((tx) => (
+                                <TransactionRow key={tx.id} transaction={tx} onPress={() => selectTransaction(tx)} />
+                            ))}
                         </View>
                     ))
                 )}
@@ -150,37 +132,32 @@ export function AllTransactionsScreen({ onBack }: AllTransactionsScreenProps) {
 
 const styles = StyleSheet.create({
     container: { flex: 1, backgroundColor: COLORS.background },
-    header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: SPACING.xl, paddingBottom: SPACING.lg },
-    backBtn: { padding: SPACING.sm },
-    backBtnText: { fontSize: FONT_SIZE.md, color: COLORS.primary, fontWeight: '600' },
-    screenTitle: { fontSize: FONT_SIZE.xl, fontWeight: '700', color: COLORS.text },
-    placeholder: { width: 60 },
+    scroll: { paddingHorizontal: SPACING.lg, paddingBottom: 60, gap: SPACING.md },
+    header: { flexDirection: 'row', alignItems: 'center', gap: SPACING.md },
+    title: { flex: 1, fontSize: 30, fontWeight: '800', letterSpacing: -0.5, color: COLORS.text },
 
-    scrollView: { flex: 1, paddingHorizontal: SPACING.xl },
+    search: {
+        height: 52,
+        borderRadius: 26,
+        backgroundColor: COLORS.surface,
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 10,
+        paddingHorizontal: 18,
+        ...SHADOWS.sm,
+    },
+    searchInput: { flex: 1, fontSize: 15, fontWeight: '600', color: COLORS.text, height: 52 },
 
-    // Empty State
-    emptyState: { alignItems: 'center', paddingTop: 80 },
-    emptyIcon: { fontSize: 48, marginBottom: SPACING.lg },
-    emptyTitle: { fontSize: FONT_SIZE.xl, fontWeight: '600', color: COLORS.text, marginBottom: SPACING.sm },
-    emptySubtitle: { fontSize: FONT_SIZE.md, color: COLORS.textSecondary, textAlign: 'center' },
+    chipsWrap: { marginHorizontal: -SPACING.lg },
+    chips: { gap: SPACING.sm, paddingHorizontal: SPACING.lg },
 
-    // Date Groups
-    dateGroup: { marginBottom: SPACING.xl },
-    dateHeader: { fontSize: FONT_SIZE.sm, fontWeight: '600', color: COLORS.textMuted, letterSpacing: 0.5, marginBottom: SPACING.md, textTransform: 'uppercase' },
+    group: { gap: 10 },
+    groupHead: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 4, paddingTop: 4 },
+    groupTitle: { fontSize: 18, fontWeight: '800', color: COLORS.text },
+    groupTotal: { backgroundColor: COLORS.surface, borderRadius: 999, paddingVertical: 4, paddingHorizontal: 10 },
+    groupTotalText: { fontSize: 13, fontWeight: '800', color: COLORS.text },
 
-    // Transactions
-    transactionRow: { flexDirection: 'row', alignItems: 'center', backgroundColor: COLORS.surface, borderRadius: BORDER_RADIUS.lg, padding: SPACING.lg, marginBottom: SPACING.sm },
-    txIcon: { width: 44, height: 44, borderRadius: BORDER_RADIUS.md, backgroundColor: COLORS.surfaceLight, alignItems: 'center', justifyContent: 'center', marginRight: SPACING.md },
-    txContent: { flex: 1 },
-    txTitleRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 2 },
-    txMerchant: { fontSize: FONT_SIZE.md, fontWeight: '600', color: COLORS.text, marginRight: SPACING.sm },
-    autoBadge: { backgroundColor: COLORS.primary, paddingHorizontal: 6, paddingVertical: 2, borderRadius: 4 },
-    autoBadgeText: { fontSize: 9, fontWeight: '700', color: COLORS.background },
-    txCategory: { fontSize: FONT_SIZE.sm, color: COLORS.textSecondary },
-    txAmount: { alignItems: 'flex-end' },
-    txAmountText: { fontSize: FONT_SIZE.md, fontWeight: '600' },
-    incomeText: { color: COLORS.success },
-    expenseText: { color: COLORS.error },
+    empty: { alignItems: 'center', gap: SPACING.sm, paddingTop: SPACING.xxxl },
+    emptyTitle: { fontSize: 20, fontWeight: '800', color: COLORS.text, marginTop: SPACING.sm },
+    emptyBody: { fontSize: 15, color: COLORS.textSecondary, textAlign: 'center' },
 });
-
-export default AllTransactionsScreen;
