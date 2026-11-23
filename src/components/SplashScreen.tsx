@@ -8,8 +8,9 @@ import Animated, { runOnJS, useAnimatedStyle, useSharedValue, withDelay, withSpr
 import { EASE, POP_SPRING } from '../motion';
 import { Text } from './Typography';
 import { StatusBar } from 'expo-status-bar';
-import { COLORS, SPACING, FONT_SIZE, BORDER_RADIUS } from '../constants/theme';
+import { COLORS, SPACING, FONT_SIZE, BORDER_RADIUS, TYPE } from '../constants/theme';
 import { Icon } from './Icon';
+import { SikkaMark } from './brand/SikkaMark';
 
 interface SplashScreenProps {
     onFinish: () => void;
@@ -43,10 +44,8 @@ export function SplashScreen({ onFinish }: SplashScreenProps) {
             <StatusBar style="dark" />
             <View style={styles.gradientOverlay} />
             <Animated.View style={[styles.content, contentStyle]}>
-                <View style={styles.logoBox}>
-                    <Icon name="currency-rupee" size={48} color={COLORS.onBrand} />
-                </View>
-                <Text style={styles.appName}>S I K K A</Text>
+                <SikkaMark size={116} />
+                <Text style={styles.appName}>Sikka</Text>
             </Animated.View>
             <View style={styles.bottomSection}>
                 <View style={styles.progressContainer}>
@@ -82,22 +81,10 @@ const styles = StyleSheet.create({
         alignItems: 'center',
         justifyContent: 'center',
     },
-    logoBox: {
-        width: 100,
-        height: 100,
-        borderRadius: BORDER_RADIUS.full,
-        backgroundColor: COLORS.brand,
-        alignItems: 'center',
-        justifyContent: 'center',
-        borderWidth: 4,
-        borderColor: COLORS.night,
-        marginBottom: SPACING.xxl,
-    },
     appName: {
-        fontSize: FONT_SIZE.xxxl,
-        fontWeight: '300',
+        ...TYPE.titleXl,
         color: COLORS.text,
-        letterSpacing: 8,
+        marginTop: SPACING.xl,
     },
     bottomSection: {
         position: 'absolute',
