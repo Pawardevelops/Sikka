@@ -89,7 +89,7 @@ android {
 
     namespace = 'com.sikka.expense'
     defaultConfig {
-        applicationId = 'com.sikka.expense'
+        applicationId 'com.sikka.expense'
         minSdkVersion = rootProject.ext.minSdkVersion
         targetSdkVersion = rootProject.ext.targetSdkVersion
         versionCode project.hasProperty('VERSION_CODE') ? project.property('VERSION_CODE').toInteger() : 1
