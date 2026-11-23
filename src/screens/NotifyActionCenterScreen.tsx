@@ -8,7 +8,7 @@
  */
 
 import React, { forwardRef, useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react';
-import { View, StyleSheet, TouchableOpacity, Platform, ScrollView } from 'react-native';
+import { View, StyleSheet, TouchableOpacity, Platform, ScrollView, PermissionsAndroid, ActivityIndicator } from 'react-native';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import Animated, {
     interpolate,
@@ -18,7 +18,7 @@ import Animated, {
     withSpring,
     withTiming,
 } from 'react-native-reanimated';
-import { EASE, Float, Lottie, POP_SPRING, Wiggle, popIn } from '../motion';
+import { EASE, Float, Lottie, POP_SPRING, Wiggle, fadeIn, popIn } from '../motion';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Text, TextInput } from '../components/Typography';
 import { useNavigation } from '../context/NavigationContext';
@@ -31,15 +31,9 @@ import { COLORS, SPACING, SHADOWS, SIKKA, CATEGORY_PALETTE, getCategoryColors, g
 import { Button, IconButton, CategoryTile, Sikku, MoodPicker } from '../components/ui';
 import { CATEGORY_LABELS, formatTime } from '../components/TransactionRow';
 import { SPEND_CATEGORIES } from '../components/AddTransactionModal';
+import { useInboxScan } from '../hooks/useInboxScan';
+import { ScanRangeSheet } from '../components/ScanRangeSheet';
 
-// Native-only module; stubbed on web / Expo Go.
-let RNAndroidNotificationListener: any = {
-    getPermissionStatus: async () => 'unknown',
-    requestPermission: () => { },
-};
-try {
-    RNAndroidNotificationListener = require('react-native-android-notification-listener').default;
-} catch { }
 
 const SWIPE_OUT = 120;
 
@@ -50,16 +44,30 @@ export default function NotifyActionCenterScreen() {
     const { getAccount } = useAccounts();
     const { formatAmount } = useCurrency();
 
-    const [permission, setPermission] = useState('unknown');
+    const [smsAllowed, setSmsAllowed] = useState(true);
     const [editing, setEditing] = useState<Transaction | null>(null);
     const [showInbox, setShowInbox] = useState(false);
     const [reviewedCount, setReviewedCount] = useState(0);
     const deckRef = useRef<DeckHandle>(null);
+    const inboxScan = useInboxScan();
+    const scanSheet = (
+        <ScanRangeSheet visible={inboxScan.pickerOpen} onClose={inboxScan.closePicker} onScan={inboxScan.scan} />
+    );
 
     useEffect(() => {
         if (Platform.OS !== 'android') return;
-        RNAndroidNotificationListener.getPermissionStatus().then(setPermission).catch(() => setPermission('error'));
+        PermissionsAndroid.check(PermissionsAndroid.PERMISSIONS.RECEIVE_SMS).then(setSmsAllowed).catch(() => setSmsAllowed(false));
     }, []);
+
+    const requestSms = async () => {
+        const result = await PermissionsAndroid.request(PermissionsAndroid.PERMISSIONS.RECEIVE_SMS, {
+            title: 'Let Sikka read bank SMS',
+            message: 'Sikka reads payment SMS from your bank to log spends for you. Messages never leave your phone.',
+            buttonPositive: 'Allow',
+            buttonNegative: 'Not now',
+        });
+        setSmsAllowed(result === PermissionsAndroid.RESULTS.GRANTED);
+    };
 
     const pending = useMemo(
         () => transactions.filter((t) => t.status === 'pending' && !t.isDeleted).sort((a, b) => b.timestamp - a.timestamp),
@@ -112,6 +120,7 @@ export default function NotifyActionCenterScreen() {
         });
         const topCat = Object.entries(byCat).sort((a, b) => b[1] - a[1])[0]?.[0];
         return (
+            <>
             <AllClear
                 insetsTop={insets.top}
                 insetsBottom={insets.bottom}
@@ -120,14 +129,19 @@ export default function NotifyActionCenterScreen() {
                 topCategory={topCat ? CATEGORY_LABELS[topCat] : undefined}
                 topPalette={topCat ? getPaletteKey(topCat) : 'groceries'}
                 unread={unparsedNotifications.length}
-                needsPermission={Platform.OS === 'android' && permission !== 'granted' && permission !== 'unknown'}
-                onPermission={() => RNAndroidNotificationListener.requestPermission()}
+                needsPermission={Platform.OS === 'android' && !smsAllowed}
+                onPermission={requestSms}
                 onInbox={() => setShowInbox(true)}
+                onScan={inboxScan.start}
+                scanning={inboxScan.scanning}
+                scanMessage={inboxScan.message}
                 showInbox={showInbox}
                 inbox={unparsedNotifications}
                 onCloseInbox={() => setShowInbox(false)}
                 onHome={closeNotifyCenter}
             />
+            {scanSheet}
+            </>
         );
     }
 
@@ -138,6 +152,13 @@ export default function NotifyActionCenterScreen() {
             <View style={styles.deckHeader}>
                 <IconButton icon="chevron-left" label="Back" onPress={closeNotifyCenter} iconSize={26} />
                 <Text style={styles.h1} accessibilityRole="header">Review</Text>
+                {Platform.OS === 'android' && (
+                    <IconButton
+                        icon={inboxScan.scanning ? 'hourglass-empty' : 'sms'}
+                        label="Check recent SMS"
+                        onPress={inboxScan.start}
+                    />
+                )}
                 {pending.length > 1 && (
                     <TouchableOpacity style={styles.approveAll} onPress={approveAll} accessibilityRole="button" activeOpacity={0.85}>
                         <Icon name="done-all" size={16} color={COLORS.brand} />
@@ -145,6 +166,12 @@ export default function NotifyActionCenterScreen() {
                     </TouchableOpacity>
                 )}
             </View>
+
+            {!!inboxScan.message && (
+                <Animated.View key={inboxScan.message} entering={fadeIn}>
+                    <Text style={styles.scanMessage} accessibilityLiveRegion="polite">{inboxScan.message}</Text>
+                </Animated.View>
+            )}
 
             <View style={styles.progressRow}>
                 <View style={styles.progress} accessibilityLabel={`${reviewedSoFar} of ${total} reviewed`}>
@@ -198,6 +225,7 @@ export default function NotifyActionCenterScreen() {
                     <Icon name="check" size={32} color={COLORS.brand} />
                 </TouchableOpacity>
             </View>
+            {scanSheet}
         </View>
     );
 }
@@ -210,8 +238,8 @@ const Deck = forwardRef<DeckHandle, {
     account?: string;
     seen: number;
     formatAmount: (n: number, force?: boolean) => string;
-    onApprove: () => void;
-    onNotMine: () => void;
+    onApprove: () => void | Promise<void>;
+    onNotMine: () => void | Promise<void>;
 }>(function Deck({ tx, account, seen, formatAmount, onApprove, onNotMine }, ref) {
     const x = useSharedValue(0);
     const y = useSharedValue(0);
@@ -223,7 +251,24 @@ const Deck = forwardRef<DeckHandle, {
         enter.value = withSpring(1, POP_SPRING);
     }, [enter]);
 
-    const settle = (dir: 1 | -1) => (dir > 0 ? onApprove() : onNotMine());
+    const mounted = useRef(true);
+    useEffect(() => () => { mounted.current = false; }, []);
+
+    // On success the parent swaps in the next card (new key) and this one unmounts.
+    // If the card is still here afterwards (save failed), bring it back.
+    const settle = async (dir: 1 | -1) => {
+        try {
+            await (dir > 0 ? onApprove() : onNotMine());
+        } catch (e) {
+            console.warn('[Sikka] Review action failed:', e);
+        }
+        setTimeout(() => {
+            if (!mounted.current) return;
+            leaving.value = false;
+            x.value = withSpring(0, POP_SPRING);
+            y.value = withSpring(0, POP_SPRING);
+        }, MOTION.durSlow);
+    };
 
     const fling = (dir: 1 | -1) => {
         'worklet';
@@ -435,6 +480,9 @@ function AllClear(props: {
     topCategory?: string;
     topPalette: keyof typeof CATEGORY_PALETTE;
     unread: number;
+    onScan: () => void;
+    scanning: boolean;
+    scanMessage: string | null;
     needsPermission: boolean;
     onPermission: () => void;
     onInbox: () => void;
@@ -512,7 +560,7 @@ function AllClear(props: {
                 <TouchableOpacity style={styles.permCard} onPress={props.onPermission} accessibilityRole="button" activeOpacity={0.85}>
                     <View style={styles.permIcon}><Icon name="notifications-active" size={22} color={CATEGORY_PALETTE.dining.fg} /></View>
                     <View style={{ flex: 1 }}>
-                        <Text style={styles.permTitle}>Let Sikka read payment alerts</Text>
+                        <Text style={styles.permTitle}>Let Sikka read bank SMS</Text>
                         <Text style={styles.permBody}>Needed to catch payments automatically</Text>
                     </View>
                     <Icon name="chevron-right" size={22} color={COLORS.text} />
@@ -525,6 +573,26 @@ function AllClear(props: {
                     <Text style={styles.unreadText}>{props.unread} unread {props.unread === 1 ? 'message' : 'messages'}</Text>
                     <Icon name="chevron-right" size={20} color={COLORS.text} />
                 </TouchableOpacity>
+            )}
+
+            {Platform.OS === 'android' && (
+                <TouchableOpacity
+                    style={styles.unread}
+                    onPress={props.onScan}
+                    disabled={props.scanning}
+                    accessibilityRole="button"
+                    accessibilityState={{ busy: props.scanning }}
+                    activeOpacity={0.85}
+                >
+                    {props.scanning ? <ActivityIndicator size="small" color={COLORS.text} /> : <Icon name="sms" size={20} color={COLORS.text} />}
+                    <Text style={styles.unreadText}>{props.scanning ? 'Checking recent SMS…' : 'Missed something? Check recent SMS'}</Text>
+                    <Icon name="chevron-right" size={20} color={COLORS.text} />
+                </TouchableOpacity>
+            )}
+            {!!props.scanMessage && (
+                <Animated.View key={props.scanMessage} entering={fadeIn}>
+                    <Text style={styles.scanMessage} accessibilityLiveRegion="polite">{props.scanMessage}</Text>
+                </Animated.View>
             )}
 
             <Button label="Back to home" onPress={props.onHome} style={{ marginTop: 'auto' }} />
@@ -544,6 +612,7 @@ const CONFETTI = [
 
 const styles = StyleSheet.create({
     confettiBurst: { position: 'absolute', top: -60, alignSelf: 'center' },
+    scanMessage: { fontSize: 14, lineHeight: 20, fontWeight: '600', color: COLORS.textSecondary, textAlign: 'center' },
     container: { flex: 1, backgroundColor: COLORS.background, paddingHorizontal: SPACING.lg, gap: SPACING.md },
 
     deckHeader: { flexDirection: 'row', alignItems: 'center', gap: SPACING.md, minHeight: 48 },

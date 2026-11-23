@@ -52,6 +52,7 @@ import { AddSubscriptionModal } from './src/components/AddSubscriptionModal';
 import { EditSubscriptionModal } from './src/components/EditSubscriptionModal';
 import { EditTransactionModal } from './src/components/EditTransactionModal';
 import { BiometricLockScreen } from './src/components/BiometricLockScreen';
+import { useSmsCapture } from './src/hooks/useSmsCapture';
 
 // Screens
 import { DashboardScreen, AssetsScreen, StatsScreen, SettingsScreen, AccountDetailScreen, NotifyActionCenterScreen, PrivacyPolicyScreen, AboutUsScreen } from './src/screens';
@@ -110,6 +111,7 @@ function MainApp() {
   const { addAccount, deleteAccount, updateAccount } = useAccounts();
   const { addTransaction, editTransaction, deleteTransaction, transactions } = useTransactions();
   const pendingReviewCount = transactions.filter(t => t.status === 'pending' && !t.isDeleted).length;
+  useSmsCapture();
   const { addSubscription } = useSubscriptions();
 
   // Screen transitions: remounting the container on a screen change replays `sk-rise`.

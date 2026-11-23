@@ -3,8 +3,10 @@
  * App settings including profile, currency, security, and preferences
  */
 
-import React, { useState } from 'react';
-import { StyleSheet, View, ScrollView, TouchableOpacity, Switch, ActivityIndicator } from 'react-native';
+import React, { useCallback, useEffect, useState } from 'react';
+import { StyleSheet, View, ScrollView, TouchableOpacity, Switch, ActivityIndicator, PermissionsAndroid, Platform, Linking, AppState } from 'react-native';
+import { Toggle } from '../components/ui';
+import { SmsModelPicker } from '../components/SmsModelPicker';
 import { Text, TextInput } from '../components/Typography';
 
 import { useCurrency, CURRENCIES } from '../context/CurrencyContext';
@@ -62,13 +64,36 @@ export function SettingsScreen() {
         setModalVisible(true);
     };
 
-    const handleNotificationSettings = () => {
-        showModal(
-            "Notification Access",
-            "To change notification access, please go to your device settings > Apps > Special App Access > Notification Access > Sikka.",
-            [{ text: "OK", onPress: () => setModalVisible(false), style: 'primary' }],
-            'info'
-        );
+    // Live RECEIVE_SMS state; re-checked when returning from system settings.
+    const [smsAllowed, setSmsAllowed] = useState(false);
+    const refreshSms = useCallback(() => {
+        if (Platform.OS !== 'android') return;
+        PermissionsAndroid.check(PermissionsAndroid.PERMISSIONS.RECEIVE_SMS).then(setSmsAllowed).catch(() => setSmsAllowed(false));
+    }, []);
+    useEffect(() => {
+        refreshSms();
+        const sub = AppState.addEventListener('change', (s) => s === 'active' && refreshSms());
+        return () => sub.remove();
+    }, [refreshSms]);
+
+    const handleSmsSettings = async () => {
+        if (Platform.OS !== 'android') return;
+        if (smsAllowed) {
+            // Android has no API to revoke a permission; send people to app settings.
+            showModal(
+                'SMS access',
+                'To stop Sikka reading bank SMS, turn off SMS in Settings > Apps > Sikka > Permissions.',
+                [
+                    { text: 'Not now', onPress: () => setModalVisible(false), style: 'cancel' },
+                    { text: 'Open settings', onPress: () => { setModalVisible(false); Linking.openSettings(); }, style: 'primary' },
+                ],
+                'info',
+            );
+            return;
+        }
+        const result = await PermissionsAndroid.request(PermissionsAndroid.PERMISSIONS.RECEIVE_SMS);
+        if (result === PermissionsAndroid.RESULTS.NEVER_ASK_AGAIN) Linking.openSettings();
+        refreshSms();
     };
 
     const handleBiometricToggle = async () => {
@@ -208,8 +233,8 @@ export function SettingsScreen() {
             <Text style={styles.screenTitle}>Settings</Text>
 
             {/* Profile Section */}
-            <TouchableOpacity 
-                style={styles.profileCard} 
+            <TouchableOpacity
+                style={styles.profileCard}
                 onPress={() => setEditingName(true)}
                 activeOpacity={0.7}
             >
@@ -246,11 +271,11 @@ export function SettingsScreen() {
             <View style={styles.divider} />
 
             {/* Accounts/Regional */}
-            <SettingItem 
-                icon="attach-money" 
-                title="Currency" 
-                subtitle={`${currency.name} (${currency.symbol})`} 
-                onPress={() => setShowCurrencyPicker(!showCurrencyPicker)} 
+            <SettingItem
+                icon="attach-money"
+                title="Currency"
+                subtitle={`${currency.name} (${currency.symbol})`}
+                onPress={() => setShowCurrencyPicker(!showCurrencyPicker)}
                 hideBorder={showCurrencyPicker}
             />
             {showCurrencyPicker && (
@@ -280,10 +305,10 @@ export function SettingsScreen() {
                 </View>
             )}
 
-            <SettingItem 
-                icon="format-list-numbered" 
-                title="Number Format" 
-                subtitle={onboardingData.numberSystem === 'lakhs' ? '1,00,000 (Lakhs)' : '100,000 (Millions)'} 
+            <SettingItem
+                icon="format-list-numbered"
+                title="Number Format"
+                subtitle={onboardingData.numberSystem === 'lakhs' ? '1,00,000 (Lakhs)' : '100,000 (Millions)'}
                 onPress={handleNumberSystemChange}
                 rightElement={
                     <View style={styles.togglePill}>
@@ -297,10 +322,10 @@ export function SettingsScreen() {
             <View style={styles.divider} />
 
             {/* Privacy & Security */}
-            <SettingItem 
-                icon="lock" 
-                title="Fingerprint Lock" 
-                subtitle={hasBiometricHardware ? `${biometricType} available` : 'Not available on this device'} 
+            <SettingItem
+                icon="lock"
+                title="Fingerprint Lock"
+                subtitle={hasBiometricHardware ? `${biometricType} available` : 'Not available on this device'}
                 onPress={handleBiometricToggle}
                 rightElement={
                     <Switch
@@ -313,10 +338,10 @@ export function SettingsScreen() {
                 }
             />
 
-            <SettingItem 
-                icon="visibility-off" 
-                title="Hide Balances" 
-                subtitle="Mask amounts with **** on home screen" 
+            <SettingItem
+                icon="visibility-off"
+                title="Hide Balances"
+                subtitle="Mask amounts with **** on home screen"
                 onPress={() => handleHideBalancesToggle(!onboardingData.hideBalances)}
                 rightElement={
                     <Switch
@@ -332,21 +357,16 @@ export function SettingsScreen() {
             <View style={styles.divider} />
 
             {/* Notifications / Auto Track */}
-            <SettingItem 
-                icon="notifications" 
-                title="Auto-Track SMS" 
-                subtitle={onboardingData.notificationPermissionGranted ? 'Active' : 'Allow reading bank SMS to auto-add'} 
-                onPress={handleNotificationSettings}
-                rightElement={
-                    <Switch
-                        value={onboardingData.notificationPermissionGranted}
-                        onValueChange={handleNotificationSettings}
-                        trackColor={{ false: COLORS.border, true: COLORS.night }}
-                        thumbColor={onboardingData.notificationPermissionGranted ? COLORS.brand : COLORS.white}
-                    />
-                }
+            <SettingItem
+                icon="sms"
+                title="Auto-Track SMS"
+                subtitle={smsAllowed ? 'Active' : 'Allow reading bank SMS to auto-add'}
+                onPress={handleSmsSettings}
+                rightElement={<Toggle value={smsAllowed} onValueChange={handleSmsSettings} label="Auto-track SMS" />}
                 hideBorder
             />
+
+            {Platform.OS === 'android' && smsAllowed && <SmsModelPicker />}
 
             <View style={styles.divider} />
 
@@ -356,16 +376,16 @@ export function SettingsScreen() {
             <View style={styles.divider} />
 
             {/* Help / About */}
-            <SettingItem 
-                icon="info-outline" 
-                title="About Us" 
-                subtitle="Version 1.0.0" 
+            <SettingItem
+                icon="info-outline"
+                title="About Us"
+                subtitle="Version 1.0.0"
                 onPress={() => navigation.openAboutUs()}
             />
-            <SettingItem 
-                icon="gavel" 
-                title="Privacy Policy" 
-                subtitle="Read our policies" 
+            <SettingItem
+                icon="gavel"
+                title="Privacy Policy"
+                subtitle="Read our policies"
                 onPress={() => navigation.openPrivacyPolicy()}
                 hideBorder
             />
@@ -373,18 +393,18 @@ export function SettingsScreen() {
             <View style={styles.divider} />
 
             {/* Danger Zone */}
-            <SettingItem 
-                icon="restore" 
-                title="Reset App Preferences" 
-                subtitle="Restore default settings without losing data" 
+            <SettingItem
+                icon="restore"
+                title="Reset App Preferences"
+                subtitle="Restore default settings without losing data"
                 onPress={handleResetPreferences}
                 iconColor={COLORS.secondary}
                 titleColor={COLORS.secondary}
             />
-            <SettingItem 
-                icon="delete-outline" 
-                title="Delete Account" 
-                subtitle="Permanently erase all your data" 
+            <SettingItem
+                icon="delete-outline"
+                title="Delete Account"
+                subtitle="Permanently erase all your data"
                 onPress={handleNuclearDelete}
                 iconColor={COLORS.error}
                 titleColor={COLORS.error}
@@ -452,17 +472,17 @@ function BackupSection({ showModal }: { showModal: (title: string, message: stri
 
     return (
         <>
-            <SettingItem 
-                icon="save-alt" 
-                title="Export Local Backup" 
-                subtitle="Download your data to a file" 
+            <SettingItem
+                icon="save-alt"
+                title="Export Local Backup"
+                subtitle="Download your data to a file"
                 onPress={exportLocalBackup}
             />
 
-            <SettingItem 
-                icon="cloud-upload" 
-                title="Google Drive Backup" 
-                subtitle={user ? `Signed in as ${user.user.name}` : 'Sign in to safely backup data'} 
+            <SettingItem
+                icon="cloud-upload"
+                title="Google Drive Backup"
+                subtitle={user ? `Signed in as ${user.user.name}` : 'Sign in to safely backup data'}
                 onPress={() => {
                     // Don't toggle if syncing, otherwise do standard toggle
                     if (!isSyncing) toggleDriveBackup(!autoBackupEnabled);
@@ -484,18 +504,18 @@ function BackupSection({ showModal }: { showModal: (title: string, message: stri
 
             {autoBackupEnabled && (
                 <>
-                    <SettingItem 
-                        icon="backup" 
-                        title="Backup Now" 
-                        subtitle={`Last backup: ${lastBackup || 'Never'}`} 
-                        onPress={() => manualBackup(false)} 
+                    <SettingItem
+                        icon="backup"
+                        title="Backup Now"
+                        subtitle={`Last backup: ${lastBackup || 'Never'}`}
+                        onPress={() => manualBackup(false)}
                         iconColor={COLORS.primary}
                     />
 
-                    <SettingItem 
-                        icon="settings-backup-restore" 
-                        title="Restore Data from Backup" 
-                        subtitle="Overwrite local data with Google Drive version" 
+                    <SettingItem
+                        icon="settings-backup-restore"
+                        title="Restore Data from Backup"
+                        subtitle="Overwrite local data with Google Drive version"
                         onPress={restoreBackup}
                         iconColor={COLORS.error}
                         hideBorder

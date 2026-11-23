@@ -80,7 +80,13 @@ export function TransactionsProvider({ children }: TransactionsProviderProps) {
             .query(
                 Q.sortBy('timestamp', Q.desc)
             )
-            .observe() // Observe ALL changes, since observeWithColumns missed the manual touch
+            // query.observe() only fires when rows join/leave the list; field updates
+            // (approve → is_auto, soft delete → is_deleted, edits) need observeWithColumns.
+            // updated_at changes on every write, so this catches any update to a row.
+            .observeWithColumns([
+                'amount', 'merchant', 'note', 'timestamp', 'type', 'is_auto',
+                'account_id', 'category_id', 'is_deleted', 'updated_at',
+            ])
             .subscribe(async (records) => {
                 // Mapping allows us to keep the UI decoupled from DB models for now
                 const mappedTransactions = await Promise.all(records.map(async (tx) => {
@@ -105,7 +111,7 @@ export function TransactionsProvider({ children }: TransactionsProviderProps) {
                         merchant: tx.merchant,
                         category: categoryName,
                         type: tx.type,
-                        status: 'approved' as const, // Default to approved
+                        status: tx.isAuto ? ('pending' as const) : ('approved' as const), // SMS captures wait for review
                         amount: tx.amount,
                         notes: tx.note,
                         timestamp: tx.timestamp,
@@ -383,7 +389,7 @@ export function TransactionsProvider({ children }: TransactionsProviderProps) {
                     merchant: tx.merchant,
                     category: categoryName,
                     type: tx.type,
-                    status: 'approved' as const,
+                    status: tx.isAuto ? ('pending' as const) : ('approved' as const),
                     amount: tx.amount,
                     notes: tx.note,
                     timestamp: tx.timestamp,

@@ -2,11 +2,11 @@ import 'react-native-get-random-values';
 import { registerRootComponent } from 'expo';
 import { AppRegistry, Platform } from 'react-native';
 import App from './App';
-import { notificationHandler } from './src/services/NotificationService';
+import { smsHandler } from './src/services/sms';
 
-// Register the Headless Task for Android Notifications (not available on web)
+// Incoming SMS are delivered by the native SmsReceiver to this headless task (Android only).
 if (Platform.OS === 'android') {
-    AppRegistry.registerHeadlessTask('RNAndroidNotificationListenerHeadlessJs', () => notificationHandler);
+    AppRegistry.registerHeadlessTask('SikkaSmsReceived', () => smsHandler);
 }
 
 // registerRootComponent calls AppRegistry.registerComponent('main', () => App);
