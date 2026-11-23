@@ -18,13 +18,13 @@ const withAndroidNotificationListener = (config) => {
         }
 
         // Add the service to the Android Manifest
-        // <service android:name="com.leandrosimonato.reactnativeandroidnotificationlistener.RNAndroidNotificationListenerHeadlessJsTaskService" />
+        // <service android:name="com.lesimoes.androidnotificationlistener.RNAndroidNotificationListenerHeadlessJsTaskService" />
 
         if (!mainApplication.service) {
             mainApplication.service = [];
         }
 
-        const serviceName = 'com.leandrosimonato.reactnativeandroidnotificationlistener.RNAndroidNotificationListenerHeadlessJsTaskService';
+        const serviceName = 'com.lesimoes.androidnotificationlistener.RNAndroidNotificationListenerHeadlessJsTaskService';
 
         // Check if service already exists
         const hasService = mainApplication.service.some(
@@ -42,7 +42,7 @@ const withAndroidNotificationListener = (config) => {
         }
 
         // Also need to add the Listener Service itself
-        // <service android:name="com.leandrosimonato.reactnativeandroidnotificationlistener.RNAndroidNotificationListener"
+        // <service android:name="com.lesimoes.androidnotificationlistener.RNAndroidNotificationListener"
         //          android:label="@string/app_name"
         //          android:permission="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE">
         //     <intent-filter>
@@ -50,7 +50,7 @@ const withAndroidNotificationListener = (config) => {
         //     </intent-filter>
         // </service>
 
-        const listenerServiceName = 'com.leandrosimonato.reactnativeandroidnotificationlistener.RNAndroidNotificationListener';
+        const listenerServiceName = 'com.lesimoes.androidnotificationlistener.RNAndroidNotificationListener';
         const hasListenerService = mainApplication.service.some(
             (service) => service.$['android:name'] === listenerServiceName
         );
