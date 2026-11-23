@@ -1,187 +1,117 @@
 /**
- * Sikka - Security Setup Screen (Onboarding Step 3)
- * Biometric unlock and backup location
+ * Sikka - Seal the vault (Onboarding 4 of 4)
+ * Design: design-system/screens/Security-v2.html
+ * Fingerprint unlock + optional encrypted Drive backup.
  */
 
 import React, { useState } from 'react';
-import {
-    StyleSheet,
-    Text,
-    View,
-    TouchableOpacity,
-    ScrollView,
-    Switch,
-    Alert,
-    ActivityIndicator,
-} from 'react-native';
-import { useOnboarding } from '../../context/OnboardingContext';
+import { StyleSheet, View, TouchableOpacity, ScrollView, Alert, ActivityIndicator } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { Text } from '../../components/Typography';
+import { useOnboarding, ONBOARDING_STEPS } from '../../context/OnboardingContext';
 import { useSecurity } from '../../context/SecurityContext';
-import { OnboardingProgress } from '../../components/OnboardingProgress';
-import { Icon } from '../../components/Icon';
-import { COLORS, SPACING, FONT_SIZE, BORDER_RADIUS } from '../../constants/theme';
+import { Icon, IconName } from '../../components/Icon';
+import { COLORS, SPACING, CATEGORY_PALETTE } from '../../constants/theme';
 import { useBackup } from '../../hooks/useBackup';
 import { CustomModal, ModalAction, ModalType } from '../../components/CustomModal';
+import { Button, IconButton, StepDots, Toggle } from '../../components/ui';
 
 export function SecuritySetupScreen() {
+    const insets = useSafeAreaInsets();
     const { currentStep, data, updateData, goBack, completeOnboarding } = useOnboarding();
     const { hasBiometricHardware, biometricType, setBiometricEnabled } = useSecurity();
+    const [sealing, setSealing] = useState(false);
 
-    // Modal State for Backup
     const [modalVisible, setModalVisible] = useState(false);
     const [modalConfig, setModalConfig] = useState<{
         title: string;
         message: string;
-        icon?: string;
+        icon?: IconName;
         type?: ModalType;
         actions: ModalAction[];
-    }>({
-        title: '',
-        message: '',
-        actions: [],
-    });
+    }>({ title: '', message: '', actions: [] });
 
-    const showModal = (
-        title: string,
-        message: string,
-        actions: ModalAction[],
-        type: ModalType = 'default',
-        icon?: string
-    ) => {
+    const showModal = (title: string, message: string, actions: ModalAction[], type: ModalType = 'default', icon?: IconName) => {
         setModalConfig({ title, message, actions, type, icon });
         setModalVisible(true);
     };
 
-    const {
-        isSyncing,
-        user,
-        autoBackupEnabled,
-        toggleDriveBackup,
-    } = useBackup({ showModal });
+    const { isSyncing, user, autoBackupEnabled, toggleDriveBackup } = useBackup({ showModal });
 
     const handleBiometricToggle = async (value: boolean) => {
-        // During onboarding, set biometric directly without verification prompt
         await setBiometricEnabled(value);
         updateData({ biometricEnabled: value });
     };
 
-    const handleImportPress = () => {
-        Alert.alert('Import Backup', 'This feature is currently in development. Stay tuned!');
-    };
-
-    const handleSealTheVault = async () => {
+    const handleSeal = async () => {
+        setSealing(true);
         try {
             await completeOnboarding();
-        } catch (error) {
-            Alert.alert('Error', 'Failed to complete setup. Please try again.');
+        } catch {
+            Alert.alert('Could not finish setup', 'Please try again.');
+            setSealing(false);
         }
     };
 
+    const unlockName = biometricType && biometricType !== 'None' && biometricType !== 'Not Set Up' ? biometricType : 'Fingerprint';
+
     return (
-        <View style={styles.container}>
-            {/* Header */}
-            <View style={styles.topHeader}>
-                <TouchableOpacity onPress={goBack} style={styles.backButton}>
-                    <Icon name="arrow-back" size={24} color={COLORS.text} />
-                </TouchableOpacity>
-                <Text style={styles.headerTitle}>Security Setup</Text>
-                <View style={styles.placeholder} />
+        <View style={[styles.container, { paddingTop: insets.top + SPACING.xxl, paddingBottom: insets.bottom + SPACING.xxl }]}>
+            <View style={styles.header}>
+                <IconButton icon="chevron-left" label="Back" onPress={goBack} iconSize={26} />
+                <View style={{ flex: 1 }}><StepDots total={ONBOARDING_STEPS} current={currentStep} /></View>
             </View>
 
-            <OnboardingProgress currentStep={currentStep} />
+            <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
+                {/* Night hero with rings and the lime fingerprint */}
+                <View style={styles.vault} importantForAccessibility="no-hide-descendants" accessibilityElementsHidden>
+                    <View style={[styles.ring, { width: 280, height: 280, borderColor: '#2E2B24' }]} />
+                    <View style={[styles.ring, { width: 200, height: 200, borderColor: '#3A362E' }]} />
+                    <View style={[styles.speck, { left: 24, top: 24, width: 34, height: 34, backgroundColor: CATEGORY_PALETTE.dining.bg }]} />
+                    <View style={[styles.speck, { right: 30, bottom: 26, width: 22, height: 22, backgroundColor: CATEGORY_PALETTE.fun.bg }]} />
+                    <View style={styles.vaultCoin}><Icon name="fingerprint" size={56} color={COLORS.onBrand} /></View>
+                </View>
 
-            <ScrollView
-                style={styles.scrollView}
-                contentContainerStyle={styles.scrollContent}
-                showsVerticalScrollIndicator={false}
-            >
-                {/* Title */}
-                <Text style={styles.title}>Secure Your Ledger</Text>
-                <Text style={styles.subtitle}>
-                    Finalize your security settings. Since Sikka is offline-first,
-                    you are in full control of your data.
-                </Text>
+                <View>
+                    <Text style={styles.title} accessibilityRole="header">Seal the vault</Text>
+                    <Text style={styles.body}>Your ledger lives only on this phone. Lock it.</Text>
+                </View>
 
-                {/* Biometric Toggle */}
-                <View style={styles.biometricCard}>
-                    <View style={styles.biometricIcon}>
-                        <Icon name="fingerprint" size={24} color={COLORS.primary} />
-                    </View>
-                    <View style={styles.biometricContent}>
-                        <Text style={styles.biometricTitle}>Biometric Unlock</Text>
-                        <Text style={styles.biometricSubtitle}>
-                            Use {biometricType !== 'None' ? biometricType : 'FaceID / TouchID'}
+                <View style={[styles.row, { backgroundColor: CATEGORY_PALETTE.groceries.bg }]}>
+                    <View style={{ flex: 1 }}>
+                        <Text style={styles.rowTitle}>{unlockName} unlock</Text>
+                        <Text style={[styles.rowMeta, { color: CATEGORY_PALETTE.groceries.fg }]}>
+                            {hasBiometricHardware ? 'Every time Sikka opens' : 'Not available on this device'}
                         </Text>
                     </View>
-                    <Switch
+                    <Toggle
+                        label={`${unlockName} unlock`}
                         value={data.biometricEnabled}
                         onValueChange={handleBiometricToggle}
-                        trackColor={{ false: COLORS.surfaceLight, true: COLORS.primaryMuted }}
-                        thumbColor={data.biometricEnabled ? COLORS.primary : COLORS.textMuted}
                         disabled={!hasBiometricHardware}
                     />
                 </View>
 
-                {/* Account Sync Section */}
-                <Text style={styles.sectionLabel}>Account Sync</Text>
-                
-                {/* Google Drive Card */}
-                <View style={styles.syncCard}>
-                    <View style={styles.syncIconContainer}>
-                        <Icon name="cloud-upload" size={24} color={COLORS.primary} />
-                    </View>
-                    <View style={styles.syncContent}>
-                        <Text style={styles.syncTitle}>Google Drive Sync</Text>
-                        <Text style={styles.syncSubtitle} numberOfLines={1}>
-                            {user ? `Connected: ${user.user.name}` : 'Continuously backup your data'}
+                <TouchableOpacity
+                    style={[styles.row, { backgroundColor: CATEGORY_PALETTE.transport.bg }]}
+                    onPress={() => toggleDriveBackup(!autoBackupEnabled)}
+                    activeOpacity={0.85}
+                    accessibilityRole="button"
+                    accessibilityLabel="Encrypted Drive backup"
+                >
+                    <View style={styles.rowIcon}><Icon name="cloud-queue" size={22} color={CATEGORY_PALETTE.transport.fg} /></View>
+                    <View style={{ flex: 1 }}>
+                        <Text style={styles.rowTitle}>Encrypted Drive backup</Text>
+                        <Text style={[styles.rowMeta, { color: CATEGORY_PALETTE.transport.fg }]} numberOfLines={1}>
+                            {user ? `On · ${user.user.email ?? user.user.name}` : 'Optional · only you hold the key'}
                         </Text>
                     </View>
                     {isSyncing ? (
-                        <ActivityIndicator size="small" color={COLORS.primary} />
+                        <ActivityIndicator color={COLORS.text} />
                     ) : (
-                        <Switch
-                            value={autoBackupEnabled}
-                            onValueChange={toggleDriveBackup}
-                            trackColor={{ false: COLORS.surfaceLight, true: COLORS.primaryMuted }}
-                            thumbColor={autoBackupEnabled ? COLORS.primary : COLORS.textMuted}
-                        />
+                        <View style={styles.pill}><Text style={styles.pillText}>{autoBackupEnabled ? 'On' : 'Set up'}</Text></View>
                     )}
-                </View>
-
-                {/* Import Data Card */}
-                <TouchableOpacity 
-                    style={styles.syncCard} 
-                    onPress={handleImportPress}
-                    activeOpacity={0.7}
-                >
-                    <View style={[styles.syncIconContainer, { backgroundColor: COLORS.surfaceLight }]}>
-                        <Icon name="file-download" size={24} color={COLORS.textMuted} />
-                    </View>
-                    <View style={styles.syncContent}>
-                        <Text style={styles.syncTitle}>Import Existing Data</Text>
-                        <Text style={styles.syncSubtitle}>Coming Soon</Text>
-                    </View>
-                    <Icon name="chevron-right" size={24} color={COLORS.textMuted} />
                 </TouchableOpacity>
-
-                <View style={{ height: SPACING.xl }} />
-
-                {/* No-Cloud Warning */}
-                <View style={styles.warningCard}>
-                    <View style={styles.warningHeader}>
-                        <Icon name="cloud-off" size={20} color="#F87171" />
-                        <Text style={styles.warningTitle}>Offline-First Policy</Text>
-                    </View>
-                    <Text style={styles.warningText}>
-                        Your financial records are stored <Text style={styles.boldText}>only on this device</Text>.
-                        We do not store your data on our servers.
-                    </Text>
-                    <View style={styles.recommendationBox}>
-                        <Icon name="verified-user" size={14} color={COLORS.textSecondary} />
-                        <Text style={styles.recommendationText}>
-                            Sync enables cross-device tracking safely
-                        </Text>
-                    </View>
-                </View>
             </ScrollView>
 
             <CustomModal
@@ -194,208 +124,28 @@ export function SecuritySetupScreen() {
                 onClose={() => setModalVisible(false)}
             />
 
-            {/* Seal the Vault Button */}
-            <View style={styles.footer}>
-                <TouchableOpacity
-                    style={styles.sealButton}
-                    onPress={handleSealTheVault}
-                    activeOpacity={0.8}
-                >
-                    <Icon name="lock" size={18} color={COLORS.background} />
-                    <Text style={styles.sealButtonText}>Seal the Vault</Text>
-                </TouchableOpacity>
-            </View>
+            <Button label="Seal the vault" icon="lock" onPress={handleSeal} loading={sealing} />
         </View>
     );
 }
 
 const styles = StyleSheet.create({
-    container: {
-        flex: 1,
-        backgroundColor: COLORS.background,
-    },
-    topHeader: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        justifyContent: 'space-between',
-        paddingHorizontal: SPACING.xl,
-        paddingTop: 60,
-        paddingBottom: SPACING.md,
-    },
-    backButton: {
-        width: 40,
-        height: 40,
-        alignItems: 'center',
-        justifyContent: 'center',
-    },
-    backIcon: {
-        fontSize: 24,
-        color: COLORS.text,
-    },
-    headerTitle: {
-        fontSize: FONT_SIZE.md,
-        fontWeight: '600',
-        color: COLORS.text,
-    },
-    placeholder: {
-        width: 40,
-    },
-    scrollView: {
-        flex: 1,
-    },
-    scrollContent: {
-        paddingHorizontal: SPACING.xl,
-        paddingBottom: SPACING.xxxl,
-    },
-    title: {
-        fontSize: 28,
-        fontWeight: '700',
-        color: COLORS.text,
-        marginBottom: SPACING.sm,
-    },
-    subtitle: {
-        fontSize: FONT_SIZE.md,
-        color: COLORS.textSecondary,
-        marginBottom: SPACING.xxl,
-        lineHeight: 22,
-    },
-    biometricCard: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        backgroundColor: COLORS.surface,
-        borderRadius: BORDER_RADIUS.xl,
-        padding: SPACING.lg,
-        marginBottom: SPACING.lg,
-        borderWidth: 1,
-        borderColor: COLORS.border,
-    },
-    biometricIcon: {
-        width: 48,
-        height: 48,
-        borderRadius: BORDER_RADIUS.md,
-        backgroundColor: 'rgba(34, 197, 94, 0.15)',
-        alignItems: 'center',
-        justifyContent: 'center',
-        marginRight: SPACING.lg,
-    },
-    biometricIconText: {
-        fontSize: 24,
-    },
-    biometricContent: {
-        flex: 1,
-    },
-    biometricTitle: {
-        fontSize: FONT_SIZE.md,
-        fontWeight: '600',
-        color: COLORS.text,
-    },
-    biometricSubtitle: {
-        fontSize: FONT_SIZE.sm,
-        color: COLORS.textSecondary,
-        marginTop: 2,
-    },
-    warningCard: {
-        backgroundColor: COLORS.surface,
-        borderRadius: BORDER_RADIUS.xl,
-        padding: SPACING.lg,
-        marginBottom: SPACING.xxl,
-        borderWidth: 1,
-        borderColor: 'rgba(239, 68, 68, 0.3)',
-    },
-    warningHeader: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        marginBottom: SPACING.md,
-        gap: SPACING.sm,
-    },
-    warningIcon: {
-        fontSize: 20,
-    },
-    warningTitle: {
-        fontSize: FONT_SIZE.md,
-        fontWeight: '600',
-        color: '#F87171',
-    },
-    warningText: {
-        fontSize: FONT_SIZE.sm,
-        color: COLORS.textSecondary,
-        lineHeight: 20,
-        marginBottom: SPACING.md,
-    },
-    boldText: {
-        fontWeight: '600',
-        color: COLORS.text,
-    },
-    recommendationBox: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        backgroundColor: COLORS.surfaceLight,
-        borderRadius: BORDER_RADIUS.md,
-        padding: SPACING.md,
-        gap: SPACING.sm,
-    },
-    recommendationIcon: {
-        fontSize: 14,
-    },
-    recommendationText: {
-        fontSize: FONT_SIZE.sm,
-        color: COLORS.textSecondary,
-    },
-    sectionLabel: {
-        fontSize: FONT_SIZE.lg,
-        fontWeight: '600',
-        color: COLORS.text,
-        marginBottom: SPACING.md,
-    },
-    syncCard: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        backgroundColor: COLORS.surface,
-        borderRadius: BORDER_RADIUS.xl,
-        padding: SPACING.lg,
-        marginBottom: SPACING.md,
-        borderWidth: 1,
-        borderColor: COLORS.border,
-    },
-    syncIconContainer: {
-        width: 48,
-        height: 48,
-        borderRadius: BORDER_RADIUS.md,
-        backgroundColor: 'rgba(52, 211, 153, 0.1)',
-        alignItems: 'center',
-        justifyContent: 'center',
-        marginRight: SPACING.lg,
-    },
-    syncContent: {
-        flex: 1,
-    },
-    syncTitle: {
-        fontSize: FONT_SIZE.md,
-        fontWeight: '600',
-        color: COLORS.text,
-    },
-    syncSubtitle: {
-        fontSize: FONT_SIZE.sm,
-        color: COLORS.textSecondary,
-        marginTop: 2,
-    },
-    footer: {
-        paddingHorizontal: SPACING.xl,
-        paddingBottom: SPACING.xxl,
-        paddingTop: SPACING.lg,
-    },
-    sealButton: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        justifyContent: 'center',
-        backgroundColor: COLORS.primary,
-        borderRadius: BORDER_RADIUS.xl,
-        paddingVertical: SPACING.lg,
-        gap: SPACING.sm,
-    },
-    sealButtonText: {
-        fontSize: FONT_SIZE.lg,
-        fontWeight: '600',
-        color: COLORS.background,
-    },
+    container: { flex: 1, backgroundColor: COLORS.background, paddingHorizontal: SPACING.lg, gap: SPACING.lg },
+    header: { flexDirection: 'row', alignItems: 'center', gap: SPACING.md },
+    scroll: { gap: 14, paddingBottom: SPACING.lg },
+
+    vault: { height: 210, borderRadius: 34, backgroundColor: COLORS.night, overflow: 'hidden', alignItems: 'center', justifyContent: 'center' },
+    ring: { position: 'absolute', borderRadius: 999, borderWidth: 2 },
+    speck: { position: 'absolute', borderRadius: 999 },
+    vaultCoin: { width: 104, height: 104, borderRadius: 52, backgroundColor: COLORS.brand, alignItems: 'center', justifyContent: 'center' },
+
+    title: { fontSize: 32, lineHeight: 34, fontWeight: '800', letterSpacing: -0.8, color: COLORS.text },
+    body: { fontSize: 15, color: COLORS.textSecondary, marginTop: 6 },
+
+    row: { borderRadius: 26, paddingVertical: 14, paddingHorizontal: SPACING.lg, flexDirection: 'row', alignItems: 'center', gap: SPACING.md },
+    rowIcon: { width: 44, height: 44, borderRadius: 16, backgroundColor: COLORS.surface, alignItems: 'center', justifyContent: 'center' },
+    rowTitle: { fontSize: 16, fontWeight: '800', color: COLORS.text },
+    rowMeta: { fontSize: 13, fontWeight: '600' },
+    pill: { backgroundColor: COLORS.surface, borderRadius: 999, paddingVertical: 6, paddingHorizontal: 12 },
+    pillText: { fontSize: 13, fontWeight: '800', color: COLORS.text },
 });

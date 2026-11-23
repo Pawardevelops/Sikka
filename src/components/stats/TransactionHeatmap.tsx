@@ -1,5 +1,6 @@
 import React, { useMemo, useRef, useEffect } from 'react';
-import { View, StyleSheet, ScrollView, Text, TouchableOpacity } from 'react-native';
+import { View, StyleSheet, ScrollView, TouchableOpacity } from 'react-native';
+import { Text } from '../Typography';
 import { COLORS, SPACING } from '../../constants/theme';
 
 interface TransactionHeatmapProps {

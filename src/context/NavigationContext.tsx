@@ -4,10 +4,12 @@
  */
 
 import { createContext, useContext } from 'react';
-import { Account, Subscription, Transaction } from '../types';
+import { Account, Subscription, Transaction, TabType } from '../types';
 
 // ==================== NAVIGATION CONTEXT ====================
 export interface NavigationContextType {
+    /** Switch the main tab (home, assets, stats, settings). */
+    goToTab: (tab: TabType) => void;
     selectedAccount: Account | null;
     selectAccount: (account: Account) => void;
     goBack: () => void;

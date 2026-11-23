@@ -1,6 +1,5 @@
-import { AppRegistry } from 'react-native';
 import database from '../database';
-import { TransactionCategory, TransactionType } from '../types';
+import { TransactionCategory } from '../types';
 import Transaction from '../database/models/Transaction';
 import UnparsedMessage from '../database/models/UnparsedMessage';
 import Account from '../database/models/Account';
@@ -173,7 +172,7 @@ export const notificationHandler = async ({ notification }: any) => {
                 let account = accounts.length > 0 ? accounts[0] : null;
 
                 // 2. Category
-                let category;
+                let category: Category | undefined;
                 if (transactionData.categoryName) {
                     const cats = await catCollection.query(Q.where('name', Q.like(`%${transactionData.categoryName}%`))).fetch();
                     if (cats.length > 0) category = cats[0];

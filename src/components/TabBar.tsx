@@ -1,220 +1,151 @@
 /**
- * Sikka - Tab Bar Component
- * Classic per-tab animation pattern (Instagram/Spotify style).
+ * Sikka - Tab Bar
+ * Design: design-system/components/TabBar + screens/Home-v2.html
  *
- * Each tab independently animates its own state — no cross-tab
- * sliding elements, so alignment is always perfect.
- *
- * Animations per tab:
- *   - Icon scales up with a spring bounce when becoming active
- *   - Icon translates up slightly
- *   - Active dot fades in below the label
- *   - Label color transitions via opacity layering
+ * Floating white pill (shadow-float): Home · Review (signal badge) ·
+ * raised night "add" button · Stats · Assets. The active tab grows into a
+ * lime pill with its label. Settings lives behind the gear on Home.
  */
 
-import React, { useRef, useEffect } from 'react';
-import { StyleSheet, Text, View, TouchableOpacity, Animated } from 'react-native';
+import React, { useEffect } from 'react';
+import { StyleSheet, View, TouchableOpacity } from 'react-native';
+import Animated, { LinearTransition, useAnimatedStyle, useSharedValue, withSpring } from 'react-native-reanimated';
+import { POP_SPRING, fadeIn, popIn } from '../motion';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { Text } from './Typography';
 import { TabType } from '../types';
-import { COLORS, SPACING, FONT_SIZE } from '../constants/theme';
-import { Icon } from './Icon';
+import { COLORS, SPACING, BORDER_RADIUS, SHADOWS, SIKKA } from '../constants/theme';
+import { Icon, IconName } from './Icon';
 
-// ─── Tab Definitions ──────────────────────────────────────────────────
-interface TabDef {
-    key: TabType;
-    icon: string;
-    label: string;
-}
 
-const TABS: TabDef[] = [
-    { key: 'dash', icon: 'dashboard', label: 'Dash' },
-    { key: 'assets', icon: 'account-balance-wallet', label: 'Assets' },
-    { key: 'stats', icon: 'bar-chart', label: 'Stats' },
-    { key: 'settings', icon: 'settings', label: 'Settings' },
-];
+export const TAB_BAR_HEIGHT = 70;
+const TAB_BAR_BOTTOM = 16;
 
-const TAB_BAR_HEIGHT = 72;
-
-// ─── Props ────────────────────────────────────────────────────────────
 interface TabBarProps {
     activeTab: TabType;
     onTabChange: (tab: TabType) => void;
+    /** Opens the review inbox. */
+    onReview: () => void;
+    /** Opens "add a payment". */
+    onAdd: () => void;
+    reviewCount?: number;
 }
 
-// ─── Animated Tab Item ────────────────────────────────────────────────
-/**
- * Each tab owns a single Animated.Value `progress` that drives ALL
- * its visual properties (scale, translateY, dot opacity, etc).
- * This keeps the component simple and all animations perfectly in sync.
- */
-function AnimatedTabItem({
-    tab,
-    isActive,
+function TabButton({
+    icon,
+    label,
+    active,
     onPress,
+    badge,
 }: {
-    tab: TabDef;
-    isActive: boolean;
+    icon: IconName;
+    label: string;
+    active?: boolean;
     onPress: () => void;
+    badge?: number;
 }) {
-    // Single driver: 0 = inactive, 1 = active
-    const progress = useRef(new Animated.Value(isActive ? 1 : 0)).current;
-
+    const pop = useSharedValue(active ? 1 : 0);
     useEffect(() => {
-        Animated.spring(progress, {
-            toValue: isActive ? 1 : 0,
-            friction: isActive ? 4 : 8,   // bouncier when activating
-            tension: isActive ? 160 : 60,  // snappier when activating
-            useNativeDriver: true,
-        }).start();
-    }, [isActive]);
-
-    // Derived animations from the single progress value
-    const iconScale = progress.interpolate({
-        inputRange: [0, 1],
-        outputRange: [0.85, 1.15],
-    });
-
-    const iconTranslateY = progress.interpolate({
-        inputRange: [0, 1],
-        outputRange: [0, -4],
-    });
-
-    const dotScale = progress.interpolate({
-        inputRange: [0, 0.5, 1],
-        outputRange: [0, 0.5, 1],
-    });
-
-    const dotOpacity = progress.interpolate({
-        inputRange: [0, 0.5, 1],
-        outputRange: [0, 0.3, 1],
-    });
-
-    const activeTextOpacity = progress; // 0..1
-    const inactiveTextOpacity = progress.interpolate({
-        inputRange: [0, 1],
-        outputRange: [1, 0],
-    });
+        pop.value = withSpring(active ? 1 : 0, POP_SPRING);
+    }, [active, pop]);
+    const popStyle = useAnimatedStyle(() => ({ transform: [{ scale: 0.92 + 0.08 * pop.value }] }));
 
     return (
         <TouchableOpacity
-            style={styles.tabItem}
             onPress={onPress}
-            activeOpacity={0.6}
+            activeOpacity={0.7}
+            accessibilityRole="tab"
+            accessibilityState={{ selected: !!active }}
+            accessibilityLabel={badge ? `${label}, ${badge} waiting` : label}
+            style={styles.touch}
         >
-            {/* Icon with bounce */}
-            <Animated.View
-                style={{
-                    transform: [
-                        { scale: iconScale },
-                        { translateY: iconTranslateY },
-                    ],
-                }}
-            >
-                <Icon
-                    name={tab.icon as any}
-                    size={24}
-                    color={isActive ? COLORS.primary : COLORS.textMuted}
-                />
+            <Animated.View layout={LinearTransition.springify().damping(16)} style={[active ? styles.active : styles.idle, popStyle]}>
+                <Icon name={icon} size={22} color={COLORS.text} />
+                {active && (
+                    <Animated.View entering={fadeIn}>
+                        <Text style={styles.label} numberOfLines={1}>{label}</Text>
+                    </Animated.View>
+                )}
             </Animated.View>
-
-            {/* Label — two layers for smooth color crossfade */}
-            <View style={styles.labelContainer}>
-                <Animated.Text
-                    style={[styles.tabLabel, styles.tabLabelInactive, { opacity: inactiveTextOpacity }]}
-                    numberOfLines={1}
-                >
-                    {tab.label}
-                </Animated.Text>
-                <Animated.Text
-                    style={[styles.tabLabel, styles.tabLabelActive, { opacity: activeTextOpacity }]}
-                    numberOfLines={1}
-                >
-                    {tab.label}
-                </Animated.Text>
-            </View>
-
-            {/* Active dot indicator */}
-            <Animated.View
-                style={[
-                    styles.activeDot,
-                    {
-                        opacity: dotOpacity,
-                        transform: [{ scale: dotScale }],
-                    },
-                ]}
-            />
+            {!!badge && (
+                <Animated.View key={badge} entering={popIn()} style={styles.badge}>
+                    <Text style={styles.badgeText}>{badge > 9 ? '9+' : badge}</Text>
+                </Animated.View>
+            )}
         </TouchableOpacity>
     );
 }
 
-// ─── TabBar ───────────────────────────────────────────────────────────
-export function TabBar({ activeTab, onTabChange }: TabBarProps) {
+export function TabBar({ activeTab, onTabChange, onReview, onAdd, reviewCount = 0 }: TabBarProps) {
+    const insets = useSafeAreaInsets();
     return (
-        <View style={styles.tabBar}>
-            {TABS.map((tab) => (
-                <AnimatedTabItem
-                    key={tab.key}
-                    tab={tab}
-                    isActive={activeTab === tab.key}
-                    onPress={() => onTabChange(tab.key)}
-                />
-            ))}
+        <View style={[styles.bar, { bottom: TAB_BAR_BOTTOM + insets.bottom }]} accessibilityRole="tablist">
+            <TabButton icon="home" label="Home" active={activeTab === 'dash'} onPress={() => onTabChange('dash')} />
+            <TabButton icon="move-to-inbox" label="Review" onPress={onReview} badge={reviewCount} />
+            <TouchableOpacity
+                onPress={onAdd}
+                activeOpacity={0.85}
+                accessibilityRole="button"
+                accessibilityLabel="Add a payment"
+                style={styles.add}
+            >
+                <Icon name="add" size={30} color={COLORS.brand} />
+            </TouchableOpacity>
+            <TabButton icon="bar-chart" label="Stats" active={activeTab === 'stats'} onPress={() => onTabChange('stats')} />
+            <TabButton icon="account-balance-wallet" label="Assets" active={activeTab === 'assets'} onPress={() => onTabChange('assets')} />
         </View>
     );
 }
 
-// ─── Styles ───────────────────────────────────────────────────────────
 const styles = StyleSheet.create({
-    tabBar: {
+    bar: {
         position: 'absolute',
-        bottom: 0,
-        left: 0,
-        right: 0,
+        left: SPACING.lg,
+        right: SPACING.lg,
         height: TAB_BAR_HEIGHT,
+        borderRadius: BORDER_RADIUS.full,
         backgroundColor: COLORS.surface,
         flexDirection: 'row',
         alignItems: 'center',
-        paddingBottom: SPACING.sm,
-        borderTopWidth: StyleSheet.hairlineWidth,
-        borderTopColor: COLORS.border,
+        justifyContent: 'space-around',
+        paddingHorizontal: SPACING.sm,
+        ...SHADOWS.lg,
     },
-    tabItem: {
-        flex: 1,
+    touch: { minWidth: 46, height: 46, alignItems: 'center', justifyContent: 'center' },
+    idle: { width: 46, height: 46, borderRadius: 23, alignItems: 'center', justifyContent: 'center' },
+    active: {
+        height: 46,
+        paddingHorizontal: 14,
+        borderRadius: 23,
+        backgroundColor: COLORS.brand,
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 6,
+    },
+    label: { fontSize: 14, fontWeight: '800', color: COLORS.onBrand },
+    badge: {
+        position: 'absolute',
+        top: 2,
+        right: 2,
+        minWidth: 18,
+        height: 18,
+        paddingHorizontal: 4,
+        borderRadius: 9,
+        backgroundColor: SIKKA.signal,
         alignItems: 'center',
         justifyContent: 'center',
-        height: '100%',
-        paddingTop: 6,
     },
-    labelContainer: {
-        position: 'relative',
-        height: 14,
+    badgeText: { fontSize: 11, fontWeight: '800', color: COLORS.onBrand },
+    add: {
+        width: 64,
+        height: 64,
+        borderRadius: 32,
+        marginTop: -34,
+        backgroundColor: COLORS.night,
+        alignItems: 'center',
         justifyContent: 'center',
-        marginTop: 3,
-    },
-    tabLabel: {
-        fontSize: FONT_SIZE.xs,
-        fontWeight: '600',
-        textAlign: 'center',
-    },
-    tabLabelInactive: {
-        color: COLORS.textMuted,
-    },
-    tabLabelActive: {
-        color: COLORS.primary,
-        position: 'absolute',
-        alignSelf: 'center',
-    },
-    activeDot: {
-        width: 5,
-        height: 5,
-        borderRadius: 2.5,
-        backgroundColor: COLORS.primary,
-        marginTop: 3,
-        // Subtle glow
-        shadowColor: COLORS.primary,
-        shadowOffset: { width: 0, height: 0 },
-        shadowOpacity: 0.6,
-        shadowRadius: 4,
-        elevation: 2,
+        borderWidth: 6,
+        borderColor: COLORS.background,
     },
 });
 

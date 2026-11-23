@@ -1,458 +1,387 @@
 /**
- * Sikka - Dashboard Screen
- * Main dashboard with net worth, accounts, and transactions
+ * Sikka - Home
+ * Design: design-system/screens/Home-v2.html
+ *
+ * Sikku greeting · lime net-worth hero with 6-month sparkline ·
+ * bento (review / accounts / spent today) · "This week" stacked bars with
+ * on-pace line · today's payments.
  */
 
-import React, { useEffect, useRef } from 'react';
-import {
-    StyleSheet,
-    Text,
-    View,
-    ScrollView,
-    TouchableOpacity,
-    Animated,
-} from 'react-native';
+import React, { useEffect, useMemo } from 'react';
+import { StyleSheet, View, ScrollView, TouchableOpacity } from 'react-native';
+import Svg, { Polyline, Circle } from 'react-native-svg';
+import Animated, { useAnimatedProps, useSharedValue, withDelay, withTiming, ReduceMotion } from 'react-native-reanimated';
+import { EASE, Rise, growY, popIn } from '../motion';
+import { Text } from '../components/Typography';
 import { useCurrency } from '../context/CurrencyContext';
 import { useAccounts } from '../context/AccountsContext';
-import { useTransactions, CATEGORY_ICONS, formatTimeAgo } from '../context/TransactionsContext';
+import { useTransactions } from '../context/TransactionsContext';
 import { useOnboarding } from '../context/OnboardingContext';
-import { COLORS, SPACING, FONT_SIZE, BORDER_RADIUS } from '../constants/theme';
-import { FloatingActionButton } from '../components/FloatingActionButton';
-import { useSafeTop } from '../components/SafeScreen';
-import { Account } from '../types';
-
-// Import navigation from NavigationContext
 import { useNavigation } from '../context/NavigationContext';
+import { COLORS, SPACING, SHADOWS, CATEGORY_PALETTE, getCategoryColors, MOTION } from '../constants/theme';
+
+const AnimatedPolyline = Animated.createAnimatedComponent(Polyline);
+import { useSafeTop } from '../components/SafeScreen';
 import { Icon } from '../components/Icon';
+import { Sikku, IconButton } from '../components/ui';
+import { TransactionRow } from '../components/TransactionRow';
+import { Transaction } from '../types';
+
+const DAY = 86400000;
+const startOfDay = (d: Date) => new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
+
+/** Net worth at the end of each of the last `n` months, derived from transactions. */
+function netWorthSeries(netWorth: number, txs: Transaction[], n = 6) {
+    const now = new Date();
+    const points: number[] = [];
+    for (let k = n - 1; k >= 0; k--) {
+        const monthEnd = k === 0 ? Date.now() : new Date(now.getFullYear(), now.getMonth() - k + 1, 1).getTime();
+        const after = txs.filter((t) => t.timestamp >= monthEnd).reduce((s, t) => s + t.amount, 0);
+        points.push(netWorth - after);
+    }
+    return points;
+}
+
+function Sparkline({ values, width = 130, height = 44 }: { values: number[]; width?: number; height?: number }) {
+    const min = Math.min(...values);
+    const max = Math.max(...values);
+    const span = max - min || 1;
+    const pts = values.map((v, i) => {
+        const x = 2 + (i / (values.length - 1)) * (width - 6);
+        const y = height - 4 - ((v - min) / span) * (height - 10);
+        return [x, y];
+    });
+    const last = pts[pts.length - 1];
+    const rising = values[values.length - 1] >= values[0];
+    const length = pts.reduce((sum, p, i) => (i === 0 ? 0 : sum + Math.hypot(p[0] - pts[i - 1][0], p[1] - pts[i - 1][1])), 0);
+
+    // `sk-draw`: the line draws itself in after the hero has risen.
+    const drawn = useSharedValue(0);
+    useEffect(() => {
+        drawn.value = 0;
+        drawn.value = withDelay(
+            MOTION.durBase,
+            withTiming(1, { duration: MOTION.durCelebrate, easing: EASE.out, reduceMotion: ReduceMotion.System }),
+        );
+    }, [length, drawn]);
+    const lineProps = useAnimatedProps(() => ({ strokeDashoffset: length * (1 - drawn.value) }));
+    return (
+        <Svg width={width} height={height} accessibilityLabel={`Net worth ${rising ? 'rising' : 'falling'} over 6 months`}>
+            <AnimatedPolyline
+                animatedProps={lineProps}
+                strokeDasharray={[length, length]}
+                points={pts.map((p) => p.join(',')).join(' ')}
+                fill="none"
+                stroke={COLORS.onBrand}
+                strokeWidth={3.5}
+                strokeLinecap="round"
+                strokeLinejoin="round"
+            />
+            <Circle cx={last[0]} cy={last[1]} r={5} fill={COLORS.onBrand} />
+        </Svg>
+    );
+}
 
 export function DashboardScreen() {
     const { formatAmount, balancesVisible, toggleBalancesVisible } = useCurrency();
-    const { activeAccounts, netWorth, getAccount } = useAccounts();
+    const { activeAccounts, netWorth } = useAccounts();
     const { todayTransactions, transactions } = useTransactions();
     const { data: onboardingData } = useOnboarding();
     const safeTop = useSafeTop();
-    const { selectAccount, openAddModal, openAddTransactionModal, openAllTransactions, openNotifyCenter, selectTransaction } = useNavigation();
+    const { openAllTransactions, openNotifyCenter, selectTransaction, goToTab, openAddTransactionModal } = useNavigation();
 
-    // Get pending transactions count
-    const pendingTransactionsCount = transactions.filter(t => t.status === 'pending' && !t.isDeleted).length;
+    const live = useMemo(() => transactions.filter((t) => !t.isDeleted && t.status !== 'pending' && t.status !== 'ignored'), [transactions]);
+    const pending = transactions.filter((t) => t.status === 'pending' && !t.isDeleted).length;
 
-    // Animation refs
-    const fadeAnim = useRef(new Animated.Value(0)).current;
-    const netWorthScale = useRef(new Animated.Value(0.9)).current;
-    const netWorthSlide = useRef(new Animated.Value(-30)).current;
-    const smsCardAnim = useRef(new Animated.Value(0)).current;
-    const accountsAnim = useRef(new Animated.Value(0)).current;
-    const transactionAnims = useRef(
-        Array(Math.max(todayTransactions.length, 5)).fill(0).map(() => new Animated.Value(0))
-    ).current;
+    // ── Numbers ──
+    const now = new Date();
+    const monthStart = new Date(now.getFullYear(), now.getMonth(), 1).getTime();
+    const monthTx = live.filter((t) => t.timestamp >= monthStart);
+    const monthNet = monthTx.reduce((s, t) => s + t.amount, 0);
+    const monthSpent = Math.abs(monthTx.filter((t) => t.amount < 0 && t.category !== 'transfer').reduce((s, t) => s + t.amount, 0));
+    const todaySpent = Math.abs(todayTransactions.filter((t) => t.amount < 0 && t.category !== 'transfer').reduce((s, t) => s + t.amount, 0));
+    const limit = onboardingData.monthlySpendLimit ?? 30000;
+    const daysInMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
+    const daysLeft = daysInMonth - now.getDate() + 1;
+    const perDayLeft = Math.max(0, (limit - monthSpent) / daysLeft);
+    const overBy = monthSpent - limit;
+    const series = useMemo(() => netWorthSeries(netWorth, live), [netWorth, live]);
 
-    useEffect(() => {
-        // Sequence of animations for a polished feel
-        Animated.sequence([
-            // 1. Fade in header
-            Animated.timing(fadeAnim, {
-                toValue: 1,
-                duration: 300,
-                useNativeDriver: true,
-            }),
-            // 2. Net worth card springs in
-            Animated.parallel([
-                Animated.spring(netWorthScale, {
-                    toValue: 1,
-                    friction: 6,
-                    tension: 40,
-                    useNativeDriver: true,
-                }),
-                Animated.spring(netWorthSlide, {
-                    toValue: 0,
-                    friction: 6,
-                    tension: 40,
-                    useNativeDriver: true,
-                }),
-            ]),
-        ]).start();
+    // ── This week: 7 days ending today, stacked by category ──
+    const week = useMemo(() => {
+        const today0 = startOfDay(now);
+        return Array.from({ length: 7 }, (_, i) => {
+            const dayStart = today0 - (6 - i) * DAY;
+            const dayTx = live.filter((t) => t.amount < 0 && t.category !== 'transfer' && t.timestamp >= dayStart && t.timestamp < dayStart + DAY);
+            const byCat: Record<string, number> = {};
+            dayTx.forEach((t) => { byCat[t.category] = (byCat[t.category] || 0) + Math.abs(t.amount); });
+            return {
+                label: new Date(dayStart).toLocaleDateString('en-IN', { weekday: 'narrow' }),
+                isToday: i === 6,
+                total: Object.values(byCat).reduce((a, b) => a + b, 0),
+                parts: Object.entries(byCat).sort((a, b) => b[1] - a[1]),
+            };
+        });
+    }, [live]);
+    const weekMax = Math.max(1, ...week.map((d) => d.total));
 
-        // SMS card fades in
-        Animated.timing(smsCardAnim, {
-            toValue: 1,
-            duration: 400,
-            delay: 200,
-            useNativeDriver: true,
-        }).start();
-
-        // Accounts scroll fades in
-        Animated.timing(accountsAnim, {
-            toValue: 1,
-            duration: 400,
-            delay: 300,
-            useNativeDriver: true,
-        }).start();
-
-        // Stagger transactions
-        Animated.stagger(100, transactionAnims.map(anim =>
-            Animated.spring(anim, {
-                toValue: 1,
-                friction: 8,
-                tension: 40,
-                useNativeDriver: true,
-            })
-        )).start();
-    }, []);
-
-    const getGreeting = () => {
-        const hour = new Date().getHours();
-        if (hour < 12) return 'Good Morning';
-        if (hour < 17) return 'Good Afternoon';
-        return 'Good Evening';
-    };
-
-    const handleAccountPress = (account: Account) => {
-        selectAccount(account);
-    };
-
-    // FAB items
-    // FAB items
-    const fabItems = [
-        { id: 'transaction', icon: 'attach-money', label: 'Add Transaction', onPress: () => openAddTransactionModal() },
-    ];
+    const hour = now.getHours();
+    const greeting = hour < 12 ? 'Good morning' : hour < 17 ? 'Good afternoon' : 'Good evening';
 
     return (
         <View style={styles.container}>
-            <ScrollView
-                style={styles.scrollView}
-                contentContainerStyle={[styles.scrollContent, { paddingTop: safeTop }]}
-                showsVerticalScrollIndicator={false}
-            >
-                {/* Header with Fade Animation */}
-                <Animated.View style={[styles.header, { opacity: fadeAnim }]}>
-                    <View style={styles.headerLeft}>
-                        <View style={styles.avatar}>
-                            <Icon name="person" size={24} color={COLORS.text} />
-                        </View>
-                        <Text style={styles.greeting}>{getGreeting()}, {onboardingData.userName || 'there'}</Text>
+            <ScrollView contentContainerStyle={[styles.scroll, { paddingTop: safeTop + SPACING.sm }]} showsVerticalScrollIndicator={false}>
+                {/* Header */}
+                <Rise index={0} style={styles.header}>
+                    <Sikku size={48} simple />
+                    <View style={{ flex: 1 }}>
+                        <Text style={styles.greeting}>{greeting}</Text>
+                        <Text style={styles.name} accessibilityRole="header" numberOfLines={1}>
+                            {onboardingData.userName?.trim() || 'Hello there'}
+                        </Text>
                     </View>
-                </Animated.View>
+                    <IconButton icon="tune" label="Settings" onPress={() => goToTab('settings')} size={48} />
+                </Rise>
 
-                {/* Net Worth Card with Scale + Slide Animation */}
-                <Animated.View style={[
-                    styles.netWorthCard,
-                    {
-                        opacity: fadeAnim,
-                        transform: [
-                            { scale: netWorthScale },
-                            { translateY: netWorthSlide },
-                        ],
-                    }
-                ]}>
-                    <View style={styles.netWorthLabelRow}>
-                        <Text style={styles.netWorthLabel}>NET WORTH</Text>
-                        <TouchableOpacity onPress={toggleBalancesVisible} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
-                            <Icon name={balancesVisible ? 'visibility' : 'visibility-off'} size={18} color={COLORS.textMuted} />
-                        </TouchableOpacity>
+                {/* Net worth hero */}
+                <Rise index={1} style={styles.hero}>
+                    <View style={styles.heroNight} pointerEvents="none"><Text style={styles.heroRupee}>₹</Text></View>
+                    <View style={styles.heroDot} pointerEvents="none" />
+                    <View style={styles.heroTop}>
+                        <Text style={styles.heroLabel}>Net worth</Text>
                     </View>
-                    <View style={styles.netWorthRow}>
-                        <Text style={styles.netWorthAmount}>{formatAmount(netWorth)}</Text>
-                        {netWorth !== 0 && (
-                            <View style={[styles.changeBadge, netWorth < 0 && styles.negativeBadge]}>
-                                <Text style={[styles.changeText, netWorth < 0 && styles.negativeChangeText]}>
-                                    {netWorth >= 0 ? <Icon name="arrow-upward" size={12} color={COLORS.primary} /> : <Icon name="arrow-downward" size={12} color={COLORS.error} />} {activeAccounts.length} accounts
-                                </Text>
-                            </View>
-                        )}
-                    </View>
-                    <View style={styles.statsRow}>
-                        <View style={styles.statItem}>
-                            <Text style={styles.statLabel}>TODAY'S SPEND</Text>
-                            <Text style={styles.statValue}>
-                                {formatAmount(Math.abs(todayTransactions.filter(t => t.amount < 0).reduce((s, t) => s + t.amount, 0)), true)}
+                    <TouchableOpacity
+                        onPress={toggleBalancesVisible}
+                        accessibilityRole="button"
+                        accessibilityLabel={balancesVisible ? 'Hide balances' : 'Show balances'}
+                        activeOpacity={0.8}
+                    >
+                        <Text style={styles.heroValue}>{formatAmount(netWorth)}</Text>
+                    </TouchableOpacity>
+                    <View style={styles.heroBottom}>
+                        <View style={styles.heroChip}>
+                            <Text style={styles.heroChipText}>
+                                {monthNet >= 0 ? '+' : ''}{formatAmount(monthNet)} this month
                             </Text>
                         </View>
-                        <View style={styles.statItem}>
-                            <Text style={styles.statLabel}>TRANSACTIONS</Text>
-                            <Text style={styles.statValue}>{todayTransactions.length} Today</Text>
-                        </View>
+                        {balancesVisible && new Set(series).size > 1 && <Sparkline values={series} />}
                     </View>
-                </Animated.View>
+                </Rise>
 
-                {/* Notification Action Center Card */}
-                {pendingTransactionsCount > 0 && (
-                    <Animated.View style={[styles.smsCard, { opacity: smsCardAnim }]}>
-                        <View style={styles.smsIconContainer}>
-                            <View style={styles.smsIconBackground}>
-                                <Icon name="chat" size={24} color={COLORS.black} />
+                {/* Bento */}
+                <View style={styles.bento}>
+                    <Rise index={2} style={{ flex: 1 }}>
+                        <TouchableOpacity
+                            style={styles.reviewTile}
+                            onPress={openNotifyCenter}
+                            activeOpacity={0.85}
+                            accessibilityRole="button"
+                            accessibilityLabel={pending ? `Review, ${pending} waiting` : 'Review inbox, all clear'}
+                        >
+                            <View>
+                                <Text style={[styles.tileOver, { color: CATEGORY_PALETTE.dining.fg }]}>REVIEW</Text>
+                                <Animated.View key={pending} entering={popIn()}>
+                                    <Text style={styles.reviewValue}>{pending ? `${pending} waiting` : 'All clear'}</Text>
+                                </Animated.View>
                             </View>
-                        </View>
-                        <View style={styles.smsContent}>
-                            <Text style={styles.smsTitle}>Notify Action Center</Text>
-                            <Text style={styles.smsSubtitle}>{pendingTransactionsCount} new transactions detected from notifications.</Text>
-                        </View>
-                        <TouchableOpacity style={styles.reviewBtn} onPress={openNotifyCenter}>
-                            <Text style={styles.reviewBtnText}>Review</Text>
+                            <View style={styles.miniDeck} importantForAccessibility="no-hide-descendants">
+                                <View style={styles.miniDeckBack} />
+                                <View style={styles.miniDeckTop}>
+                                    <View style={styles.miniDeckIcon} />
+                                    <View style={styles.miniDeckLine} />
+                                </View>
+                            </View>
+                            <View style={styles.reviewGo}><Icon name="arrow-forward" size={18} color={COLORS.onNight} /></View>
                         </TouchableOpacity>
-                    </Animated.View>
-                )}
-
-
-                {/* Accounts Section with Fade */}
-                <Animated.View style={{ opacity: accountsAnim }}>
-                    <Text style={styles.sectionTitle}>ACCOUNTS</Text>
-                    {activeAccounts.length === 0 ? (
-                        <TouchableOpacity style={styles.emptyAccountsCard} activeOpacity={0.85} onPress={() => openAddModal()}>
-                            <Icon name="account-balance" size={40} color={COLORS.textMuted} style={{ marginBottom: SPACING.md }} />
-                            <Text style={styles.emptyTitle}>No accounts yet</Text>
-                            <Text style={styles.emptySubtitle}>Tap to add your first account</Text>
-                        </TouchableOpacity>
-                    ) : (
-                        <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.accountsScroll}>
-                            {activeAccounts.slice(0, 4).map((account) => {
-                                const isCreditCard = account.type === 'credit';
-                                const isInvestment = account.type === 'investment' || account.type === 'bitcoin';
-                                const ccLimit = account.creditCardDetails?.creditLimit ?? 0;
-                                const ccUsed = Math.abs(account.balance);
-                                const ccAvailable = Math.max(0, ccLimit - ccUsed);
-                                const ccUtilPercent = ccLimit > 0 ? (ccUsed / ccLimit) * 100 : 0;
-                                const utilColor = ccUtilPercent > 60 ? COLORS.error : ccUtilPercent > 30 ? '#F59E0B' : COLORS.success;
-                                const displayBalance = isInvestment ? (account.investmentValue ?? account.balance) : account.balance;
-
-                                return (
-                                    <TouchableOpacity
-                                        key={account.id}
-                                        style={styles.accountCard}
-                                        activeOpacity={0.85}
-                                        onPress={() => handleAccountPress(account)}
-                                    >
-                                        <View style={styles.accountIcon}>
-                                            <Icon name={account.icon as any} size={24} color={COLORS.text} />
-                                        </View>
-                                        <Text style={styles.accountName}>{account.name}</Text>
-
-                                        {isCreditCard ? (
-                                            <>
-                                                <Text style={styles.accountBalance}>
-                                                    {formatAmount(ccUsed)}
-                                                </Text>
-                                                <Text style={styles.ccLabel}>Outstanding</Text>
-                                                {/* Utilization bar */}
-                                                <View style={styles.ccUtilTrack}>
-                                                    <View style={[styles.ccUtilFill, { width: `${Math.min(ccUtilPercent, 100)}%`, backgroundColor: utilColor }]} />
-                                                </View>
-                                                <Text style={[styles.ccAvailText, { color: utilColor }]}>
-                                                    {formatAmount(ccAvailable)} available
-                                                </Text>
-                                                {/* Due date badge */}
-                                                {account.creditCardDetails?.dueDate && ccUsed > 0 && (() => {
-                                                    const now = new Date();
-                                                    const dueDay = account.creditCardDetails!.dueDate;
-                                                    const thisMonth = new Date(now.getFullYear(), now.getMonth(), dueDay);
-                                                    const target = thisMonth >= now ? thisMonth : new Date(now.getFullYear(), now.getMonth() + 1, dueDay);
-                                                    const daysUntil = Math.ceil((target.getTime() - now.getTime()) / 86400000);
-                                                    const dueColor = daysUntil <= 3 ? COLORS.error : daysUntil <= 7 ? '#F59E0B' : COLORS.textMuted;
-                                                    const dueLabel = daysUntil === 0 ? 'Due today' : daysUntil < 0 ? `Overdue` : `Due in ${daysUntil}d`;
-                                                    return (
-                                                        <Text style={[styles.ccDueText, { color: dueColor }]}>
-                                                            {dueLabel}
-                                                        </Text>
-                                                    );
-                                                })()}
-                                            </>
-                                        ) : (
-                                            <Text style={[styles.accountBalance, displayBalance < 0 && styles.negativeBalance]}>
-                                                {formatAmount(displayBalance)}
-                                            </Text>
-                                        )}
-                                    </TouchableOpacity>
-                                );
-                            })}
-                        </ScrollView>
-                    )}
-                </Animated.View>
-
-                {/* Recent Activity with Stagger */}
-                <View style={styles.activityHeader}>
-                    <Text style={styles.sectionTitle}>TODAY'S ACTIVITY</Text>
-                    <TouchableOpacity onPress={openAllTransactions}>
-                        <Text style={styles.seeAll}>See All</Text>
-                    </TouchableOpacity>
+                    </Rise>
+                    <View style={styles.bentoCol}>
+                        <Rise index={3}>
+                            <TouchableOpacity
+                                style={[styles.smallTile, { backgroundColor: CATEGORY_PALETTE.fun.bg }]}
+                                onPress={() => goToTab('assets')}
+                                activeOpacity={0.85}
+                                accessibilityRole="button"
+                            >
+                                <View style={styles.smallIcon}><Icon name="account-balance-wallet" size={20} color={CATEGORY_PALETTE.fun.fg} /></View>
+                                <View>
+                                    <Text style={styles.smallValue}>{activeAccounts.length}</Text>
+                                    <Text style={[styles.smallLabel, { color: CATEGORY_PALETTE.fun.fg }]}>
+                                        {activeAccounts.length === 1 ? 'account' : 'accounts'}
+                                    </Text>
+                                </View>
+                            </TouchableOpacity>
+                        </Rise>
+                        <Rise index={3}>
+                            <View style={[styles.smallTile, { backgroundColor: CATEGORY_PALETTE.bills.bg }]}>
+                                <View style={styles.smallIcon}><Icon name="schedule" size={20} color={CATEGORY_PALETTE.bills.fg} /></View>
+                                <View style={{ flexShrink: 1 }}>
+                                    <Text style={styles.smallValue} numberOfLines={1} adjustsFontSizeToFit>{formatAmount(todaySpent)}</Text>
+                                    <Text style={[styles.smallLabel, { color: CATEGORY_PALETTE.bills.fg }]}>spent today</Text>
+                                </View>
+                            </View>
+                        </Rise>
+                    </View>
                 </View>
 
-                {todayTransactions.length === 0 ? (
-                    <View style={styles.emptyTransactionsCard}>
-                        <Icon name="assignment" size={40} color={COLORS.textMuted} style={{ marginBottom: SPACING.md }} />
-                        <Text style={styles.emptyTitle}>No transactions today</Text>
-                        <Text style={styles.emptySubtitle}>Tap the + button to add one</Text>
+                {/* This week */}
+                <Rise index={4} style={styles.weekCard}>
+                    <View style={styles.weekHead}>
+                        <Text style={styles.weekTitle}>This week</Text>
+                        <Text style={[styles.pace, overBy > 0 && { color: COLORS.error }]}>
+                            {overBy > 0 ? `Over limit by ${formatAmount(overBy)}` : `On pace · ${formatAmount(Math.round(perDayLeft))}/day left`}
+                        </Text>
                     </View>
-                ) : (
-                    todayTransactions.slice(0, 5).map((tx, index) => {
-                        const account = getAccount(tx.accountId);
-                        return (
-                            <Animated.View
-                                key={tx.id}
-                                style={{
-                                    opacity: transactionAnims[index] || 1,
-                                    transform: [{
-                                        translateX: (transactionAnims[index] || new Animated.Value(1)).interpolate({
-                                            inputRange: [0, 1],
-                                            outputRange: [50, 0],
-                                        }),
-                                    }],
-                                }}
-                            >
-                                <TouchableOpacity
-                                    style={styles.transactionRow}
-                                    activeOpacity={0.7}
-                                    onPress={() => selectTransaction(tx)}
-                                >
-                                    <View style={styles.txIcon}>
-                                        <Icon name={CATEGORY_ICONS[tx.category] as any} size={24} color={COLORS.text} />
-                                    </View>
-                                    <View style={styles.txContent}>
-                                        <View style={styles.txTitleRow}>
-                                            <Text style={styles.txMerchant}>{tx.merchant}</Text>
-                                            {tx.isAuto && (
-                                                <View style={styles.autoBadge}>
-                                                    <Text style={styles.autoBadgeText}>AUTO</Text>
-                                                </View>
-                                            )}
-                                        </View>
-                                        <Text style={styles.txCategory}>
-                                            {account?.name || 'Unknown'} • {formatTimeAgo(tx.timestamp)}
-                                        </Text>
-                                    </View>
-                                    <View style={styles.txAmount}>
-                                        <Text style={[
-                                            styles.txAmountText,
-                                            tx.amount >= 0 ? styles.incomeText : styles.expenseText
-                                        ]}>
-                                            {tx.amount >= 0 ? '+' : ''}{formatAmount(tx.amount, true)}
-                                        </Text>
-                                    </View>
-                                </TouchableOpacity>
+                    <View style={styles.bars} accessibilityLabel="Daily spending this week by category">
+                        {week.map((d, i) => (
+                            <Animated.View key={i} entering={growY(i)} style={styles.barCol}>
+                                {d.total === 0 ? (
+                                    <View style={[styles.barPart, { height: 4, backgroundColor: COLORS.surfaceSunk }]} />
+                                ) : d.isToday ? (
+                                    <View style={[styles.barPart, { height: Math.max(8, (d.total / weekMax) * 64), backgroundColor: COLORS.night }]} />
+                                ) : (
+                                    d.parts.map(([cat, amt]) => (
+                                        <View
+                                            key={cat}
+                                            style={[styles.barPart, { height: Math.max(6, (amt / weekMax) * 64), backgroundColor: getCategoryColors(cat).bg }]}
+                                        />
+                                    ))
+                                )}
                             </Animated.View>
-                        );
-                    })
-                )}
-            </ScrollView>
+                        ))}
+                    </View>
+                    <View style={styles.days}>
+                        {week.map((d, i) => (
+                            <Text key={i} style={[styles.day, d.isToday && { color: COLORS.text }]}>{d.label}</Text>
+                        ))}
+                    </View>
+                </Rise>
 
-            {/* Floating Action Button */}
-            <FloatingActionButton items={fabItems} />
-        </View >
+                {/* Today */}
+                <Rise index={5} style={styles.todayHead}>
+                    <Text style={styles.todayTitle}>Today</Text>
+                    <TouchableOpacity onPress={openAllTransactions} accessibilityRole="button" hitSlop={10}>
+                        <Text style={styles.seeAll}>See all</Text>
+                    </TouchableOpacity>
+                </Rise>
+                <Rise index={6} style={{ gap: 10 }}>
+                    {todayTransactions.length === 0 ? (
+                        <TouchableOpacity style={styles.empty} onPress={() => openAddTransactionModal()} activeOpacity={0.85} accessibilityRole="button">
+                            <Sikku size={44} mood="sleepy" />
+                            <View style={{ flex: 1 }}>
+                                <Text style={styles.emptyTitle}>Nothing spent today</Text>
+                                <Text style={styles.emptyBody}>Payments from SMS show up here. Tap to add one by hand.</Text>
+                            </View>
+                        </TouchableOpacity>
+                    ) : (
+                        todayTransactions.slice(0, 3).map((tx) => (
+                            <TransactionRow key={tx.id} transaction={tx} onPress={() => selectTransaction(tx)} />
+                        ))
+                    )}
+                </Rise>
+            </ScrollView>
+        </View>
     );
 }
 
 const styles = StyleSheet.create({
     container: { flex: 1, backgroundColor: COLORS.background },
-    scrollView: { flex: 1 },
-    scrollContent: { paddingHorizontal: SPACING.xl, paddingBottom: 140 },
+    scroll: { paddingHorizontal: SPACING.lg, paddingBottom: 130, gap: SPACING.md },
 
-    // Header
-    header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: SPACING.xxl },
-    headerLeft: { flexDirection: 'row', alignItems: 'center' },
-    avatar: { width: 40, height: 40, borderRadius: 20, backgroundColor: COLORS.primary, alignItems: 'center', justifyContent: 'center', marginRight: SPACING.md },
-    avatarText: { fontSize: 18 },
-    greeting: { fontSize: FONT_SIZE.lg, fontWeight: '600', color: COLORS.text },
+    header: { flexDirection: 'row', alignItems: 'center', gap: SPACING.md },
+    greeting: { fontSize: 14, fontWeight: '600', color: COLORS.textSecondary },
+    name: { fontSize: 26, fontWeight: '800', letterSpacing: -0.5, color: COLORS.text },
 
-    // Net Worth Card
-    netWorthCard: { backgroundColor: COLORS.surface, borderRadius: BORDER_RADIUS.xxl, padding: SPACING.xxl, marginBottom: SPACING.lg, borderWidth: 1, borderColor: COLORS.borderLight },
-    netWorthLabelRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: SPACING.sm },
-    netWorthLabel: { fontSize: FONT_SIZE.sm, fontWeight: '600', color: COLORS.primary, letterSpacing: 1 },
-    netWorthRow: { flexDirection: 'row', alignItems: 'center', marginBottom: SPACING.xl },
-    netWorthAmount: { fontSize: 36, fontWeight: '700', color: COLORS.text, marginRight: SPACING.md },
-    changeBadge: { backgroundColor: COLORS.primaryMuted, paddingHorizontal: SPACING.sm, paddingVertical: SPACING.xs, borderRadius: BORDER_RADIUS.sm },
-    negativeBadge: { backgroundColor: 'rgba(239, 68, 68, 0.15)' },
-    changeText: { fontSize: FONT_SIZE.sm, fontWeight: '600', color: COLORS.primary },
-    negativeChangeText: { color: COLORS.error },
-    statsRow: { flexDirection: 'row' },
-    statItem: { backgroundColor: COLORS.surfaceLight, paddingHorizontal: SPACING.lg, paddingVertical: SPACING.md, borderRadius: BORDER_RADIUS.md, marginRight: SPACING.md },
-    statLabel: { fontSize: FONT_SIZE.xs, color: COLORS.textMuted, letterSpacing: 0.5, marginBottom: 2 },
-    statValue: { fontSize: FONT_SIZE.md, fontWeight: '600', color: COLORS.text },
+    hero: { backgroundColor: COLORS.brand, borderRadius: 34, paddingTop: 20, paddingHorizontal: 20, paddingBottom: 16, overflow: 'hidden' },
+    heroNight: {
+        position: 'absolute',
+        right: -22,
+        top: -22,
+        width: 110,
+        height: 110,
+        borderRadius: 55,
+        backgroundColor: COLORS.night,
+        justifyContent: 'flex-end',
+        paddingLeft: 30,
+        paddingBottom: 24,
+    },
+    heroRupee: { fontSize: 34, fontWeight: '800', color: COLORS.brand },
+    heroDot: {
+        position: 'absolute',
+        right: 58,
+        top: 58,
+        width: 40,
+        height: 40,
+        borderRadius: 20,
+        backgroundColor: '#FF7A3D',
+        borderWidth: 4,
+        borderColor: COLORS.brand,
+    },
+    heroTop: { flexDirection: 'row', alignItems: 'center' },
+    heroLabel: { fontSize: 14, fontWeight: '700', color: CATEGORY_PALETTE.groceries.fg },
+    heroValue: { fontSize: 44, lineHeight: 50, fontWeight: '800', letterSpacing: -1.5, color: COLORS.onBrand, marginTop: 2 },
+    heroBottom: { flexDirection: 'row', alignItems: 'flex-end', justifyContent: 'space-between', marginTop: 6, minHeight: 44 },
+    heroChip: { backgroundColor: COLORS.surface, borderRadius: 999, paddingVertical: 6, paddingHorizontal: 12 },
+    heroChipText: { fontSize: 13, fontWeight: '800', color: COLORS.onBrand },
 
-    // SMS Card
-    smsCard: {
+    bento: { flexDirection: 'row', gap: 10 },
+    bentoCol: { flex: 1, gap: 10 },
+    reviewTile: {
+        height: 176,
+        borderRadius: 30,
+        padding: SPACING.lg,
+        backgroundColor: CATEGORY_PALETTE.dining.bg,
+        justifyContent: 'space-between',
+        overflow: 'hidden',
+    },
+    tileOver: { fontSize: 13, fontWeight: '800', letterSpacing: 0.4 },
+    reviewValue: { fontSize: 30, lineHeight: 32, fontWeight: '800', color: COLORS.text, marginTop: 2 },
+    miniDeck: { height: 56 },
+    miniDeckBack: { position: 'absolute', left: 14, right: 22, top: 0, height: 40, borderRadius: 14, backgroundColor: '#FFBE98', transform: [{ rotate: '-4deg' }] },
+    miniDeckTop: {
+        position: 'absolute',
+        left: 0,
+        right: 30,
+        top: 10,
+        height: 44,
+        borderRadius: 14,
+        backgroundColor: COLORS.surface,
         flexDirection: 'row',
         alignItems: 'center',
-        backgroundColor: '#1E2321', // Dark card background from image
-        borderRadius: BORDER_RADIUS.xl,
-        padding: SPACING.lg,
-        marginBottom: SPACING.xxl,
-        borderWidth: 1,
-        borderColor: '#2A332E',
+        gap: 8,
+        paddingHorizontal: 8,
     },
-    smsIconContainer: {
-        marginRight: SPACING.md,
-    },
-    smsIconBackground: {
-        width: 48,
-        height: 48,
-        borderRadius: 24,
-        backgroundColor: '#4ADE80', // bright green
+    miniDeckIcon: { width: 28, height: 28, borderRadius: 10, backgroundColor: CATEGORY_PALETTE.groceries.bg },
+    miniDeckLine: { width: 36, height: 8, borderRadius: 4, backgroundColor: COLORS.surfaceSunk },
+    reviewGo: {
+        position: 'absolute',
+        right: 12,
+        bottom: 12,
+        width: 42,
+        height: 42,
+        borderRadius: 21,
+        backgroundColor: COLORS.night,
         alignItems: 'center',
         justifyContent: 'center',
     },
-    smsContent: {
-        flex: 1,
-        marginRight: SPACING.sm,
-    },
-    smsTitle: {
-        fontSize: FONT_SIZE.md,
-        fontWeight: '700',
-        color: COLORS.white,
-        marginBottom: 2,
-    },
-    smsSubtitle: {
-        fontSize: FONT_SIZE.sm,
-        color: '#A0AEC0', // Light gray text
-        lineHeight: 18,
-    },
-    reviewBtn: {
-        backgroundColor: '#4ADE80',
-        paddingHorizontal: SPACING.lg,
-        paddingVertical: 8,
-        borderRadius: BORDER_RADIUS.md,
-    },
-    reviewBtnText: {
-        fontSize: FONT_SIZE.sm,
-        fontWeight: '700',
-        color: '#000000',
-    },
+    smallTile: { height: 83, borderRadius: 26, padding: 14, flexDirection: 'row', alignItems: 'center', gap: 10 },
+    smallIcon: { width: 40, height: 40, borderRadius: 20, backgroundColor: COLORS.surface, alignItems: 'center', justifyContent: 'center' },
+    smallValue: { fontSize: 22, lineHeight: 24, fontWeight: '800', color: COLORS.text },
+    smallLabel: { fontSize: 12, fontWeight: '700', marginTop: 2 },
 
-    // Sections
-    sectionTitle: { fontSize: FONT_SIZE.sm, fontWeight: '600', color: COLORS.textMuted, letterSpacing: 1, marginBottom: SPACING.lg, marginTop: SPACING.sm },
-    accountsScroll: { marginBottom: SPACING.xxl, marginHorizontal: -SPACING.xl, paddingHorizontal: SPACING.xl },
-    accountCard: { backgroundColor: COLORS.surface, borderRadius: BORDER_RADIUS.xl, padding: SPACING.lg, width: 150, marginRight: SPACING.md },
-    accountIcon: { width: 44, height: 44, borderRadius: BORDER_RADIUS.md, backgroundColor: COLORS.surfaceLight, alignItems: 'center', justifyContent: 'center', marginBottom: 40 },
-    accountName: { fontSize: FONT_SIZE.sm, color: COLORS.textSecondary, marginBottom: SPACING.xs },
-    accountBalance: { fontSize: FONT_SIZE.xl, fontWeight: '700', color: COLORS.text },
-    negativeBalance: { color: COLORS.error },
+    weekCard: { backgroundColor: COLORS.surface, borderRadius: 30, paddingVertical: SPACING.lg, paddingHorizontal: 18, gap: 10, ...SHADOWS.md },
+    weekHead: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'baseline', gap: SPACING.sm },
+    weekTitle: { fontSize: 16, fontWeight: '800', color: COLORS.text },
+    pace: { fontSize: 13, fontWeight: '800', color: COLORS.primary, flexShrink: 1, textAlign: 'right' },
+    bars: { flexDirection: 'row', gap: 8, alignItems: 'flex-end', height: 72 },
+    barCol: { flex: 1, gap: 3, justifyContent: 'flex-end', transformOrigin: 'bottom' },
+    barPart: { borderRadius: 6 },
+    days: { flexDirection: 'row', gap: 8 },
+    day: { flex: 1, textAlign: 'center', fontSize: 12, fontWeight: '700', color: COLORS.textSecondary },
 
-    // Credit Card dashboard card extras
-    ccLabel: { fontSize: FONT_SIZE.xs, color: COLORS.textMuted, marginBottom: 4 },
-    ccUtilTrack: { height: 3, backgroundColor: COLORS.surfaceLight, borderRadius: 2, overflow: 'hidden' as const, marginBottom: 4, marginTop: 2 },
-    ccUtilFill: { height: '100%' as any, borderRadius: 2 },
-    ccAvailText: { fontSize: 10, fontWeight: '600' as const },
-    ccDueText: { fontSize: 9, fontWeight: '600' as const, marginTop: 2 },
-
-    // Transactions
-    activityHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: SPACING.lg },
-    seeAll: { fontSize: FONT_SIZE.md, fontWeight: '600', color: COLORS.primary },
-    transactionRow: { flexDirection: 'row', alignItems: 'center', backgroundColor: COLORS.surface, borderRadius: BORDER_RADIUS.lg, padding: SPACING.lg, marginBottom: SPACING.md },
-    txIcon: { width: 44, height: 44, borderRadius: BORDER_RADIUS.md, backgroundColor: COLORS.surfaceLight, alignItems: 'center', justifyContent: 'center', marginRight: SPACING.md },
-    txContent: { flex: 1 },
-    txTitleRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 2 },
-    txMerchant: { fontSize: FONT_SIZE.md, fontWeight: '600', color: COLORS.text, marginRight: SPACING.sm },
-    autoBadge: { backgroundColor: COLORS.primary, paddingHorizontal: 6, paddingVertical: 2, borderRadius: 4 },
-    autoBadgeText: { fontSize: 9, fontWeight: '700', color: COLORS.background },
-    txCategory: { fontSize: FONT_SIZE.sm, color: COLORS.textSecondary },
-    txAmount: { alignItems: 'flex-end' },
-    txAmountText: { fontSize: FONT_SIZE.md, fontWeight: '600' },
-    incomeText: { color: COLORS.success },
-    expenseText: { color: COLORS.error },
-
-    // Empty State
-    emptyAccountsCard: { backgroundColor: COLORS.surface, borderRadius: BORDER_RADIUS.xl, padding: SPACING.xxl, alignItems: 'center', marginBottom: SPACING.xxl, borderWidth: 1, borderStyle: 'dashed', borderColor: COLORS.border },
-    emptyTransactionsCard: { backgroundColor: COLORS.surface, borderRadius: BORDER_RADIUS.xl, padding: SPACING.xxl, alignItems: 'center', marginBottom: SPACING.md, borderWidth: 1, borderStyle: 'dashed', borderColor: COLORS.border },
-    emptyIcon: { fontSize: 40, marginBottom: SPACING.md },
-    emptyTitle: { fontSize: FONT_SIZE.lg, fontWeight: '600', color: COLORS.text, marginBottom: SPACING.xs },
-    emptySubtitle: { fontSize: FONT_SIZE.md, color: COLORS.textSecondary },
+    todayHead: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'baseline', marginTop: SPACING.xs, paddingHorizontal: 2 },
+    todayTitle: { fontSize: 17, fontWeight: '800', color: COLORS.text },
+    seeAll: { fontSize: 14, fontWeight: '800', color: COLORS.primary },
+    empty: { flexDirection: 'row', alignItems: 'center', gap: SPACING.md, backgroundColor: COLORS.surface, borderRadius: 26, padding: SPACING.lg, ...SHADOWS.md },
+    emptyTitle: { fontSize: 16, fontWeight: '800', color: COLORS.text },
+    emptyBody: { fontSize: 13, lineHeight: 18, color: COLORS.textSecondary, marginTop: 2 },
 });
-
-export default DashboardScreen;

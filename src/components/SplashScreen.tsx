@@ -2,8 +2,11 @@
  * Sikka - Splash Screen Component
  */
 
-import React, { useEffect, useRef } from 'react';
-import { StyleSheet, Text, View, Animated } from 'react-native';
+import React, { useEffect } from 'react';
+import { StyleSheet, View } from 'react-native';
+import Animated, { runOnJS, useAnimatedStyle, useSharedValue, withDelay, withSpring, withTiming } from 'react-native-reanimated';
+import { EASE, POP_SPRING } from '../motion';
+import { Text } from './Typography';
 import { StatusBar } from 'expo-status-bar';
 import { COLORS, SPACING, FONT_SIZE, BORDER_RADIUS } from '../constants/theme';
 import { Icon } from './Icon';
@@ -13,58 +16,41 @@ interface SplashScreenProps {
 }
 
 export function SplashScreen({ onFinish }: SplashScreenProps) {
-    const fadeAnim = useRef(new Animated.Value(0)).current;
-    const scaleAnim = useRef(new Animated.Value(0.8)).current;
-    const progressAnim = useRef(new Animated.Value(0)).current;
+    const appear = useSharedValue(0);
+    const progress = useSharedValue(0);
 
     useEffect(() => {
-        Animated.parallel([
-            Animated.timing(fadeAnim, {
-                toValue: 1,
-                duration: 800,
-                useNativeDriver: true,
+        let timer: ReturnType<typeof setTimeout> | undefined;
+        const finish = () => { timer = setTimeout(onFinish, 300); };
+        appear.value = withSpring(1, POP_SPRING);
+        progress.value = withDelay(
+            300,
+            withTiming(1, { duration: 2500, easing: EASE.out }, (done) => {
+                if (done) runOnJS(finish)();
             }),
-            Animated.spring(scaleAnim, {
-                toValue: 1,
-                friction: 8,
-                tension: 40,
-                useNativeDriver: true,
-            }),
-        ]).start();
+        );
+        return () => clearTimeout(timer);
+    }, [appear, progress, onFinish]);
 
-        Animated.timing(progressAnim, {
-            toValue: 1,
-            duration: 2500,
-            delay: 300,
-            useNativeDriver: false,
-        }).start(() => {
-            setTimeout(onFinish, 300);
-        });
-    }, []);
-
-    const progressWidth = progressAnim.interpolate({
-        inputRange: [0, 1],
-        outputRange: [0, 120],
-    });
+    const contentStyle = useAnimatedStyle(() => ({
+        opacity: Math.min(1, appear.value),
+        transform: [{ scale: 0.8 + 0.2 * appear.value }],
+    }));
+    const barStyle = useAnimatedStyle(() => ({ width: 120 * progress.value }));
 
     return (
         <View style={styles.container}>
-            <StatusBar style="light" />
+            <StatusBar style="dark" />
             <View style={styles.gradientOverlay} />
-            <Animated.View
-                style={[
-                    styles.content,
-                    { opacity: fadeAnim, transform: [{ scale: scaleAnim }] },
-                ]}
-            >
+            <Animated.View style={[styles.content, contentStyle]}>
                 <View style={styles.logoBox}>
-                    <Icon name="currency-rupee" size={48} color={COLORS.primary} />
+                    <Icon name="currency-rupee" size={48} color={COLORS.onBrand} />
                 </View>
                 <Text style={styles.appName}>S I K K A</Text>
             </Animated.View>
             <View style={styles.bottomSection}>
                 <View style={styles.progressContainer}>
-                    <Animated.View style={[styles.progressBar, { width: progressWidth }]} />
+                    <Animated.View style={[styles.progressBar, barStyle]} />
                 </View>
                 <Text style={styles.tagline}>Track Expenses. Save More. Grow Wealth.</Text>
                 <View style={styles.badge}>
@@ -79,7 +65,7 @@ export function SplashScreen({ onFinish }: SplashScreenProps) {
 const styles = StyleSheet.create({
     container: {
         flex: 1,
-        backgroundColor: '#0A0F14',
+        backgroundColor: COLORS.background,
         alignItems: 'center',
         justifyContent: 'center',
     },
@@ -89,7 +75,7 @@ const styles = StyleSheet.create({
         width: 300,
         height: 300,
         borderRadius: 150,
-        backgroundColor: COLORS.primary,
+        backgroundColor: COLORS.brand,
         opacity: 0.05,
     },
     content: {
@@ -99,18 +85,13 @@ const styles = StyleSheet.create({
     logoBox: {
         width: 100,
         height: 100,
-        borderRadius: BORDER_RADIUS.xxl,
-        backgroundColor: '#1A2530',
+        borderRadius: BORDER_RADIUS.full,
+        backgroundColor: COLORS.brand,
         alignItems: 'center',
         justifyContent: 'center',
-        borderWidth: 1,
-        borderColor: 'rgba(16, 185, 129, 0.2)',
+        borderWidth: 4,
+        borderColor: COLORS.night,
         marginBottom: SPACING.xxl,
-    },
-    logoIcon: {
-        fontSize: 48,
-        color: COLORS.primary,
-        fontWeight: '600',
     },
     appName: {
         fontSize: FONT_SIZE.xxxl,
@@ -126,14 +107,14 @@ const styles = StyleSheet.create({
     progressContainer: {
         width: 120,
         height: 4,
-        backgroundColor: '#1A2530',
+        backgroundColor: COLORS.surfaceSunk,
         borderRadius: 2,
         marginBottom: SPACING.xxxl,
         overflow: 'hidden',
     },
     progressBar: {
         height: '100%',
-        backgroundColor: COLORS.primary,
+        backgroundColor: COLORS.brand,
         borderRadius: 2,
     },
     tagline: {
@@ -145,16 +126,12 @@ const styles = StyleSheet.create({
     badge: {
         flexDirection: 'row',
         alignItems: 'center',
-        backgroundColor: '#1A2530',
+        backgroundColor: COLORS.surfaceSunk,
         paddingHorizontal: SPACING.lg,
         paddingVertical: SPACING.md,
         borderRadius: BORDER_RADIUS.full,
         borderWidth: 1,
-        borderColor: '#2A3540',
-    },
-    lockIcon: {
-        fontSize: FONT_SIZE.sm,
-        marginRight: SPACING.sm,
+        borderColor: COLORS.border,
     },
     badgeText: {
         fontSize: 11,

@@ -6,9 +6,10 @@ import database from '../database';
 import Setting from '../database/models/Setting';
 import { Q } from '@nozbe/watermelondb';
 import { ModalAction, ModalType } from '../components/CustomModal';
+import type { IconName } from '../components/Icon';
 
 export interface UseBackupOptions {
-    showModal?: (title: string, message: string, actions: ModalAction[], type?: ModalType, icon?: string) => void;
+    showModal?: (title: string, message: string, actions: ModalAction[], type?: ModalType, icon?: IconName) => void;
 }
 
 export function useBackup(options?: UseBackupOptions) {

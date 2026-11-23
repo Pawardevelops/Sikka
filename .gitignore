@@ -65,3 +65,5 @@ android/local.properties
 Thumbs.db
 ehthumbs.db
 .DS_Store
+# Design-system reference mockups (kept locally, not shipped)
+design-system/**/*.html

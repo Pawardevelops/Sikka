@@ -3,9 +3,26 @@
  * Clean architecture with separated concerns
  */
 
-import React, { useState, useRef, useEffect, useCallback } from 'react';
-import { StyleSheet, View, Animated, BackHandler } from 'react-native';
+import React, { useState, useEffect, useCallback } from 'react';
+import { StyleSheet, View, BackHandler } from 'react-native';
+import { GestureHandlerRootView } from 'react-native-gesture-handler';
+import Animated from 'react-native-reanimated';
+import { riseIn } from './src/motion';
 import { StatusBar } from 'expo-status-bar';
+import { useFonts } from 'expo-font';
+import {
+  BricolageGrotesque_500Medium,
+  BricolageGrotesque_600SemiBold,
+  BricolageGrotesque_700Bold,
+  BricolageGrotesque_800ExtraBold,
+} from '@expo-google-fonts/bricolage-grotesque';
+import {
+  Urbanist_400Regular,
+  Urbanist_500Medium,
+  Urbanist_600SemiBold,
+  Urbanist_700Bold,
+  Urbanist_800ExtraBold,
+} from '@expo-google-fonts/urbanist';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 
 // Context
@@ -40,6 +57,7 @@ import { BiometricLockScreen } from './src/components/BiometricLockScreen';
 import { DashboardScreen, AssetsScreen, StatsScreen, SettingsScreen, AccountDetailScreen, NotifyActionCenterScreen, PrivacyPolicyScreen, AboutUsScreen } from './src/screens';
 import { AllTransactionsScreen } from './src/screens/AllTransactionsScreen';
 import {
+  WelcomeScreen,
   ProfileSetupScreen,
   AccountSetupScreen,
   SecuritySetupScreen,
@@ -51,13 +69,15 @@ function OnboardingFlow() {
 
   switch (currentStep) {
     case 1:
-      return <ProfileSetupScreen />;
+      return <WelcomeScreen />;
     case 2:
-      return <AccountSetupScreen />;
+      return <ProfileSetupScreen />;
     case 3:
+      return <AccountSetupScreen />;
+    case 4:
       return <SecuritySetupScreen />;
     default:
-      return <ProfileSetupScreen />;
+      return <WelcomeScreen />;
   }
 }
 
@@ -87,30 +107,20 @@ function MainApp() {
   const [showPrivacyPolicy, setShowPrivacyPolicy] = useState(false);
   const [showAboutUs, setShowAboutUs] = useState(false);
 
-  const fadeAnim = useRef(new Animated.Value(0)).current;
-  const slideAnim = useRef(new Animated.Value(20)).current;
   const { addAccount, deleteAccount, updateAccount } = useAccounts();
-  const { addTransaction, editTransaction, deleteTransaction } = useTransactions();
+  const { addTransaction, editTransaction, deleteTransaction, transactions } = useTransactions();
+  const pendingReviewCount = transactions.filter(t => t.status === 'pending' && !t.isDeleted).length;
   const { addSubscription } = useSubscriptions();
 
-  // Animate screen transitions
-  useEffect(() => {
-    fadeAnim.setValue(0);
-    slideAnim.setValue(20);
-    Animated.parallel([
-      Animated.timing(fadeAnim, {
-        toValue: 1,
-        duration: 300,
-        useNativeDriver: true,
-      }),
-      Animated.spring(slideAnim, {
-        toValue: 0,
-        friction: 8,
-        tension: 40,
-        useNativeDriver: true,
-      }),
-    ]).start();
-  }, [activeTab, selectedAccount, showAllTransactions, showNotifyCenter, showPrivacyPolicy, showAboutUs]);
+  // Screen transitions: remounting the container on a screen change replays `sk-rise`.
+  const screenKey = [
+    activeTab,
+    selectedAccount?.id ?? '',
+    showAllTransactions,
+    showNotifyCenter,
+    showPrivacyPolicy,
+    showAboutUs,
+  ].join('|');
 
   // Handle Android Back Button
   useEffect(() => {
@@ -276,6 +286,7 @@ function MainApp() {
 
   return (
     <NavigationContext.Provider value={{
+      goToTab: setActiveTab,
       selectedAccount,
       selectAccount,
       goBack,
@@ -318,17 +329,19 @@ function MainApp() {
       closeTransactionDetail,
     }}>
       <View style={styles.container}>
-        <StatusBar style="light" />
-        <Animated.View style={[
-          styles.screenContainer,
-          {
-            opacity: fadeAnim,
-            transform: [{ translateY: slideAnim }],
-          }
-        ]}>
+        <StatusBar style="dark" />
+        <Animated.View key={screenKey} entering={riseIn()} style={styles.screenContainer}>
           {renderScreen()}
         </Animated.View>
-        {showTabBar && <TabBar activeTab={activeTab} onTabChange={setActiveTab} />}
+        {showTabBar && (
+          <TabBar
+            activeTab={activeTab}
+            onTabChange={setActiveTab}
+            reviewCount={pendingReviewCount}
+            onReview={openNotifyCenter}
+            onAdd={() => openAddTransactionModal()}
+          />
+        )}
 
         {/* Modals */}
         <AddAccountModal
@@ -380,7 +393,7 @@ function SecureApp() {
   if (!isOnboardingComplete) {
     return (
       <View style={styles.container}>
-        <StatusBar style="light" />
+        <StatusBar style="dark" />
         <OnboardingFlow />
       </View>
     );
@@ -402,6 +415,19 @@ export default function App() {
   const [showSplash, setShowSplash] = useState(true);
   const [isDbReady, setIsDbReady] = useState(false);
   const [appKey, setAppKey] = useState(0);
+
+  // Sikka design-system typefaces (see src/constants/theme.ts FONT_FAMILY)
+  const [fontsLoaded, fontError] = useFonts({
+    BricolageGrotesque_500Medium,
+    BricolageGrotesque_600SemiBold,
+    BricolageGrotesque_700Bold,
+    BricolageGrotesque_800ExtraBold,
+    Urbanist_400Regular,
+    Urbanist_500Medium,
+    Urbanist_600SemiBold,
+    Urbanist_700Bold,
+    Urbanist_800ExtraBold,
+  });
 
 
 
@@ -426,11 +452,15 @@ export default function App() {
     initDatabase();
   }, [initDatabase]);
 
-  if (showSplash || !isDbReady) {
-    return <SplashScreen onFinish={() => setShowSplash(false)} />;
+  // Splash covers font loading too; on a font error we fall back to system fonts.
+  const hideSplash = useCallback(() => setShowSplash(false), []);
+
+  if (showSplash || !isDbReady || (!fontsLoaded && !fontError)) {
+    return <SplashScreen onFinish={hideSplash} />;
   }
 
   return (
+    <GestureHandlerRootView style={{ flex: 1 }}>
     <SafeAreaProvider>
       <AppLifecycleProvider onReset={resetApp}>
         <View style={{ flex: 1 }} key={appKey}>
@@ -450,6 +480,7 @@ export default function App() {
         </View>
       </AppLifecycleProvider>
     </SafeAreaProvider>
+    </GestureHandlerRootView>
   );
 }
 

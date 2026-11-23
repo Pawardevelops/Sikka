@@ -177,7 +177,7 @@ export interface DashboardData {
 }
 
 // ==================== ONBOARDING ====================
-export type OnboardingStep = 1 | 2 | 3;
+export type OnboardingStep = 1 | 2 | 3 | 4;
 
 export type Language = 'en' | 'hi' | 'hinglish';
 
@@ -189,6 +189,8 @@ export interface OnboardingData {
     numberSystem: NumberSystem;
     userName: string;
     primaryGoal: string;
+    /** Monthly spend limit — powers the "on pace" card on Home. */
+    monthlySpendLimit?: number;
     hideBalances: boolean;
     notificationPermissionGranted: boolean;
     biometricEnabled: boolean;

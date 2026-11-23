@@ -1,158 +1,131 @@
+/**
+ * Sikka - Accounts setup (Onboarding 3 of 4)
+ * Design: design-system/screens/Accounts-setup-v2.html
+ * Lime total-balance hero, stacked pastel account cards, dashed "add another".
+ */
+
 import React, { useState } from 'react';
-import {
-    StyleSheet,
-    Text,
-    View,
-    TouchableOpacity,
-    ScrollView,
-} from 'react-native';
-import { useOnboarding } from '../../context/OnboardingContext';
+import { StyleSheet, View, TouchableOpacity, ScrollView } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { Text } from '../../components/Typography';
+import { useOnboarding, ONBOARDING_STEPS } from '../../context/OnboardingContext';
 import { useAccounts } from '../../context/AccountsContext';
 import { useCurrency } from '../../context/CurrencyContext';
-import { OnboardingProgress } from '../../components/OnboardingProgress';
 import { Icon } from '../../components/Icon';
-import { COLORS, SPACING, FONT_SIZE, BORDER_RADIUS } from '../../constants/theme';
+import { COLORS, SPACING, SHADOWS, CATEGORY_PALETTE, getCategoryColors, ACCOUNT_ICONS } from '../../constants/theme';
 import { Account } from '../../types';
 import { AddAccountModal } from '../../components/AddAccountModal';
+import { Button, IconButton, StepDots, HeroCard, Sikku } from '../../components/ui';
 
-const ACCOUNT_TYPE_ICONS: Record<string, string> = {
-    bank: 'account-balance',
-    cash: 'payments',
-    wallet: 'account-balance-wallet',
-    credit: 'credit-card',
-    savings: 'savings',
-    investment: 'trending-up',
-    bitcoin: 'currency-bitcoin',
+export const ACCOUNT_TYPE_LABELS: Record<string, string> = {
+    bank: 'Bank account',
+    cash: 'In your pocket',
+    wallet: 'Wallet',
+    credit: 'Credit card',
+    savings: 'Savings',
+    investment: 'Investments',
+    bitcoin: 'Crypto',
 };
 
 export function AccountSetupScreen() {
+    const insets = useSafeAreaInsets();
     const { currentStep, goNext, goBack } = useOnboarding();
     const { activeAccounts, netWorth, addAccount, updateAccount, deleteAccount } = useAccounts();
     const { formatAmount } = useCurrency();
-
-    // Modal state
     const [showAddModal, setShowAddModal] = useState(false);
     const [accountToEdit, setAccountToEdit] = useState<Account | null>(null);
-
-    const handleContinue = () => {
-        if (activeAccounts.length > 0) {
-            goNext();
-        }
-    };
 
     const openAddModal = (account?: Account) => {
         setAccountToEdit(account || null);
         setShowAddModal(true);
     };
-
     const closeAddModal = () => {
         setShowAddModal(false);
         setAccountToEdit(null);
     };
-
     const canContinue = activeAccounts.length > 0;
 
     return (
-        <View style={styles.container}>
-            {/* Header */}
-            <View style={styles.topHeader}>
-                <TouchableOpacity onPress={goBack} style={styles.backButton}>
-                    <Icon name="arrow-back" size={24} color={COLORS.text} />
-                </TouchableOpacity>
-                <Text style={styles.headerTitle}>SET UP ACCOUNTS</Text>
-                <View style={{ width: 40 }} />
+        <View style={[styles.container, { paddingTop: insets.top + SPACING.xxl, paddingBottom: insets.bottom + SPACING.xxl }]}>
+            <View style={styles.header}>
+                <IconButton icon="chevron-left" label="Back" onPress={goBack} iconSize={26} />
+                <View style={{ flex: 1 }}><StepDots total={ONBOARDING_STEPS} current={currentStep} /></View>
             </View>
 
-            <OnboardingProgress currentStep={currentStep} />
+            <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
+                <Text style={styles.title} accessibilityRole="header">Where does your money live?</Text>
 
-            <ScrollView
-                style={styles.scrollView}
-                contentContainerStyle={styles.scrollContent}
-                showsVerticalScrollIndicator={false}
-            >
-                {/* Title */}
-                <Text style={styles.title}>Track your{'\n'}money flow</Text>
-                <Text style={styles.subtitle}>
-                    Add at least one account like Cash, Bank, or Credit Card to get started.
-                </Text>
-
-                {/* Net Worth Summary (only if accounts exist) */}
-                {activeAccounts.length > 0 && (
-                    <View style={styles.netWorthCard}>
-                        <Text style={styles.netWorthLabel}>TOTAL BALANCE</Text>
-                        <Text style={styles.netWorthAmount}>{formatAmount(netWorth)}</Text>
+                {canContinue ? (
+                    <HeroCard style={styles.hero}>
+                        <View>
+                            <Text style={styles.heroOver}>TOTAL BALANCE</Text>
+                            <Text style={styles.heroValue}>{formatAmount(netWorth, true)}</Text>
+                        </View>
+                        <View style={styles.countChip}>
+                            <Text style={styles.countChipText}>
+                                {activeAccounts.length} {activeAccounts.length === 1 ? 'account' : 'accounts'}
+                            </Text>
+                        </View>
+                    </HeroCard>
+                ) : (
+                    <View style={styles.empty}>
+                        <Sikku size={72} mood="thinking" />
+                        <Text style={styles.emptyText}>
+                            Add a bank account, cash or a card. Sikka keeps every balance on this phone.
+                        </Text>
                     </View>
                 )}
 
-                {/* Account List */}
-                <View style={styles.sectionHeader}>
-                    <Text style={styles.sectionTitle}>YOUR ACCOUNTS</Text>
-                    <Text style={styles.accountCount}>{activeAccounts.length} added</Text>
+                {/* Stacked account cards */}
+                <View>
+                    {activeAccounts.map((account, i) => {
+                        const pair = getCategoryColors(account.type);
+                        const isLast = i === activeAccounts.length - 1;
+                        return (
+                            <View
+                                key={account.id}
+                                style={[
+                                    styles.stackCard,
+                                    { backgroundColor: pair.bg, paddingBottom: isLast ? SPACING.lg : 34 },
+                                    i > 0 && styles.stackOverlap,
+                                ]}
+                            >
+                                <TouchableOpacity
+                                    onPress={() => openAddModal(account)}
+                                    activeOpacity={0.8}
+                                    accessibilityRole="button"
+                                    accessibilityLabel={`${account.name}, ${formatAmount(account.balance, true)}. Edit`}
+                                    style={styles.stackMain}
+                                >
+                                    <View style={styles.stackIcon}>
+                                        <Icon name={(ACCOUNT_ICONS[account.type] || account.icon || 'account-balance') as any} size={22} color={pair.fg} />
+                                    </View>
+                                    <View style={{ flex: 1 }}>
+                                        <Text style={styles.stackName} numberOfLines={1}>{account.name}</Text>
+                                        <Text style={[styles.stackMeta, { color: pair.fg }]}>{ACCOUNT_TYPE_LABELS[account.type] ?? account.type}</Text>
+                                    </View>
+                                    <Text style={styles.stackBalance}>{formatAmount(account.balance, true)}</Text>
+                                </TouchableOpacity>
+                                <TouchableOpacity
+                                    onPress={() => deleteAccount(account.id)}
+                                    hitSlop={10}
+                                    accessibilityRole="button"
+                                    accessibilityLabel={`Remove ${account.name}`}
+                                    style={styles.removeBtn}
+                                >
+                                    <Icon name="close" size={16} color={pair.fg} />
+                                </TouchableOpacity>
+                            </View>
+                        );
+                    })}
                 </View>
 
-                {activeAccounts.length === 0 ? (
-                    <TouchableOpacity
-                        style={styles.emptyState}
-                        onPress={() => openAddModal()}
-                        activeOpacity={0.7}
-                    >
-                        <View style={styles.emptyIconContainer}>
-                            <Icon name="account-balance-wallet" size={40} color={COLORS.primary} />
-                        </View>
-                        <Text style={styles.emptyTitle}>No accounts yet</Text>
-                        <Text style={styles.emptySubtitle}>Tap here to add your first account</Text>
-                        <View style={styles.addFirstBtn}>
-                            <Icon name="add" size={20} color={COLORS.background} />
-                            <Text style={styles.addFirstBtnText}>Add Account</Text>
-                        </View>
-                    </TouchableOpacity>
-                ) : (
-                    <>
-                        {activeAccounts.map((account) => (
-                            <TouchableOpacity
-                                key={account.id}
-                                style={styles.accountCard}
-                                onPress={() => openAddModal(account)}
-                                activeOpacity={0.8}
-                            >
-                                <View style={[styles.accountIcon, { backgroundColor: account.color + '20' }]}>
-                                    <Icon
-                                        name={(ACCOUNT_TYPE_ICONS[account.type] || account.icon || 'account-balance') as any}
-                                        size={22}
-                                        color={account.color || COLORS.primary}
-                                    />
-                                </View>
-                                <View style={styles.accountInfo}>
-                                    <Text style={styles.accountName} numberOfLines={1}>{account.name}</Text>
-                                    <Text style={styles.accountType}>{account.type.toUpperCase()}</Text>
-                                </View>
-                                <View style={styles.accountBalanceContainer}>
-                                    <Text style={[styles.accountBalance, account.balance < 0 && styles.negativeBalance]}>
-                                        {formatAmount(account.balance)}
-                                    </Text>
-                                    <TouchableOpacity
-                                        onPress={() => deleteAccount(account.id)}
-                                        hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-                                    >
-                                        <Icon name="delete-outline" size={18} color={COLORS.error} style={{ opacity: 0.6 }} />
-                                    </TouchableOpacity>
-                                </View>
-                            </TouchableOpacity>
-                        ))}
-
-                        <TouchableOpacity
-                            style={styles.addAnotherBtn}
-                            onPress={() => openAddModal()}
-                            activeOpacity={0.7}
-                        >
-                            <Icon name="add" size={20} color={COLORS.primary} />
-                            <Text style={styles.addAnotherBtnText}>Add Another Account</Text>
-                        </TouchableOpacity>
-                    </>
-                )}
+                <TouchableOpacity style={styles.addBtn} onPress={() => openAddModal()} activeOpacity={0.75} accessibilityRole="button">
+                    <Icon name="add" size={20} color={COLORS.text} />
+                    <Text style={styles.addText}>{canContinue ? 'Add another account' : 'Add your first account'}</Text>
+                </TouchableOpacity>
             </ScrollView>
 
-            {/* Modal */}
             <AddAccountModal
                 visible={showAddModal}
                 accountToEdit={accountToEdit}
@@ -161,231 +134,45 @@ export function AccountSetupScreen() {
                 onUpdate={updateAccount}
             />
 
-            {/* Footer */}
-            <View style={styles.footer}>
-                <TouchableOpacity
-                    style={[styles.continueButton, !canContinue && styles.continueButtonDisabled]}
-                    onPress={handleContinue}
-                    activeOpacity={0.8}
-                    disabled={!canContinue}
-                >
-                    <Text style={[styles.continueButtonText, !canContinue && styles.continueButtonTextDisabled]}>
-                        Continue
-                    </Text>
-                    <Icon name="arrow-forward" size={20} color={canContinue ? COLORS.background : COLORS.textMuted} />
-                </TouchableOpacity>
-            </View>
+            <Button label="Continue" onPress={goNext} disabled={!canContinue} />
         </View>
     );
 }
 
 const styles = StyleSheet.create({
-    container: {
-        flex: 1,
-        backgroundColor: COLORS.background,
-    },
-    topHeader: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        justifyContent: 'space-between',
-        paddingHorizontal: SPACING.xl,
-        paddingTop: 60,
-        paddingBottom: SPACING.md,
-    },
-    backButton: {
-        width: 40,
-        height: 40,
-        alignItems: 'center',
-        justifyContent: 'center',
-    },
-    headerTitle: {
-        fontSize: FONT_SIZE.sm,
-        fontWeight: '600',
-        color: COLORS.textSecondary,
-        letterSpacing: 1,
-    },
-    scrollView: {
-        flex: 1,
-    },
-    scrollContent: {
-        paddingHorizontal: SPACING.xl,
-        paddingBottom: SPACING.xxxl,
-    },
-    title: {
-        fontSize: 32,
-        fontWeight: '700',
-        color: COLORS.text,
-        marginBottom: SPACING.sm,
-        lineHeight: 40,
-    },
-    subtitle: {
-        fontSize: FONT_SIZE.md,
-        color: COLORS.textSecondary,
-        marginBottom: SPACING.xxl,
-        lineHeight: 22,
-    },
-    netWorthCard: {
-        backgroundColor: COLORS.surface,
-        borderRadius: BORDER_RADIUS.xl,
-        padding: SPACING.xl,
-        marginBottom: SPACING.xxl,
-        borderWidth: 1,
-        borderColor: COLORS.border,
-        alignItems: 'center',
-    },
-    netWorthLabel: {
-        fontSize: FONT_SIZE.xs,
-        fontWeight: '600',
-        color: COLORS.textMuted,
-        letterSpacing: 1,
-        marginBottom: SPACING.xs,
-    },
-    netWorthAmount: {
-        fontSize: 32,
-        fontWeight: '700',
-        color: COLORS.text,
-    },
-    sectionHeader: {
-        flexDirection: 'row',
-        justifyContent: 'space-between',
-        alignItems: 'center',
-        marginBottom: SPACING.md,
-    },
-    sectionTitle: {
-        fontSize: FONT_SIZE.xs,
-        fontWeight: '700',
-        color: COLORS.primary,
-        letterSpacing: 1,
-    },
-    accountCount: {
-        fontSize: FONT_SIZE.xs,
-        color: COLORS.textMuted,
-    },
-    emptyState: {
-        backgroundColor: COLORS.surface,
-        borderRadius: BORDER_RADIUS.xxl,
-        padding: SPACING.xxxl,
-        alignItems: 'center',
-        borderWidth: 1,
-        borderColor: COLORS.border,
+    container: { flex: 1, backgroundColor: COLORS.background, paddingHorizontal: SPACING.lg, gap: SPACING.lg },
+    header: { flexDirection: 'row', alignItems: 'center', gap: SPACING.md },
+    scroll: { gap: SPACING.lg, paddingBottom: SPACING.lg },
+    title: { fontSize: 32, lineHeight: 34, fontWeight: '800', letterSpacing: -0.8, color: COLORS.text },
+
+    hero: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', borderRadius: 30, paddingVertical: 18 },
+    heroOver: { fontSize: 13, fontWeight: '800', color: CATEGORY_PALETTE.groceries.fg, letterSpacing: 0.4 },
+    heroValue: { fontSize: 38, lineHeight: 42, fontWeight: '800', letterSpacing: -1, color: COLORS.onBrand, marginTop: 2 },
+    countChip: { backgroundColor: COLORS.night, borderRadius: 999, paddingVertical: 7, paddingHorizontal: 12 },
+    countChipText: { fontSize: 13, fontWeight: '800', color: COLORS.brand },
+
+    empty: { flexDirection: 'row', alignItems: 'center', gap: SPACING.lg, backgroundColor: COLORS.surface, borderRadius: 26, padding: SPACING.lg, ...SHADOWS.md },
+    emptyText: { flex: 1, fontSize: 15, lineHeight: 21, color: COLORS.textSecondary },
+
+    stackCard: { borderRadius: 28, padding: SPACING.lg, flexDirection: 'row', alignItems: 'center', gap: SPACING.md },
+    stackOverlap: { marginTop: -22, ...SHADOWS.sm },
+    stackMain: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: SPACING.md },
+    stackIcon: { width: 48, height: 48, borderRadius: 16, backgroundColor: COLORS.surface, alignItems: 'center', justifyContent: 'center' },
+    stackName: { fontSize: 16, fontWeight: '800', color: COLORS.text },
+    stackMeta: { fontSize: 13, fontWeight: '600' },
+    stackBalance: { fontSize: 20, fontWeight: '800', color: COLORS.text },
+    removeBtn: { width: 28, height: 28, borderRadius: 14, alignItems: 'center', justifyContent: 'center', backgroundColor: 'rgba(255,255,255,0.6)' },
+
+    addBtn: {
+        height: 60,
+        borderRadius: 30,
+        borderWidth: 2,
         borderStyle: 'dashed',
-    },
-    emptyIconContainer: {
-        width: 80,
-        height: 80,
-        borderRadius: 40,
-        backgroundColor: 'rgba(34, 197, 94, 0.1)',
-        alignItems: 'center',
-        justifyContent: 'center',
-        marginBottom: SPACING.lg,
-    },
-    emptyTitle: {
-        fontSize: FONT_SIZE.xl,
-        fontWeight: '600',
-        color: COLORS.text,
-        marginBottom: SPACING.xs,
-    },
-    emptySubtitle: {
-        fontSize: FONT_SIZE.md,
-        color: COLORS.textSecondary,
-        textAlign: 'center',
-        marginBottom: SPACING.xl,
-    },
-    addFirstBtn: {
+        borderColor: '#BDB5A6',
         flexDirection: 'row',
         alignItems: 'center',
-        backgroundColor: COLORS.primary,
-        paddingHorizontal: SPACING.xl,
-        paddingVertical: SPACING.md,
-        borderRadius: BORDER_RADIUS.full,
+        justifyContent: 'center',
         gap: SPACING.sm,
     },
-    addFirstBtnText: {
-        color: COLORS.background,
-        fontWeight: '600',
-        fontSize: FONT_SIZE.md,
-    },
-    accountCard: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        backgroundColor: COLORS.surface,
-        borderRadius: BORDER_RADIUS.lg,
-        padding: SPACING.lg,
-        marginBottom: SPACING.md,
-        borderWidth: 1,
-        borderColor: COLORS.border,
-    },
-    accountIcon: {
-        width: 44,
-        height: 44,
-        borderRadius: BORDER_RADIUS.md,
-        alignItems: 'center',
-        justifyContent: 'center',
-        marginRight: SPACING.md,
-    },
-    accountInfo: {
-        flex: 1,
-    },
-    accountName: {
-        fontSize: FONT_SIZE.md,
-        fontWeight: '600',
-        color: COLORS.text,
-        marginBottom: 2,
-    },
-    accountType: {
-        fontSize: FONT_SIZE.xs,
-        color: COLORS.textMuted,
-        fontWeight: '500',
-    },
-    accountBalanceContainer: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        gap: SPACING.md,
-    },
-    accountBalance: {
-        fontSize: FONT_SIZE.md,
-        fontWeight: '700',
-        color: COLORS.text,
-    },
-    negativeBalance: {
-        color: COLORS.error,
-    },
-    addAnotherBtn: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        justifyContent: 'center',
-        paddingVertical: SPACING.lg,
-        gap: SPACING.sm,
-        marginTop: SPACING.sm,
-    },
-    addAnotherBtnText: {
-        color: COLORS.primary,
-        fontWeight: '600',
-        fontSize: FONT_SIZE.md,
-    },
-    footer: {
-        paddingHorizontal: SPACING.xl,
-        paddingBottom: SPACING.xxl,
-        paddingTop: SPACING.lg,
-    },
-    continueButton: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        justifyContent: 'center',
-        backgroundColor: COLORS.primary,
-        borderRadius: BORDER_RADIUS.xl,
-        paddingVertical: SPACING.lg,
-        gap: SPACING.sm,
-    },
-    continueButtonDisabled: {
-        backgroundColor: COLORS.surfaceLight,
-    },
-    continueButtonText: {
-        fontSize: FONT_SIZE.lg,
-        fontWeight: '600',
-        color: COLORS.background,
-    },
-    continueButtonTextDisabled: {
-        color: COLORS.textMuted,
-    },
+    addText: { fontSize: 16, fontWeight: '800', color: COLORS.text },
 });

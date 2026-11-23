@@ -32,7 +32,8 @@
         {
           "disableJsi": true
         }
-      ]
+      ],
+      "expo-font"
     ],
     "extra": {
       "eas": {

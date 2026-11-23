@@ -1,14 +1,15 @@
 import React, { useState } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, LayoutAnimation, Platform, UIManager } from 'react-native';
+import { View, StyleSheet, ScrollView, TouchableOpacity } from 'react-native';
+import Animated, { LinearTransition } from 'react-native-reanimated';
+import { Text } from '../components/Typography';
 import { useNavigation } from '../context/NavigationContext';
-import { COLORS, SPACING, FONT_SIZE, BORDER_RADIUS } from '../constants/theme';
+import { COLORS, SPACING, FONT_SIZE, BORDER_RADIUS, MOTION } from '../constants/theme';
+import { EASE } from '../motion';
+import { ScreenHeader } from '../components/ui';
 import { useSafeTop } from '../components/SafeScreen';
 import { Icon } from '../components/Icon';
 
-// Enable LayoutAnimation for smooth expansion on Android
-if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
-    UIManager.setLayoutAnimationEnabledExperimental(true);
-}
+const expand = LinearTransition.duration(MOTION.durBase).easing(EASE.out);
 
 export function PrivacyPolicyScreen() {
     const { closePrivacyPolicy } = useNavigation();
@@ -22,17 +23,13 @@ export function PrivacyPolicyScreen() {
     });
 
     const toggleSection = (section: 'collection' | 'permissions' | 'security') => {
-        LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
         setExpanded(prev => ({ ...prev, [section]: !prev[section] }));
     };
 
     return (
         <View style={[styles.container, { paddingTop: safeTop }]}>
             <View style={styles.header}>
-                <TouchableOpacity onPress={closePrivacyPolicy} style={styles.backButton}>
-                    <Icon name="arrow-back" size={24} color={COLORS.primary} />
-                </TouchableOpacity>
-                <Text style={styles.title}>Privacy Policy</Text>
+                <ScreenHeader onBack={closePrivacyPolicy} title="Privacy Policy" />
             </View>
 
             <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
@@ -49,7 +46,7 @@ export function PrivacyPolicyScreen() {
                 </View>
 
                 {/* Data Collection Section */}
-                <View style={styles.sectionCard}>
+                <Animated.View layout={expand} style={styles.sectionCard}>
                     <TouchableOpacity onPress={() => toggleSection('collection')} activeOpacity={0.7}>
                         <View style={styles.cardHeader}>
                             <Icon name="storage" size={20} color={COLORS.primary} style={styles.cardIcon} />
@@ -65,10 +62,10 @@ export function PrivacyPolicyScreen() {
                     <TouchableOpacity onPress={() => toggleSection('collection')}>
                         <Text style={styles.moreButton}>{expanded.collection ? "Show less" : "Read more"}</Text>
                     </TouchableOpacity>
-                </View>
+                </Animated.View>
 
                 {/* Device Permissions Section */}
-                <View style={styles.sectionCard}>
+                <Animated.View layout={expand} style={styles.sectionCard}>
                     <TouchableOpacity onPress={() => toggleSection('permissions')} activeOpacity={0.7}>
                         <View style={styles.cardHeader}>
                             <Icon name="sms" size={20} color={COLORS.primary} style={styles.cardIcon} />
@@ -84,10 +81,10 @@ export function PrivacyPolicyScreen() {
                     <TouchableOpacity onPress={() => toggleSection('permissions')}>
                         <Text style={styles.moreButton}>{expanded.permissions ? "Show less" : "Read more"}</Text>
                     </TouchableOpacity>
-                </View>
+                </Animated.View>
 
                 {/* Data Security Section */}
-                <View style={styles.sectionCard}>
+                <Animated.View layout={expand} style={styles.sectionCard}>
                     <TouchableOpacity onPress={() => toggleSection('security')} activeOpacity={0.7}>
                         <View style={styles.cardHeader}>
                             <Icon name="lock" size={20} color={COLORS.primary} style={styles.cardIcon} />
@@ -103,12 +100,12 @@ export function PrivacyPolicyScreen() {
                     <TouchableOpacity onPress={() => toggleSection('security')}>
                         <Text style={styles.moreButton}>{expanded.security ? "Show less" : "Read more"}</Text>
                     </TouchableOpacity>
-                </View>
+                </Animated.View>
 
-                <View style={styles.footer}>
+                <Animated.View layout={expand} style={styles.footer}>
                     <Text style={styles.footerText}>Last updated: February 14, 2026</Text>
                     <Text style={styles.footerContact}>pawardevelops@gmail.com</Text>
-                </View>
+                </Animated.View>
             </ScrollView>
         </View>
     );

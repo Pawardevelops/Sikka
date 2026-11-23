@@ -15,12 +15,16 @@ const DEFAULT_ONBOARDING_DATA: OnboardingData = {
     numberSystem: 'lakhs',
     userName: '',
     primaryGoal: '',
+    monthlySpendLimit: 30000,
     hideBalances: false,
     notificationPermissionGranted: false,
     biometricEnabled: false,
     autoBackupEnabled: false,
     backupLocation: undefined,
 };
+
+/** Welcome → Profile → Accounts → Security */
+export const ONBOARDING_STEPS = 4;
 
 // ==================== CONTEXT TYPE ====================
 interface OnboardingContextType {
@@ -88,7 +92,7 @@ export function OnboardingProvider({ children }: OnboardingProviderProps) {
     // Navigate to next step
     const goNext = useCallback(() => {
         setCurrentStep((prev) => {
-            if (prev < 3) return (prev + 1) as OnboardingStep;
+            if (prev < ONBOARDING_STEPS) return (prev + 1) as OnboardingStep;
             return prev;
         });
     }, []);
@@ -248,11 +252,9 @@ export const NUMBER_SYSTEMS: { value: NumberSystem; label: string }[] = [
     { value: 'millions', label: 'Millions' },
 ];
 
-export const USER_GOALS: string[] = [
-    'Save more money',
-    'Track daily expenses',
-    'Budget planning',
-    'Reduce debt',
-    'Investment tracking',
-    'Business expenses',
+export const USER_GOALS: { value: string; label: string; icon: string; palette: 'dining' | 'groceries' | 'shopping' | 'transport' }[] = [
+    { value: 'Spend less', label: 'Spend less', icon: 'south', palette: 'dining' },
+    { value: 'Save more', label: 'Save more', icon: 'savings', palette: 'groceries' },
+    { value: 'Clear debt', label: 'Clear debt', icon: 'credit-card', palette: 'shopping' },
+    { value: 'Just track', label: 'Just track', icon: 'visibility', palette: 'transport' },
 ];

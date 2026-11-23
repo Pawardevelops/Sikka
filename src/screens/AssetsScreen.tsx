@@ -1,900 +1,412 @@
 /**
- * Sikka - Assets Screen
- * Tabbed view: Accounts (grouped) + Subscriptions with progress bars
+ * Sikka - Assets
+ * Design: design-system/screens/Assets-v2.html
+ *
+ * Lilac net-worth hero with liquid / savings / investments split ·
+ * pastel account tiles · "Coming up" bills · subscriptions (active, paused, deleted).
  */
 
-import React, { useState, useEffect, useRef, useMemo } from 'react';
-import {
-    StyleSheet,
-    Text,
-    View,
-    ScrollView,
-    TouchableOpacity,
-    Animated,
-    PanResponder,
-    Dimensions,
-} from 'react-native';
+import React, { useMemo, useState } from 'react';
+import { StyleSheet, View, ScrollView, TouchableOpacity } from 'react-native';
+import { Text } from '../components/Typography';
 import { useCurrency } from '../context/CurrencyContext';
 import { useAccounts } from '../context/AccountsContext';
 import { useSubscriptions } from '../context/SubscriptionsContext';
-import { COLORS, SPACING, FONT_SIZE, BORDER_RADIUS } from '../constants/theme';
+import { useTransactions } from '../context/TransactionsContext';
+import { COLORS, SPACING, SHADOWS, SIKKA, CATEGORY_PALETTE, getCategoryColors, ACCOUNT_ICONS } from '../constants/theme';
 import { useSafeTop } from '../components/SafeScreen';
 import { Account, Subscription } from '../types';
 import { useNavigation } from '../context/NavigationContext';
 import { Icon } from '../components/Icon';
+import { ProgressBar } from '../components/ui';
 import { computeCreditUtilization, computePortfolioPnL } from '../types/accountTypes';
 
-// ==================== ACCOUNT CATEGORY GROUPING ====================
-type AccountGroup = {
-    label: string;
-    types: string[];
-};
-
-const ACCOUNT_GROUPS: AccountGroup[] = [
-    { label: 'LIQUID CASH', types: ['bank', 'cash', 'wallet'] },
-    { label: 'CREDIT & DEBT', types: ['credit'] },
-    { label: 'SAVINGS', types: ['savings', 'investment', 'bitcoin'] },
-];
-
 // ==================== HELPERS ====================
-function getDaysUntilDue(dueDate: number): number {
+export function getDaysUntilDue(dueDate: number): number {
     const now = new Date();
-    const currentDay = now.getDate();
+    const today = now.getDate();
     const daysInMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
-
-    if (dueDate >= currentDay) {
-        return dueDate - currentDay;
-    }
-    // Due date is next month
-    return (daysInMonth - currentDay) + dueDate;
+    return dueDate >= today ? dueDate - today : daysInMonth - today + dueDate;
 }
 
-function getDueProgress(dueDate: number): number {
-    const daysUntil = getDaysUntilDue(dueDate);
-    const now = new Date();
-    const daysInMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
-    return Math.max(0, Math.min(1, 1 - (daysUntil / daysInMonth)));
+function dueLabel(days: number) {
+    if (days === 0) return 'today';
+    if (days === 1) return 'tomorrow';
+    return `in ${days} days`;
 }
 
-function getProgressColor(daysUntil: number): string {
-    if (daysUntil <= 3) return '#EF4444';    // Red — urgent
-    if (daysUntil <= 7) return '#F59E0B';    // Orange — soon
-    return COLORS.primary;                    // Green — plenty of time
-}
+const LIQUID = ['bank', 'cash', 'wallet'];
+const SAVINGS = ['savings'];
+const INVEST = ['investment', 'bitcoin'];
 
-function formatDueDate(dueDate: number): string {
-    const now = new Date();
-    let month = now.getMonth();
-    let year = now.getFullYear();
-    if (dueDate < now.getDate()) {
-        month += 1;
-        if (month > 11) { month = 0; year += 1; }
-    }
-    const date = new Date(year, month, dueDate);
-    return date.toLocaleDateString('en-US', { month: 'short', day: '2-digit' });
-}
+const accountValue = (a: Account) => (INVEST.includes(a.type) ? a.investmentValue ?? a.balance : a.balance);
 
-// ==================== ACCOUNT ICON MAPPING ====================
-const ACCOUNT_TYPE_ICONS: Record<string, string> = {
-    bank: 'account-balance',
-    cash: 'payments',
-    wallet: 'account-balance-wallet',
-    credit: 'credit-card',
-    savings: 'savings',
-    investment: 'trending-up',
-    bitcoin: 'currency-bitcoin',
-};
-
-// ==================== MAIN COMPONENT ====================
+// ==================== SCREEN ====================
 export function AssetsScreen() {
-    const { formatAmount, balancesVisible, toggleBalancesVisible } = useCurrency();
+    const { formatAmount } = useCurrency();
     const { activeAccounts, netWorth } = useAccounts();
     const { activeSubscriptions, pausedSubscriptions, archivedSubscriptions, monthlyTotal } = useSubscriptions();
+    const { activeTransactions } = useTransactions();
     const { selectAccount, openAddModal, openAddSubscriptionModal, selectSubscription } = useNavigation();
     const safeTop = useSafeTop();
 
-    const [activeTab, setActiveTab] = useState<'accounts' | 'subscriptions'>('accounts');
     const [subSort, setSubSort] = useState<'date' | 'amount'>('date');
-    const [showPastSubs, setShowPastSubs] = useState(false);
-    const [showDeletedSubs, setShowDeletedSubs] = useState(false);
+    const [showPaused, setShowPaused] = useState(false);
+    const [showDeleted, setShowDeleted] = useState(false);
 
-    // Animations
-    const fadeAnim = useRef(new Animated.Value(0)).current;
-    const slideAnim = useRef(new Animated.Value(0)).current;
-    const tabAnim = useRef(new Animated.Value(0)).current; // 0 = accounts, 1 = subscriptions
-    const screenWidth = Dimensions.get('window').width;
+    // ── Net worth split ──
+    const split = useMemo(() => {
+        const sum = (types: string[]) => activeAccounts.filter((a) => types.includes(a.type)).reduce((s, a) => s + Math.max(0, accountValue(a)), 0);
+        const liquid = sum(LIQUID);
+        const savings = sum(SAVINGS);
+        const invest = sum(INVEST);
+        const total = liquid + savings + invest || 1;
+        return { liquid, savings, invest, total };
+    }, [activeAccounts]);
 
-    useEffect(() => {
-        Animated.parallel([
-            Animated.timing(fadeAnim, { toValue: 1, duration: 400, useNativeDriver: true }),
-            Animated.spring(slideAnim, { toValue: 1, friction: 8, tension: 40, useNativeDriver: true }),
-        ]).start();
-    }, []);
+    // ── Real month-over-month change ──
+    const monthChange = useMemo(() => {
+        const now = new Date();
+        const start = new Date(now.getFullYear(), now.getMonth(), 1).getTime();
+        const net = activeTransactions.filter((t) => t.timestamp >= start && t.status !== 'pending').reduce((s, t) => s + t.amount, 0);
+        const before = netWorth - net;
+        if (!before) return null;
+        return (net / Math.abs(before)) * 100;
+    }, [activeTransactions, netWorth]);
 
-    // Animate tab transitions
-    const animateToTab = (tab: 'accounts' | 'subscriptions') => {
-        const toValue = tab === 'accounts' ? 0 : 1;
-        setActiveTab(tab);
-        Animated.spring(tabAnim, {
-            toValue,
-            friction: 10,
-            tension: 60,
-            useNativeDriver: false,
-        }).start();
-    };
+    // ── Coming up: unpaid subscriptions + credit card dues, soonest first ──
+    const comingUp = useMemo(() => {
+        const subs = activeSubscriptions
+            .filter((s) => !s.isPaid)
+            .map((s) => ({ key: s.id, name: s.name, amount: s.myShare ?? s.amount ?? 0, days: getDaysUntilDue(s.dueDate), sub: s as Subscription | undefined, account: undefined as Account | undefined, split: s.isSplit ? s.splitMembers.length + 1 : 0 }));
+        const cards = activeAccounts
+            .filter((a) => a.type === 'credit' && a.creditCardDetails?.dueDate && a.balance !== 0)
+            .map((a) => ({ key: a.id, name: a.name, amount: Math.abs(a.balance), days: getDaysUntilDue(a.creditCardDetails!.dueDate), sub: undefined, account: a, split: 0 }));
+        return [...subs, ...cards].sort((a, b) => a.days - b.days);
+    }, [activeSubscriptions, activeAccounts]);
 
-    // Swipe gesture handler
-    const panResponder = useMemo(() => PanResponder.create({
-        onMoveShouldSetPanResponder: (_, gestureState) => {
-            // Only capture horizontal swipes (more horizontal than vertical)
-            return Math.abs(gestureState.dx) > Math.abs(gestureState.dy) && Math.abs(gestureState.dx) > 10;
-        },
-        onMoveShouldSetPanResponderCapture: (_, gestureState) => {
-            return Math.abs(gestureState.dx) > Math.abs(gestureState.dy) && Math.abs(gestureState.dx) > 15;
-        },
-        onPanResponderRelease: (_, gestureState) => {
-            const swipeThreshold = 50;
-            if (gestureState.dx < -swipeThreshold && activeTab === 'accounts') {
-                // Swipe left → go to subscriptions
-                animateToTab('subscriptions');
-            } else if (gestureState.dx > swipeThreshold && activeTab === 'subscriptions') {
-                // Swipe right → go to accounts
-                animateToTab('accounts');
-            }
-        },
-    }), [activeTab]);
-
-    // Group accounts by category
-    const groupedAccounts = ACCOUNT_GROUPS.map(group => ({
-        ...group,
-        accounts: activeAccounts.filter(acc => group.types.includes(acc.type)),
-    })).filter(group => group.accounts.length > 0);
-
-    // Sort subscriptions
-    const sortedSubscriptions = [...activeSubscriptions].sort((a, b) => {
-        // Use myShare or amount fallback
-        const amountA = a.myShare ?? a.amount ?? 0;
-        const amountB = b.myShare ?? b.amount ?? 0;
-
-        if (subSort === 'date') {
-            const aDays = a.isPaid ? 999 : getDaysUntilDue(a.dueDate);
-            const bDays = b.isPaid ? 999 : getDaysUntilDue(b.dueDate);
-            return aDays - bDays;
-        }
-        return amountB - amountA;
-    });
-
-    const handleAccountPress = (account: Account) => {
-        selectAccount(account);
-    };
-
-    // ==================== ACCOUNTS TAB ====================
-    const renderAccountsTab = () => (
-        <Animated.View style={{ opacity: fadeAnim }}>
-            {/* Net Worth Header */}
-            <View style={styles.netWorthSection}>
-                <View style={styles.netWorthLabelRow}>
-                    <Text style={styles.netWorthLabel}>NET WORTH</Text>
-                    <TouchableOpacity onPress={toggleBalancesVisible} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
-                        <Icon name={balancesVisible ? 'visibility' : 'visibility-off'} size={18} color={COLORS.textMuted} />
-                    </TouchableOpacity>
-                </View>
-                <Text style={styles.netWorthAmount}>
-                    {!balancesVisible ? '••••••' : formatAmount(netWorth)}
-                </Text>
-                <View style={styles.changeBadge}>
-                    <Icon name="trending-up" size={14} color={COLORS.primary} />
-                    <Text style={styles.changeText}>+2.4%</Text>
-                    <Text style={styles.changeSubtext}>vs last month</Text>
-                </View>
-            </View>
-
-            {/* Grouped Account List */}
-            {groupedAccounts.map((group) => (
-                <View key={group.label} style={styles.accountGroup}>
-                    <Text style={styles.groupLabel}>{group.label}</Text>
-                    {group.accounts.map((account) => (
-                        <TouchableOpacity
-                            key={account.id}
-                            style={styles.accountCard}
-                            activeOpacity={0.85}
-                            onPress={() => handleAccountPress(account)}
-                        >
-                            <View style={[styles.accountIcon, { backgroundColor: account.color ? account.color + '20' : COLORS.primaryMuted }]}>
-                                <Icon
-                                    name={(ACCOUNT_TYPE_ICONS[account.type] || account.icon || 'account-balance') as any}
-                                    size={22}
-                                    color={account.color || COLORS.primary}
-                                />
-                            </View>
-                            <View style={styles.accountContent}>
-                                <Text style={styles.accountName} numberOfLines={1}>{account.name}</Text>
-                                <Text style={styles.accountSubtitle}>
-                                    {account.lastUpdated ? `• Updated ${account.lastUpdated.toLowerCase()}` : account.type.toUpperCase()}
-                                </Text>
-
-                                {/* ── Credit Utilization Bar ── */}
-                                {account.type === 'credit' && account.creditCardDetails && (() => {
-                                    const util = computeCreditUtilization(account.balance, account.creditCardDetails.creditLimit);
-                                    const barColor = util.status === 'danger' ? COLORS.creditDanger
-                                        : util.status === 'warning' ? COLORS.creditWarning
-                                            : COLORS.creditSafe;
-                                    return (
-                                        <View style={styles.utilizationContainer}>
-                                            <View style={styles.utilizationTrack}>
-                                                <View style={[styles.utilizationFill, {
-                                                    width: `${Math.min(util.percent, 100)}%`,
-                                                    backgroundColor: barColor,
-                                                }]} />
-                                            </View>
-                                            <Text style={[styles.utilizationText, { color: barColor }]}>
-                                                {util.percent.toFixed(0)}% used
-                                            </Text>
-                                        </View>
-                                    );
-                                })()}
-
-                                {/* ── Investment P&L Badge ── */}
-                                {(account.type === 'investment' || account.type === 'bitcoin') && account.holdings && account.holdings.length > 0 && (() => {
-                                    const portfolio = computePortfolioPnL(account.holdings);
-                                    const isPositive = portfolio.totalPnL >= 0;
-                                    return (
-                                        <View style={[styles.pnlBadge, { backgroundColor: isPositive ? COLORS.investGrowth + '18' : COLORS.investLoss + '18' }]}>
-                                            <Icon
-                                                name={isPositive ? 'trending-up' : 'trending-down'}
-                                                size={12}
-                                                color={isPositive ? COLORS.investGrowth : COLORS.investLoss}
-                                            />
-                                            <Text style={[styles.pnlText, { color: isPositive ? COLORS.investGrowth : COLORS.investLoss }]}>
-                                                {isPositive ? '+' : ''}{portfolio.pnlPercent.toFixed(1)}%
-                                            </Text>
-                                        </View>
-                                    );
-                                })()}
-                            </View>
-                            <View style={styles.accountBalanceCol}>
-                                <Text style={[styles.accountBalance, account.balance < 0 && styles.negativeBalance]}>
-                                    {!balancesVisible ? '••••' : formatAmount(
-                                        (account.type === 'investment' || account.type === 'bitcoin')
-                                            ? (account.investmentValue ?? account.balance)
-                                            : account.balance
-                                    )}
-                                </Text>
-                                {account.type === 'credit' && account.creditCardDetails && (
-                                    <Text style={styles.accountSubBalance}>
-                                        Limit: {!balancesVisible ? '••••' : formatAmount(account.creditCardDetails.creditLimit)}
-                                    </Text>
-                                )}
-                            </View>
-                        </TouchableOpacity>
-                    ))}
-                </View>
-            ))}
-
-            {/* Add Account Button */}
-            <TouchableOpacity style={styles.addBtn} activeOpacity={0.85} onPress={() => openAddModal()}>
-                <Icon name="add" size={20} color={COLORS.primary} style={{ marginRight: SPACING.sm }} />
-                <Text style={styles.addBtnText}>Add New Account</Text>
-            </TouchableOpacity>
-        </Animated.View>
+    const sortedSubs = useMemo(
+        () =>
+            [...activeSubscriptions].sort((a, b) =>
+                subSort === 'date'
+                    ? (a.isPaid ? 999 : getDaysUntilDue(a.dueDate)) - (b.isPaid ? 999 : getDaysUntilDue(b.dueDate))
+                    : (b.myShare ?? b.amount ?? 0) - (a.myShare ?? a.amount ?? 0),
+            ),
+        [activeSubscriptions, subSort],
     );
 
-    // ==================== SUBSCRIPTIONS TAB ====================
-    const renderSubscriptionCard = (sub: Subscription) => {
-        const daysUntil = getDaysUntilDue(sub.dueDate);
-        const progress = getDueProgress(sub.dueDate);
-        const progressColor = sub.isPaid ? COLORS.primary : getProgressColor(daysUntil);
-        const isSplit = sub.isSplit && sub.role === 'admin';
-        const isMember = sub.role === 'member';
-
-        // Use myShare, fallback to amount
-        const displayAmount = sub.myShare ?? sub.amount ?? 0;
-
-        return (
-            <TouchableOpacity
-                key={sub.id}
-                style={styles.subCard}
-                activeOpacity={0.95}
-                onPress={() => selectSubscription(sub)}
-            >
-                <View style={styles.subCardTop}>
-                    <View style={[styles.subIcon, { backgroundColor: sub.iconColor + '20' }]}>
-                        <Icon name={sub.icon as any} size={20} color={sub.iconColor} />
-                    </View>
-                    <View style={styles.subContent}>
-                        <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                            <Text style={styles.subName}>{sub.name}</Text>
-                            {/* Badges */}
-                            {isSplit && (
-                                <View style={styles.splitBadge}>
-                                    <Icon name="call-split" size={10} color={COLORS.textSecondary} />
-                                    <Text style={styles.splitBadgeText}>Split</Text>
-                                </View>
-                            )}
-                            {isMember && (
-                                <View style={styles.memberBadge}>
-                                    <Icon name="person" size={10} color={COLORS.textSecondary} />
-                                    <Text style={styles.splitBadgeText}>Member</Text>
-                                </View>
-                            )}
-                        </View>
-                        <Text style={styles.subDueText}>
-                            Due {formatDueDate(sub.dueDate)}
-                            {isMember && sub.payTo ? ` • Pay ${sub.payTo}` : ''}
-                        </Text>
-                    </View>
-                    <View style={styles.subRight}>
-                        <Text style={styles.subAmount}>{formatAmount(displayAmount)}</Text>
-                        <View style={[styles.dueBadge, sub.isPaid && styles.paidBadge]}>
-                            <Text style={[styles.dueBadgeText, sub.isPaid && styles.paidBadgeText]}>
-                                {sub.isPaid ? 'PAID' : `DUE IN ${daysUntil} DAYS`}
-                            </Text>
-                        </View>
-                    </View>
-                </View>
-                {/* Progress Bar */}
-                <View style={styles.progressTrack}>
-                    <View
-                        style={[
-                            styles.progressFill,
-                            {
-                                width: `${(sub.isPaid ? 100 : progress * 100)}%`,
-                                backgroundColor: progressColor,
-                            },
-                        ]}
-                    />
-                </View>
-            </TouchableOpacity>
-        );
-    };
-
-    const renderSubscriptionsTab = () => (
-        <Animated.View style={{ opacity: fadeAnim }}>
-            {/* Monthly Commitment Header */}
-            <View style={styles.netWorthSection}>
-                <Text style={styles.netWorthLabel}>MONTHLY SHARE</Text>
-                <View style={styles.commitmentRow}>
-                    <Text style={styles.netWorthAmount}>{formatAmount(monthlyTotal)}</Text>
-                    <Text style={styles.perMonth}> / mo</Text>
-                </View>
-            </View>
-
-            {/* Upcoming Bills Header */}
-            <View style={styles.billsHeaderRow}>
-                <Text style={styles.groupLabel}>UPCOMING BILLS</Text>
-                <TouchableOpacity onPress={() => setSubSort(subSort === 'date' ? 'amount' : 'date')}>
-                    <Text style={styles.sortBtn}>
-                        Sort by {subSort === 'date' ? 'Date' : 'Amount'} ▾
-                    </Text>
-                </TouchableOpacity>
-            </View>
-
-            {/* Subscription Cards */}
-            {sortedSubscriptions.length === 0 ? (
-                <View style={styles.emptyState}>
-                    <Icon name="subscriptions" size={48} color={COLORS.textMuted} />
-                    <Text style={styles.emptyText}>No subscriptions yet</Text>
-                    <Text style={styles.emptySubtext}>Track your recurring bills here</Text>
-                </View>
-            ) : (
-                sortedSubscriptions.map(renderSubscriptionCard)
-            )}
-
-            {/* Past Subscriptions (Collapsed) */}
-            {pausedSubscriptions.length > 0 && (
-                <View style={{ marginTop: SPACING.xl }}>
-                    <TouchableOpacity
-                        style={styles.pastSubsHeader}
-                        onPress={() => setShowPastSubs(!showPastSubs)}
-                    >
-                        <Text style={styles.groupLabel}>PAST SUBSCRIPTIONS ({pausedSubscriptions.length})</Text>
-                        <Icon name={showPastSubs ? 'expand-less' : 'expand-more'} size={20} color={COLORS.textMuted} />
-                    </TouchableOpacity>
-
-                    {showPastSubs && pausedSubscriptions.map(sub => (
-                        <TouchableOpacity key={sub.id} style={[styles.subCard, { opacity: 0.6 }]} activeOpacity={0.85} onPress={() => selectSubscription(sub)}>
-                            <View style={styles.subCardTop}>
-                                <View style={[styles.subIcon, { backgroundColor: COLORS.surfaceLight }]}>
-                                    <Icon name={sub.icon as any} size={20} color={COLORS.textMuted} />
-                                </View>
-                                <View style={styles.subContent}>
-                                    <Text style={[styles.subName, { color: COLORS.textMuted }]}>{sub.name}</Text>
-                                    <Text style={styles.subDueText}>Paused</Text>
-                                </View>
-                                <View style={styles.subRight}>
-                                    <Text style={[styles.subAmount, { color: COLORS.textMuted }]}>
-                                        {formatAmount(sub.myShare ?? sub.amount ?? 0)}
-                                    </Text>
-                                </View>
-                            </View>
-                        </TouchableOpacity>
-                    ))}
-                </View>
-            )}
-
-            {/* Deleted Subscriptions (Collapsed) */}
-            {archivedSubscriptions.length > 0 && (
-                <View style={{ marginTop: SPACING.xl }}>
-                    <TouchableOpacity
-                        style={styles.pastSubsHeader}
-                        onPress={() => setShowDeletedSubs(!showDeletedSubs)}
-                    >
-                        <Text style={[styles.groupLabel, { color: COLORS.error }]}>DELETED ({archivedSubscriptions.length})</Text>
-                        <Icon name={showDeletedSubs ? 'expand-less' : 'expand-more'} size={20} color={COLORS.textMuted} />
-                    </TouchableOpacity>
-
-                    {/* TODO: To enable click-to-restore, change <View> to <TouchableOpacity onPress={() => selectSubscription(sub)}> */}
-                    {showDeletedSubs && archivedSubscriptions.map(sub => (
-                        <View key={sub.id} style={[styles.subCard, { opacity: 0.5 }]}>
-                            <View style={styles.subCardTop}>
-                                <View style={[styles.subIcon, { backgroundColor: COLORS.surfaceLight }]}>
-                                    <Icon name={sub.icon as any} size={20} color={COLORS.textMuted} />
-                                </View>
-                                <View style={styles.subContent}>
-                                    <Text style={[styles.subName, { color: COLORS.textMuted }]}>{sub.name}</Text>
-                                    <Text style={[styles.subDueText, { color: COLORS.error }]}>Deleted</Text>
-                                </View>
-                                <View style={styles.subRight}>
-                                    <Text style={[styles.subAmount, { color: COLORS.textMuted }]}>
-                                        {formatAmount(sub.myShare ?? sub.amount ?? 0)}
-                                    </Text>
-                                </View>
-                            </View>
-                        </View>
-                    ))}
-                </View>
-            )}
-
-            {/* Add Subscription Button */}
-            <TouchableOpacity style={styles.addBtn} activeOpacity={0.85} onPress={openAddSubscriptionModal}>
-                <Icon name="add" size={20} color={COLORS.primary} style={{ marginRight: SPACING.sm }} />
-                <Text style={styles.addBtnText}>Add Subscription</Text>
-            </TouchableOpacity>
-        </Animated.View>
-    );
-
-    // ==================== RENDER ====================
-    // Animated tab content translation
-    const contentTranslateX = tabAnim.interpolate({
-        inputRange: [0, 1],
-        outputRange: [0, -(screenWidth - SPACING.xl * 2)],
+    // Order tiles: liquid, savings, investments, credit
+    const tiles = [...activeAccounts].sort((a, b) => {
+        const rank = (t: string) => (LIQUID.includes(t) ? 0 : SAVINGS.includes(t) ? 1 : INVEST.includes(t) ? 2 : 3);
+        return rank(a.type) - rank(b.type);
     });
 
-    // Animated tab indicator position
-    const indicatorTranslateX = tabAnim.interpolate({
-        inputRange: [0, 1],
-        outputRange: [0, 1], // will be used as a fraction
-    });
+    const pct = (v: number) => `${Math.round((v / split.total) * 100)}%`;
 
     return (
-        <ScrollView
-            style={styles.scrollView}
-            contentContainerStyle={[styles.scrollContent, { paddingTop: safeTop }]}
-            showsVerticalScrollIndicator={false}
-        >
-            {/* Header */}
-            <Animated.View style={[styles.header, { opacity: fadeAnim }]}>
-                <Text style={styles.screenTitle}>Assets</Text>
-                <TouchableOpacity hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
-                    <Icon name="search" size={24} color={COLORS.text} />
-                </TouchableOpacity>
-            </Animated.View>
-
-            {/* Tab Switcher with animated indicator */}
-            <View style={styles.tabBar}>
-                {/* Animated pill indicator */}
-                <Animated.View
-                    style={[
-                        styles.tabIndicator,
-                        {
-                            transform: [{
-                                translateX: tabAnim.interpolate({
-                                    inputRange: [0, 1],
-                                    outputRange: [4, (screenWidth - SPACING.xl * 2) / 2 - 4],
-                                }),
-                            }],
-                            width: (screenWidth - SPACING.xl * 2 - 8) / 2,
-                        },
-                    ]}
-                />
-                <TouchableOpacity
-                    style={styles.tab}
-                    onPress={() => animateToTab('accounts')}
-                    activeOpacity={0.8}
-                >
-                    <Animated.Text style={[
-                        styles.tabText,
-                        {
-                            color: tabAnim.interpolate({
-                                inputRange: [0, 1],
-                                outputRange: [COLORS.background, COLORS.textSecondary],
-                            }),
-                        },
-                    ]}>
-                        Accounts
-                    </Animated.Text>
-                </TouchableOpacity>
-                <TouchableOpacity
-                    style={styles.tab}
-                    onPress={() => animateToTab('subscriptions')}
-                    activeOpacity={0.8}
-                >
-                    <Animated.Text style={[
-                        styles.tabText,
-                        {
-                            color: tabAnim.interpolate({
-                                inputRange: [0, 1],
-                                outputRange: [COLORS.textSecondary, COLORS.background],
-                            }),
-                        },
-                    ]}>
-                        Subscriptions
-                    </Animated.Text>
+        <ScrollView style={styles.container} contentContainerStyle={[styles.scroll, { paddingTop: safeTop + SPACING.sm }]} showsVerticalScrollIndicator={false}>
+            <View style={styles.header}>
+                <Text style={styles.title} accessibilityRole="header">Assets</Text>
+                <TouchableOpacity style={styles.addAccount} onPress={() => openAddModal()} accessibilityRole="button" activeOpacity={0.85}>
+                    <Icon name="add" size={18} color={COLORS.onNight} />
+                    <Text style={styles.addAccountText}>Account</Text>
                 </TouchableOpacity>
             </View>
 
-            {/* Swipeable Tab Content */}
-            <View style={styles.tabContentContainer} {...panResponder.panHandlers}>
-                <Animated.View
-                    style={[
-                        styles.tabContentSlider,
-                        {
-                            width: (screenWidth - SPACING.xl * 2) * 2,
-                            transform: [{ translateX: contentTranslateX }],
-                        },
-                    ]}
-                >
-                    <View style={{ width: screenWidth - SPACING.xl * 2 }}>
-                        {renderAccountsTab()}
+            {/* Net worth hero */}
+            <View style={styles.hero}>
+                <View style={styles.heroBlob} pointerEvents="none" />
+                <View style={styles.heroTop}>
+                    <View>
+                        <Text style={styles.heroOver}>NET WORTH</Text>
+                        <Text style={styles.heroValue}>{formatAmount(netWorth)}</Text>
                     </View>
-                    <View style={{ width: screenWidth - SPACING.xl * 2 }}>
-                        {renderSubscriptionsTab()}
-                    </View>
-                </Animated.View>
+                    {monthChange !== null && Math.abs(monthChange) >= 0.05 && (
+                        <View style={styles.changeChip}>
+                            <Text style={[styles.changeText, monthChange < 0 && { color: COLORS.error }]}>
+                                {monthChange > 0 ? '+' : '−'}{Math.abs(monthChange).toFixed(1)}%
+                            </Text>
+                        </View>
+                    )}
+                </View>
+                <View style={styles.splitBar} accessibilityLabel={`Split: ${pct(split.liquid)} liquid, ${pct(split.savings)} savings, ${pct(split.invest)} investments`}>
+                    {split.liquid > 0 && <View style={{ flex: split.liquid, backgroundColor: COLORS.night, borderRadius: 8 }} />}
+                    {split.savings > 0 && <View style={{ flex: split.savings, backgroundColor: COLORS.brand, borderRadius: 8 }} />}
+                    {split.invest > 0 && <View style={{ flex: split.invest, backgroundColor: SIKKA.signal, borderRadius: 8 }} />}
+                    {split.liquid + split.savings + split.invest === 0 && <View style={{ flex: 1, backgroundColor: 'rgba(255,255,255,0.6)', borderRadius: 8 }} />}
+                </View>
+                <View style={styles.legend}>
+                    <Legend color={COLORS.night} label={`Liquid ${pct(split.liquid)}`} />
+                    <Legend color={COLORS.brand} label={`Savings ${pct(split.savings)}`} />
+                    <Legend color={SIKKA.signal} label={`Invest ${pct(split.invest)}`} />
+                </View>
             </View>
+
+            {/* Account tiles */}
+            <View style={styles.grid}>
+                {tiles.map((a) => (
+                    <AccountTile key={a.id} account={a} formatAmount={formatAmount} onPress={() => selectAccount(a)} />
+                ))}
+                <TouchableOpacity style={[styles.tile, styles.tileAdd]} onPress={() => openAddModal()} accessibilityRole="button" activeOpacity={0.8}>
+                    <Icon name="add" size={24} color={COLORS.text} />
+                    <Text style={styles.tileAddText}>Add account</Text>
+                </TouchableOpacity>
+            </View>
+
+            {/* Coming up */}
+            {comingUp.length > 0 && (
+                <>
+                    <View style={styles.sectionHead}>
+                        <Text style={styles.sectionTitle}>Coming up</Text>
+                        <Text style={styles.sectionMeta}>{comingUp.length} {comingUp.length === 1 ? 'bill' : 'bills'}</Text>
+                    </View>
+                    <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.bleed} contentContainerStyle={styles.comingRow}>
+                        {comingUp.map((c, i) => {
+                            const first = i === 0;
+                            return (
+                                <TouchableOpacity
+                                    key={c.key}
+                                    style={[styles.coming, first ? styles.comingNight : styles.comingWhite]}
+                                    onPress={() => (c.sub ? selectSubscription(c.sub) : c.account ? selectAccount(c.account) : undefined)}
+                                    accessibilityRole="button"
+                                    activeOpacity={0.85}
+                                >
+                                    <View style={[styles.comingIcon, { backgroundColor: first ? SIKKA.signal : CATEGORY_PALETTE.bills.bg }]}>
+                                        <Text style={styles.comingInitial}>{c.name.trim()[0]?.toUpperCase() ?? '•'}</Text>
+                                    </View>
+                                    <View>
+                                        <Text style={[styles.comingName, first && { color: COLORS.onNight }]} numberOfLines={1}>
+                                            {c.name} · {formatAmount(c.amount)}
+                                        </Text>
+                                        <Text style={[styles.comingMeta, first && { color: '#D9D1C1' }]}>
+                                            {c.split ? `Split ${c.split} · ` : ''}{dueLabel(c.days)}
+                                        </Text>
+                                    </View>
+                                </TouchableOpacity>
+                            );
+                        })}
+                    </ScrollView>
+                </>
+            )}
+
+            {/* Subscriptions */}
+            <View style={styles.sectionHead}>
+                <Text style={styles.sectionTitle}>Subscriptions</Text>
+                <TouchableOpacity onPress={() => setSubSort(subSort === 'date' ? 'amount' : 'date')} accessibilityRole="button" hitSlop={10}>
+                    <Text style={styles.sort}>By {subSort === 'date' ? 'date' : 'amount'} ⇅</Text>
+                </TouchableOpacity>
+            </View>
+            <View style={styles.shareCard}>
+                <View style={styles.shareIcon}><Icon name="autorenew" size={20} color={CATEGORY_PALETTE.fun.fg} /></View>
+                <View style={{ flex: 1 }}>
+                    <Text style={styles.shareValue}>{formatAmount(monthlyTotal)}<Text style={styles.sharePer}> / month</Text></Text>
+                    <Text style={styles.shareMeta}>your share of {activeSubscriptions.length} {activeSubscriptions.length === 1 ? 'subscription' : 'subscriptions'}</Text>
+                </View>
+            </View>
+
+            {sortedSubs.map((s) => (
+                <SubRow key={s.id} sub={s} formatAmount={formatAmount} onPress={() => selectSubscription(s)} />
+            ))}
+
+            <TouchableOpacity style={styles.dashed} onPress={openAddSubscriptionModal} accessibilityRole="button" activeOpacity={0.75}>
+                <Icon name="add" size={20} color={COLORS.text} />
+                <Text style={styles.dashedText}>Add subscription</Text>
+            </TouchableOpacity>
+
+            {pausedSubscriptions.length > 0 && (
+                <Collapsible label={`Paused (${pausedSubscriptions.length})`} open={showPaused} onToggle={() => setShowPaused(!showPaused)}>
+                    {pausedSubscriptions.map((s) => (
+                        <SubRow key={s.id} sub={s} formatAmount={formatAmount} onPress={() => selectSubscription(s)} muted="Paused" />
+                    ))}
+                </Collapsible>
+            )}
+            {archivedSubscriptions.length > 0 && (
+                <Collapsible label={`Deleted (${archivedSubscriptions.length})`} open={showDeleted} onToggle={() => setShowDeleted(!showDeleted)} danger>
+                    {/* TODO: To enable click-to-restore, pass onPress={() => selectSubscription(s)} */}
+                    {archivedSubscriptions.map((s) => (
+                        <SubRow key={s.id} sub={s} formatAmount={formatAmount} muted="Deleted" />
+                    ))}
+                </Collapsible>
+            )}
         </ScrollView>
+    );
+}
+
+// ==================== PIECES ====================
+function Legend({ color, label }: { color: string; label: string }) {
+    return (
+        <View style={styles.legendItem}>
+            <View style={[styles.legendDot, { backgroundColor: color }]} />
+            <Text style={styles.legendText}>{label}</Text>
+        </View>
+    );
+}
+
+function AccountTile({ account: a, formatAmount, onPress }: { account: Account; formatAmount: (n: number) => string; onPress: () => void }) {
+    const pair = getCategoryColors(a.type);
+    let badge: React.ReactNode = null;
+    let sub = '';
+    if (a.type === 'credit' && a.creditCardDetails) {
+        const util = computeCreditUtilization(a.balance, a.creditCardDetails.creditLimit);
+        sub = `${Math.round(util.percent)}% used`;
+        if (a.balance !== 0 && a.creditCardDetails.dueDate) {
+            const d = getDaysUntilDue(a.creditCardDetails.dueDate);
+            badge = <View style={styles.badgeNight}><Text style={styles.badgeNightText}>{d === 0 ? 'Due today' : `${d} days`}</Text></View>;
+        }
+    } else if (INVEST.includes(a.type) && a.holdings?.length) {
+        const p = computePortfolioPnL(a.holdings);
+        badge = (
+            <View style={styles.badgeWhite}>
+                <Text style={[styles.badgeWhiteText, { color: p.totalPnL >= 0 ? COLORS.primary : COLORS.error }]}>
+                    {p.totalPnL >= 0 ? '+' : '−'}{Math.abs(p.pnlPercent).toFixed(1)}%
+                </Text>
+            </View>
+        );
+    }
+    const value = a.type === 'credit' ? -Math.abs(a.balance) : accountValue(a);
+    return (
+        <TouchableOpacity
+            style={[styles.tile, { backgroundColor: pair.bg }]}
+            onPress={onPress}
+            activeOpacity={0.85}
+            accessibilityRole="button"
+            accessibilityLabel={`${a.name}, ${formatAmount(value)}`}
+        >
+            <View style={styles.tileTop}>
+                <View style={styles.tileIcon}><Icon name={(ACCOUNT_ICONS[a.type] ?? 'account-balance') as any} size={20} color={pair.fg} /></View>
+                {badge}
+            </View>
+            <View>
+                <Text style={[styles.tileName, { color: pair.fg }]} numberOfLines={1}>{a.name}{sub ? ` · ${sub}` : ''}</Text>
+                <Text style={styles.tileValue} numberOfLines={1} adjustsFontSizeToFit>{formatAmount(value)}</Text>
+            </View>
+        </TouchableOpacity>
+    );
+}
+
+function SubRow({ sub: s, formatAmount, onPress, muted }: { sub: Subscription; formatAmount: (n: number) => string; onPress?: () => void; muted?: string }) {
+    const days = getDaysUntilDue(s.dueDate);
+    const now = new Date();
+    const daysInMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
+    const progress = s.isPaid ? 1 : 1 - days / daysInMonth;
+    const urgent = !s.isPaid && days <= 3;
+    const Wrapper: any = onPress ? TouchableOpacity : View;
+    return (
+        <Wrapper
+            style={[styles.subRow, muted && { opacity: 0.55 }]}
+            onPress={onPress}
+            activeOpacity={0.85}
+            accessibilityRole={onPress ? 'button' : undefined}
+        >
+            <View style={styles.subTop}>
+                <View style={[styles.subIcon, { backgroundColor: muted ? COLORS.surfaceSunk : CATEGORY_PALETTE.fun.bg }]}>
+                    <Icon name={s.icon as any} size={20} color={muted ? COLORS.textSecondary : CATEGORY_PALETTE.fun.fg} />
+                </View>
+                <View style={{ flex: 1 }}>
+                    <View style={styles.subNameRow}>
+                        <Text style={styles.subName} numberOfLines={1}>{s.name}</Text>
+                        {s.isSplit && s.role === 'admin' && <View style={styles.tag}><Text style={styles.tagText}>Split</Text></View>}
+                        {s.role === 'member' && <View style={styles.tag}><Text style={styles.tagText}>Member</Text></View>}
+                    </View>
+                    <Text style={[styles.subMeta, muted === 'Deleted' && { color: COLORS.error }]}>
+                        {muted ?? (s.isPaid ? 'Paid this cycle' : `Due ${dueLabel(days)}`)}
+                        {!muted && s.role === 'member' && s.payTo ? ` · pay ${s.payTo}` : ''}
+                    </Text>
+                </View>
+                <Text style={styles.subAmount}>{formatAmount(s.myShare ?? s.amount ?? 0)}</Text>
+            </View>
+            {!muted && (
+                <ProgressBar
+                    value={progress}
+                    height={8}
+                    color={s.isPaid ? COLORS.brand : urgent ? SIKKA.signal : COLORS.night}
+                    label={s.isPaid ? 'Paid' : `Due ${dueLabel(days)}`}
+                />
+            )}
+        </Wrapper>
+    );
+}
+
+function Collapsible({ label, open, onToggle, danger, children }: { label: string; open: boolean; onToggle: () => void; danger?: boolean; children: React.ReactNode }) {
+    return (
+        <View style={{ gap: 10 }}>
+            <TouchableOpacity style={styles.collapse} onPress={onToggle} accessibilityRole="button" accessibilityState={{ expanded: open }}>
+                <Text style={[styles.collapseText, danger && { color: COLORS.error }]}>{label}</Text>
+                <Icon name={open ? 'expand-less' : 'expand-more'} size={22} color={COLORS.textSecondary} />
+            </TouchableOpacity>
+            {open && children}
+        </View>
     );
 }
 
 // ==================== STYLES ====================
 const styles = StyleSheet.create({
-    scrollView: { flex: 1 },
-    scrollContent: { paddingHorizontal: SPACING.xl, paddingBottom: 140 },
+    container: { flex: 1, backgroundColor: COLORS.background },
+    scroll: { paddingHorizontal: SPACING.lg, paddingBottom: 130, gap: SPACING.md },
+    header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+    title: { fontSize: 32, fontWeight: '800', letterSpacing: -0.5, color: COLORS.text },
+    addAccount: { height: 44, paddingHorizontal: 16, borderRadius: 22, backgroundColor: COLORS.night, flexDirection: 'row', alignItems: 'center', gap: 6 },
+    addAccountText: { fontSize: 14, fontWeight: '800', color: COLORS.onNight },
 
-    // Header
-    header: {
-        flexDirection: 'row',
-        justifyContent: 'space-between',
-        alignItems: 'center',
-        marginBottom: SPACING.xl,
-    },
-    screenTitle: { fontSize: 28, fontWeight: '700', color: COLORS.text },
+    hero: { backgroundColor: CATEGORY_PALETTE.fun.bg, borderRadius: 32, padding: 20, gap: 12, overflow: 'hidden' },
+    heroBlob: { position: 'absolute', right: -30, top: -30, width: 120, height: 120, borderRadius: 60, backgroundColor: '#D4C6FF' },
+    heroTop: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' },
+    heroOver: { fontSize: 13, fontWeight: '800', color: CATEGORY_PALETTE.fun.fg, letterSpacing: 0.4 },
+    heroValue: { fontSize: 40, lineHeight: 44, fontWeight: '800', letterSpacing: -1, color: COLORS.text, marginTop: 2 },
+    changeChip: { backgroundColor: COLORS.surface, borderRadius: 999, paddingVertical: 6, paddingHorizontal: 10 },
+    changeText: { fontSize: 13, fontWeight: '800', color: COLORS.primary },
+    splitBar: { flexDirection: 'row', height: 16, gap: 4 },
+    legend: { flexDirection: 'row', gap: SPACING.md, flexWrap: 'wrap' },
+    legendItem: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+    legendDot: { width: 10, height: 10, borderRadius: 5 },
+    legendText: { fontSize: 12, fontWeight: '700', color: CATEGORY_PALETTE.fun.fg },
 
-    // Tab Bar
-    tabBar: {
-        flexDirection: 'row',
-        backgroundColor: COLORS.surface,
-        borderRadius: BORDER_RADIUS.lg,
-        padding: 4,
-        marginBottom: SPACING.xxl,
-        position: 'relative',
-    },
-    tabIndicator: {
-        position: 'absolute',
-        top: 4,
-        bottom: 4,
-        borderRadius: BORDER_RADIUS.md,
-        backgroundColor: COLORS.primary,
-    },
-    tab: {
-        flex: 1,
-        paddingVertical: SPACING.md,
-        borderRadius: BORDER_RADIUS.md,
-        alignItems: 'center',
-        zIndex: 1,
-    },
-    tabText: {
-        fontSize: FONT_SIZE.md,
-        fontWeight: '600',
-    },
+    grid: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
+    tile: { width: '48%', flexGrow: 1, height: 124, borderRadius: 28, padding: SPACING.lg, justifyContent: 'space-between' },
+    tileTop: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+    tileIcon: { width: 38, height: 38, borderRadius: 13, backgroundColor: COLORS.surface, alignItems: 'center', justifyContent: 'center' },
+    tileName: { fontSize: 13, fontWeight: '800' },
+    tileValue: { fontSize: 22, fontWeight: '800', color: COLORS.text },
+    tileAdd: { borderWidth: 2, borderStyle: 'dashed', borderColor: '#BDB5A6', alignItems: 'center', justifyContent: 'center', gap: 6 },
+    tileAddText: { fontSize: 14, fontWeight: '800', color: COLORS.text },
+    badgeNight: { backgroundColor: COLORS.night, borderRadius: 999, paddingVertical: 3, paddingHorizontal: 8 },
+    badgeNightText: { fontSize: 12, fontWeight: '800', color: COLORS.onNight },
+    badgeWhite: { backgroundColor: COLORS.surface, borderRadius: 999, paddingVertical: 3, paddingHorizontal: 8 },
+    badgeWhiteText: { fontSize: 12, fontWeight: '800' },
 
-    // Tab Content
-    tabContentContainer: {
-        overflow: 'hidden',
-    },
-    tabContentSlider: {
-        flexDirection: 'row',
-    },
+    sectionHead: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'baseline', paddingHorizontal: 4, marginTop: SPACING.xs },
+    sectionTitle: { fontSize: 18, fontWeight: '800', color: COLORS.text },
+    sectionMeta: { fontSize: 13, fontWeight: '800', color: COLORS.textSecondary },
+    sort: { fontSize: 13, fontWeight: '800', color: COLORS.textSecondary },
 
-    // Net Worth / Commitment Section
-    netWorthSection: {
-        marginBottom: SPACING.xxl,
-    },
-    netWorthLabelRow: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        gap: SPACING.sm,
-        marginBottom: SPACING.sm,
-    },
-    netWorthLabel: {
-        fontSize: FONT_SIZE.sm,
-        fontWeight: '600',
-        color: COLORS.textMuted,
-        letterSpacing: 1,
-    },
-    netWorthAmount: {
-        fontSize: 36,
-        fontWeight: '700',
-        color: COLORS.text,
-    },
-    changeBadge: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        marginTop: SPACING.sm,
-        gap: SPACING.xs,
-    },
-    changeText: {
-        fontSize: FONT_SIZE.sm,
-        fontWeight: '600',
-        color: COLORS.primary,
-        backgroundColor: COLORS.primaryMuted,
-        paddingHorizontal: SPACING.sm,
-        paddingVertical: 2,
-        borderRadius: BORDER_RADIUS.sm,
-        overflow: 'hidden',
-    },
-    changeSubtext: {
-        fontSize: FONT_SIZE.sm,
-        color: COLORS.textMuted,
-        marginLeft: SPACING.xs,
-    },
-    commitmentRow: {
-        flexDirection: 'row',
-        alignItems: 'baseline',
-    },
-    perMonth: {
-        fontSize: FONT_SIZE.xl,
-        color: COLORS.textMuted,
-        fontWeight: '400',
-    },
+    bleed: { marginHorizontal: -SPACING.lg },
+    comingRow: { gap: 10, paddingHorizontal: SPACING.lg },
+    coming: { borderRadius: 24, padding: 14, flexDirection: 'row', alignItems: 'center', gap: 10, minWidth: 170 },
+    comingNight: { backgroundColor: COLORS.night },
+    comingWhite: { backgroundColor: COLORS.surface, ...SHADOWS.sm },
+    comingIcon: { width: 40, height: 40, borderRadius: 14, alignItems: 'center', justifyContent: 'center' },
+    comingInitial: { fontSize: 18, fontWeight: '800', color: COLORS.onBrand },
+    comingName: { fontSize: 15, fontWeight: '800', color: COLORS.text, maxWidth: 180 },
+    comingMeta: { fontSize: 12, color: COLORS.textSecondary },
 
-    // Group
-    accountGroup: {
-        marginBottom: SPACING.lg,
-    },
-    groupLabel: {
-        fontSize: FONT_SIZE.sm,
-        fontWeight: '600',
-        color: COLORS.primary,
-        letterSpacing: 1,
-        marginBottom: SPACING.md,
-    },
+    shareCard: { flexDirection: 'row', alignItems: 'center', gap: SPACING.md, backgroundColor: COLORS.surface, borderRadius: 24, padding: 14, ...SHADOWS.sm },
+    shareIcon: { width: 44, height: 44, borderRadius: 16, backgroundColor: CATEGORY_PALETTE.fun.bg, alignItems: 'center', justifyContent: 'center' },
+    shareValue: { fontSize: 22, fontWeight: '800', color: COLORS.text },
+    sharePer: { fontSize: 14, fontWeight: '700', color: COLORS.textSecondary },
+    shareMeta: { fontSize: 13, color: COLORS.textSecondary },
 
-    // Account Card
-    accountCard: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        backgroundColor: COLORS.surface,
-        borderRadius: BORDER_RADIUS.lg,
-        padding: SPACING.lg,
-        marginBottom: SPACING.sm,
-    },
-    accountIcon: {
-        width: 44,
-        height: 44,
-        borderRadius: BORDER_RADIUS.md,
-        alignItems: 'center',
-        justifyContent: 'center',
-        marginRight: SPACING.md,
-    },
-    accountContent: {
-        flex: 1,
-    },
-    accountName: {
-        fontSize: FONT_SIZE.lg,
-        fontWeight: '600',
-        color: COLORS.text,
-        marginBottom: 2,
-    },
-    accountSubtitle: {
-        fontSize: FONT_SIZE.sm,
-        color: COLORS.textMuted,
-    },
-    accountBalance: {
-        fontSize: FONT_SIZE.lg,
-        fontWeight: '700',
-        color: COLORS.text,
-    },
-    negativeBalance: {
-        color: COLORS.error,
-    },
+    subRow: { backgroundColor: COLORS.surface, borderRadius: 24, padding: 14, gap: 12, ...SHADOWS.sm },
+    subTop: { flexDirection: 'row', alignItems: 'center', gap: SPACING.md },
+    subIcon: { width: 44, height: 44, borderRadius: 16, alignItems: 'center', justifyContent: 'center' },
+    subNameRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+    subName: { fontSize: 16, fontWeight: '800', color: COLORS.text, flexShrink: 1 },
+    subMeta: { fontSize: 13, fontWeight: '600', color: COLORS.textSecondary, marginTop: 1 },
+    subAmount: { fontSize: 18, fontWeight: '800', color: COLORS.text },
+    tag: { backgroundColor: COLORS.background, borderRadius: 999, paddingHorizontal: 8, paddingVertical: 2 },
+    tagText: { fontSize: 11, fontWeight: '800', color: COLORS.textSecondary },
 
-    // Add Button
-    addBtn: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        justifyContent: 'center',
-        backgroundColor: COLORS.surfaceLight,
-        borderRadius: BORDER_RADIUS.lg,
-        padding: SPACING.lg,
-        marginTop: SPACING.md,
-        borderWidth: 1,
-        borderStyle: 'dashed',
-        borderColor: COLORS.border,
-    },
-    addBtnText: {
-        fontSize: FONT_SIZE.md,
-        fontWeight: '600',
-        color: COLORS.primary,
-    },
-
-    // Subscriptions
-    billsHeaderRow: {
-        flexDirection: 'row',
-        justifyContent: 'space-between',
-        alignItems: 'center',
-        marginBottom: SPACING.md,
-    },
-    sortBtn: {
-        fontSize: FONT_SIZE.sm,
-        fontWeight: '600',
-        color: COLORS.primary,
-    },
-    pastSubsHeader: {
-        flexDirection: 'row',
-        justifyContent: 'space-between',
-        alignItems: 'center',
-        marginBottom: SPACING.sm,
-    },
-
-    // Subscription Card
-    subCard: {
-        backgroundColor: COLORS.surface,
-        borderRadius: BORDER_RADIUS.lg,
-        padding: SPACING.lg,
-        marginBottom: SPACING.md,
-    },
-    subCardTop: {
-        flexDirection: 'row',
-        justifyContent: 'space-between',
-        marginBottom: SPACING.md,
-    },
-    subIcon: {
-        width: 40,
-        height: 40,
-        borderRadius: BORDER_RADIUS.md,
-        alignItems: 'center',
-        justifyContent: 'center',
-        marginRight: SPACING.md,
-    },
-    subContent: {
-        flex: 1,
-        justifyContent: 'center',
-    },
-    subName: {
-        fontSize: FONT_SIZE.md,
-        fontWeight: '600',
-        color: COLORS.text,
-        marginBottom: 2,
-    },
-    subDueText: {
-        fontSize: FONT_SIZE.sm,
-        color: COLORS.textMuted,
-    },
-    subRight: {
-        alignItems: 'flex-end',
-        justifyContent: 'center',
-    },
-    subAmount: {
-        fontSize: FONT_SIZE.lg,
-        fontWeight: '700',
-        color: COLORS.text,
-        marginBottom: 4,
-    },
-    dueBadge: {
-        paddingHorizontal: 6,
-        paddingVertical: 2,
-        borderRadius: 4,
-        backgroundColor: COLORS.surfaceLight,
-    },
-    paidBadge: {
-        backgroundColor: COLORS.primaryMuted,
-    },
-    dueBadgeText: {
-        fontSize: 10,
-        fontWeight: '700',
-        color: COLORS.textMuted,
-    },
-    paidBadgeText: {
-        color: COLORS.primary,
-    },
-    splitBadge: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        backgroundColor: COLORS.surfaceLight,
-        paddingHorizontal: 4,
-        paddingVertical: 1,
-        borderRadius: 4,
-        marginLeft: 6,
-    },
-    memberBadge: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        backgroundColor: COLORS.surfaceLight,
-        paddingHorizontal: 4,
-        paddingVertical: 1,
-        borderRadius: 4,
-        marginLeft: 6,
-    },
-    splitBadgeText: {
-        fontSize: 9,
-        fontWeight: '600',
-        color: COLORS.textSecondary,
-        marginLeft: 2,
-    },
-
-    // Progress
-    progressTrack: {
-        height: 6,
-        backgroundColor: COLORS.surfaceLight,
-        borderRadius: 3,
-        overflow: 'hidden',
-    },
-    progressFill: {
-        height: '100%',
-        borderRadius: 3,
-    },
-    emptyState: { alignItems: 'center', paddingVertical: SPACING.xl * 2 },
-    emptyText: { fontSize: FONT_SIZE.lg, fontWeight: '600', color: COLORS.text, marginTop: SPACING.md },
-    emptySubtext: { fontSize: FONT_SIZE.sm, color: COLORS.textMuted, marginTop: SPACING.sm },
-
-    // Credit Utilization Bar
-    utilizationContainer: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        marginTop: 6,
-        gap: 6,
-    },
-    utilizationTrack: {
-        flex: 1,
-        height: 4,
-        backgroundColor: COLORS.surfaceLight,
-        borderRadius: 2,
-        overflow: 'hidden',
-    },
-    utilizationFill: {
-        height: '100%',
-        borderRadius: 2,
-    },
-    utilizationText: {
-        fontSize: 10,
-        fontWeight: '700',
-    },
-
-    // Investment P&L Badge
-    pnlBadge: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        paddingHorizontal: 6,
-        paddingVertical: 2,
-        borderRadius: 4,
-        marginTop: 4,
-        alignSelf: 'flex-start',
-        gap: 3,
-    },
-    pnlText: {
-        fontSize: 10,
-        fontWeight: '700',
-    },
-
-    // Account Balance Column
-    accountBalanceCol: {
-        alignItems: 'flex-end',
-        justifyContent: 'center',
-    },
-    accountSubBalance: {
-        fontSize: FONT_SIZE.xs,
-        color: COLORS.textMuted,
-        marginTop: 2,
-    },
+    dashed: { height: 56, borderRadius: 28, borderWidth: 2, borderStyle: 'dashed', borderColor: '#BDB5A6', flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: SPACING.sm },
+    dashedText: { fontSize: 15, fontWeight: '800', color: COLORS.text },
+    collapse: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 4, paddingVertical: SPACING.sm },
+    collapseText: { fontSize: 14, fontWeight: '800', color: COLORS.textSecondary },
 });
