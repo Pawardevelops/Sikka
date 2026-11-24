@@ -16,7 +16,8 @@ const MINUTE = 60_000;
 export async function saveRawSms(body: string, sender: string, receivedAt: number) {
     await database.write(async () => {
         const col = database.get<UnparsedMessage>('unparsed_messages');
-        const existing = await col.query(Q.where('body', body), Q.where('timestamp', Q.gt(receivedAt - MINUTE))).fetchCount();
+        // Bank SMS carry reference numbers, so the same text twice is the same message.
+        const existing = await col.query(Q.where('body', body)).fetchCount();
         if (existing > 0) return;
         await col.create((m) => {
             m.body = body;
@@ -60,6 +61,12 @@ async function findCategory(name: string): Promise<Category | undefined> {
     return cats.find((c) => c.name.toLowerCase() === name.toLowerCase()) ?? cats[0];
 }
 const cap = (s: string) => (s ? s[0].toUpperCase() + s.slice(1) : s);
+
+/** Bank SMS shout ("UBER INDIA"); names read better in title case ("Uber India"). */
+const titleCase = (s: string) =>
+    s === s.toUpperCase() && /[A-Z]{3,}/.test(s) && s !== 'UNKNOWN'
+        ? s.toLowerCase().replace(/\b([a-z])/g, (c) => c.toUpperCase())
+        : s;
 
 /**
  * Saves a captured payment. Without a rule it waits for review (isAuto = true).
@@ -113,7 +120,7 @@ export async function saveCapturedTransaction(
                 .fetch();
         }
         // A raw UPI ID ("bluetokai@ybl") reads better as a name ("Bluetokai").
-        const merchant = rule?.name ?? known?.merchant ?? (parsed.merchant.includes('@') ? prettyName(parsed.merchant) : parsed.merchant);
+        const merchant = rule?.name ?? known?.merchant ?? (parsed.merchant.includes('@') ? prettyName(parsed.merchant) : titleCase(parsed.merchant));
         let categoryName = rule?.category ?? parsed.category;
         if (!rule && known) {
             try {

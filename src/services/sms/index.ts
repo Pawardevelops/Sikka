@@ -190,8 +190,13 @@ export async function unreadBankSms(sinceMs = Date.now() - LOOKBACK_MS, limit = 
     const bodies = new Set(captured.map((t: any) => t.smsBody).filter(Boolean));
     const ignored = await ignoredSmsIds();
     await loadLearnedFormats();
+    const seen = new Set<string>();
     return msgs
-        .filter((m) => !ignored.has(m.id) && looksFinancial(m.body) && !parseWithPatterns(m.body) && !bodies.has(m.body))
+        .filter((m) => {
+            if (seen.has(m.body)) return false;
+            seen.add(m.body);
+            return !ignored.has(m.id) && looksFinancial(m.body) && !parseWithPatterns(m.body) && !bodies.has(m.body);
+        })
         .slice(0, limit);
 }
 

@@ -17,7 +17,8 @@ export default class Transaction extends Model {
     @field('amount') amount!: number;
     @text('merchant') merchant!: string;
     @text('note') note!: string;
-    @date('timestamp') timestamp!: number;
+    // Raw number (ms): @date would hand back a Date, which Q.between and arithmetic reject.
+    @field('timestamp') timestamp!: number;
     @field('type') type!: 'credit' | 'debit';
     @field('is_auto') isAuto!: boolean;
     @field('is_deleted') isDeleted!: boolean;

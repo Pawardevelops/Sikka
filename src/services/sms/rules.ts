@@ -33,8 +33,8 @@ export const toRuleData = (r: SmsRule): RuleData => ({
     accountId: r.accountId ?? undefined,
     mode: r.mode,
     matchCount: r.matchCount,
-    lastMatchedAt: r.lastMatchedAt ?? undefined,
-    createdAt: r.createdAt,
+    lastMatchedAt: r.lastMatchedAt ? +r.lastMatchedAt : undefined,
+    createdAt: +r.createdAt,
 });
 
 /** The rule for this SMS, if one was taught. Longest payee match wins. */

@@ -33,6 +33,8 @@ const SAMPLES: [number, string, string][] = [
     [22.0, 'VM-HDFCBK', 'Rs.1,100.00 debited from A/c XX7731 to VPA blinkit.payu@hdfcbank on 02-11-26.'],
     [25.0, 'AD-ICICIB', 'INR 12,400.00 spent on ICICI Bank Credit Card XX0441 at AMAZON on 30-Oct-26. Avl Lmt: INR 1,07,600.00'],
     [27.0, 'VM-HDFCBK', 'Rs.390.00 debited from A/c XX7731 to VPA uber.india@axisbank on 28-10-26.'],
+    [0.15, 'JM-KOTAKB', 'Sent Rs 1,499.00 from Kotak Bank AC X4410 to CULT FIT on 24-11-26. UPI Ref 630912'],
+    [6.5, 'JM-KOTAKB', 'Sent Rs 2,250.00 from Kotak Bank AC X4410 to DECATHLON on 18-11-26. UPI Ref 630577'],
     [0.2, 'VK-AIRTEL', 'Your Airtel bill of Rs 499 is due on 28-11. Pay now on Airtel Thanks app.'],
     [0.4, 'TM-SWIGGY', 'Hungry? Get 50% off on your next order. Use code YUMMY.'],
 ];
