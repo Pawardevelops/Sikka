@@ -13,12 +13,13 @@ import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import Animated, {
     interpolate,
     runOnJS,
+    cancelAnimation,
     useAnimatedStyle,
     useSharedValue,
     withSpring,
     withTiming,
 } from 'react-native-reanimated';
-import { EASE, Float, Lottie, POP_SPRING, Wiggle, fadeIn, popIn } from '../motion';
+import { EASE, Float, Lottie, SETTLE, SNAP_BACK, fadeIn, popIn, haptic } from '../motion';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Text, TextInput } from '../components/Typography';
 import { useNavigation } from '../context/NavigationContext';
@@ -120,7 +121,10 @@ export default function NotifyActionCenterScreen() {
 
     // A cleared deck counts toward the daily review streak.
     useEffect(() => {
-        if (!pending.length && reviewedCount > 0) bumpStreak();
+        if (!pending.length && reviewedCount > 0) {
+            bumpStreak();
+            haptic.success();
+        }
     }, [pending.length, reviewedCount, bumpStreak]);
 
     // ── Review one ("Who was this?") ──
@@ -282,8 +286,8 @@ const Deck = forwardRef<DeckHandle, {
     const leaving = useSharedValue(false);
 
     useEffect(() => {
-        // Next card scales up from 0.96 as it takes the top spot.
-        enter.value = withSpring(1, POP_SPRING);
+        // Next card settles up from 0.96 as it takes the top spot (no bounce).
+        enter.value = withSpring(1, SETTLE);
     }, [enter]);
 
     const mounted = useRef(true);
@@ -300,39 +304,51 @@ const Deck = forwardRef<DeckHandle, {
         setTimeout(() => {
             if (!mounted.current) return;
             leaving.value = false;
-            x.value = withSpring(0, POP_SPRING);
-            y.value = withSpring(0, POP_SPRING);
+            x.value = withSpring(0, SETTLE);
+            y.value = withSpring(0, SETTLE);
         }, MOTION.durSlow);
     };
 
+    // The card leaves the way it was pushed: ease-out, 220 ms, carrying on from where the finger left it.
     const fling = (dir: 1 | -1) => {
         'worklet';
         if (leaving.value) return;
         leaving.value = true;
-        y.value = withTiming(-40, { duration: MOTION.durBase, easing: EASE.in });
-        x.value = withTiming(dir * 500, { duration: MOTION.durBase, easing: EASE.in }, (done) => {
+        runOnJS(haptic.commit)();
+        y.value = withTiming(y.value - 24, { duration: 220, easing: EASE.out });
+        x.value = withTiming(dir * 520, { duration: 220, easing: EASE.out }, (done) => {
             if (done) runOnJS(settle)(dir);
         });
     };
 
     useImperativeHandle(ref, () => ({ fling: (dir) => fling(dir) }));
 
-    const pan = Gesture.Pan()
+    // Grabbing a card mid-settle continues from where it is, not from the centre.
+    const startX = useSharedValue(0);
+    const startY = useSharedValue(0);
+    const pan = useMemo(() => Gesture.Pan()
         .activeOffsetX([-8, 8])
         .failOffsetY([-12, 12])
+        .onStart(() => {
+            cancelAnimation(x);
+            cancelAnimation(y);
+            startX.value = x.value;
+            startY.value = y.value;
+        })
         .onUpdate((e) => {
             if (leaving.value) return;
-            x.value = e.translationX;
-            y.value = e.translationY * 0.3;
+            x.value = startX.value + e.translationX;
+            y.value = startY.value + e.translationY * 0.3;
         })
         .onEnd((e) => {
             if (e.translationX > SWIPE_OUT || e.velocityX > 900) fling(1);
             else if (e.translationX < -SWIPE_OUT || e.velocityX < -900) fling(-1);
             else {
-                x.value = withSpring(0, POP_SPRING);
-                y.value = withSpring(0, POP_SPRING);
+                // Not far or fast enough: snap home with the release velocity.
+                x.value = withSpring(0, { ...SNAP_BACK, velocity: e.velocityX });
+                y.value = withSpring(0, { ...SNAP_BACK, velocity: e.velocityY });
             }
-        });
+        }), [x, y, startX, startY, leaving]);
 
     const cardStyle = useAnimatedStyle(() => ({
         transform: [
@@ -394,9 +410,7 @@ const Deck = forwardRef<DeckHandle, {
                     )}
                     <View style={styles.hints}>
                         <Text style={[styles.hint, { color: CATEGORY_PALETTE.shopping.fg }]}>← Not mine</Text>
-                        <Wiggle>
-                            <Text style={[styles.hint, { color: COLORS.primary }]}>Approve →</Text>
-                        </Wiggle>
+                        <Text style={[styles.hint, { color: COLORS.primary }]}>Approve →</Text>
                     </View>
                 </View>
             </Animated.View>

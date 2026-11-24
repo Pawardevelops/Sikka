@@ -7,7 +7,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { StyleSheet, View, BackHandler } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import Animated from 'react-native-reanimated';
-import { riseIn } from './src/motion';
+import { screenIn } from './src/motion';
 import { StatusBar } from 'expo-status-bar';
 import { useFonts } from 'expo-font';
 import {
@@ -389,7 +389,8 @@ function MainApp() {
       <ToastProvider bottomOffset={showTabBar ? 110 : 24}>
       <View style={styles.container}>
         <StatusBar style="dark" />
-        <Animated.View key={screenKey} entering={riseIn()} style={styles.screenContainer}>
+        {/* Pushed screens fade in (180 ms); tab switches are instant. */}
+        <Animated.View key={screenKey} entering={showTabBar ? undefined : screenIn} style={styles.screenContainer}>
           {renderScreen()}
         </Animated.View>
         {showTabBar && (

@@ -7,10 +7,10 @@
  * lime pill with its label. Settings lives behind the gear on Home.
  */
 
-import React, { useEffect } from 'react';
+import React from 'react';
 import { StyleSheet, View, TouchableOpacity } from 'react-native';
-import Animated, { LinearTransition, useAnimatedStyle, useSharedValue, withSpring } from 'react-native-reanimated';
-import { POP_SPRING, fadeIn, popIn } from '../motion';
+import Animated from 'react-native-reanimated';
+import { popIn } from '../motion';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Text } from './Typography';
 import { TabType } from '../types';
@@ -44,11 +44,7 @@ function TabButton({
     onPress: () => void;
     badge?: number;
 }) {
-    const pop = useSharedValue(active ? 1 : 0);
-    useEffect(() => {
-        pop.value = withSpring(active ? 1 : 0, POP_SPRING);
-    }, [active, pop]);
-    const popStyle = useAnimatedStyle(() => ({ transform: [{ scale: 0.92 + 0.08 * pop.value }] }));
+    // Tabs are switched dozens of times a session: the active pill changes instantly.
 
     return (
         <TouchableOpacity
@@ -59,14 +55,10 @@ function TabButton({
             accessibilityLabel={badge ? `${label}, ${badge} waiting` : label}
             style={styles.touch}
         >
-            <Animated.View layout={LinearTransition.springify().damping(16)} style={[active ? styles.active : styles.idle, popStyle]}>
+            <View style={active ? styles.active : styles.idle}>
                 <Icon name={icon} size={22} color={COLORS.text} />
-                {active && (
-                    <Animated.View entering={fadeIn}>
-                        <Text style={styles.label} numberOfLines={1}>{label}</Text>
-                    </Animated.View>
-                )}
-            </Animated.View>
+                {active && <Text style={styles.label} numberOfLines={1}>{label}</Text>}
+            </View>
             {!!badge && (
                 <Animated.View key={badge} entering={popIn()} style={styles.badge}>
                     <Text style={styles.badgeText}>{badge > 9 ? '9+' : badge}</Text>

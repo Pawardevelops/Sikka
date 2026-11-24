@@ -7,11 +7,11 @@
  * on-pace line · today's payments.
  */
 
-import React, { useEffect, useMemo } from 'react';
+import React, { useMemo } from 'react';
 import { StyleSheet, View, ScrollView, TouchableOpacity } from 'react-native';
 import Svg, { Polyline, Circle } from 'react-native-svg';
-import Animated, { useAnimatedProps, useSharedValue, withDelay, withTiming, ReduceMotion } from 'react-native-reanimated';
-import { EASE, Rise, growY, popIn } from '../motion';
+import Animated from 'react-native-reanimated';
+import { Rise, growY, popIn, useFirstVisit } from '../motion';
 import { Text } from '../components/Typography';
 import { useCurrency } from '../context/CurrencyContext';
 import { useAccounts } from '../context/AccountsContext';
@@ -19,9 +19,8 @@ import { useTransactions } from '../context/TransactionsContext';
 import { usePrefs } from '../context/PrefsContext';
 import { useOnboarding } from '../context/OnboardingContext';
 import { useNavigation } from '../context/NavigationContext';
-import { COLORS, SPACING, SHADOWS, CATEGORY_PALETTE, getCategoryColors, MOTION } from '../constants/theme';
+import { COLORS, SPACING, SHADOWS, CATEGORY_PALETTE, getCategoryColors } from '../constants/theme';
 
-const AnimatedPolyline = Animated.createAnimatedComponent(Polyline);
 import { useSafeTop } from '../components/SafeScreen';
 import { Icon } from '../components/Icon';
 import { Sikku, IconButton } from '../components/ui';
@@ -54,23 +53,10 @@ function Sparkline({ values, width = 130, height = 44 }: { values: number[]; wid
     });
     const last = pts[pts.length - 1];
     const rising = values[values.length - 1] >= values[0];
-    const length = pts.reduce((sum, p, i) => (i === 0 ? 0 : sum + Math.hypot(p[0] - pts[i - 1][0], p[1] - pts[i - 1][1])), 0);
 
-    // `sk-draw`: the line draws itself in after the hero has risen.
-    const drawn = useSharedValue(0);
-    useEffect(() => {
-        drawn.value = 0;
-        drawn.value = withDelay(
-            MOTION.durBase,
-            withTiming(1, { duration: MOTION.durCelebrate, easing: EASE.out, reduceMotion: ReduceMotion.System }),
-        );
-    }, [length, drawn]);
-    const lineProps = useAnimatedProps(() => ({ strokeDashoffset: length * (1 - drawn.value) }));
     return (
-        <Svg width={width} height={height} accessibilityLabel={`Net worth ${rising ? 'rising' : 'falling'} over 6 months`}>
-            <AnimatedPolyline
-                animatedProps={lineProps}
-                strokeDasharray={[length, length]}
+        <Svg width={width} height={height} accessibilityLabel={`Money in your accounts ${rising ? 'rising' : 'falling'} over 6 months`}>
+            <Polyline
                 points={pts.map((p) => p.join(',')).join(' ')}
                 fill="none"
                 stroke={COLORS.onBrand}
@@ -86,6 +72,8 @@ function Sparkline({ values, width = 130, height = 44 }: { values: number[]; wid
 export function DashboardScreen() {
     const { formatAmount, balancesVisible, toggleBalancesVisible } = useCurrency();
     const { activeAccounts } = useAccounts();
+    // Home is opened tens of times a day: sections rise in on the first visit only.
+    const firstVisit = useFirstVisit('home');
     const { prefs, update } = usePrefs();
     // v3: the hero shows money in your accounts (same number as Assets); cards are shown as owed.
     const inAccounts = activeAccounts.filter((a) => a.type !== 'credit').reduce((s, a) => s + a.balance, 0);
@@ -144,7 +132,7 @@ export function DashboardScreen() {
         <View style={styles.container}>
             <ScrollView contentContainerStyle={[styles.scroll, { paddingTop: safeTop + SPACING.sm }]} showsVerticalScrollIndicator={false}>
                 {/* Header */}
-                <Rise index={0} style={styles.header}>
+                <Rise skip={!firstVisit} index={0} style={styles.header}>
                     <Sikku size={48} simple />
                     <View style={{ flex: 1 }}>
                         <Text style={styles.greeting}>{greeting}</Text>
@@ -156,7 +144,7 @@ export function DashboardScreen() {
                 </Rise>
 
                 {/* Net worth hero */}
-                <Rise index={1} style={styles.hero}>
+                <Rise skip={!firstVisit} index={1} style={styles.hero}>
                     <View style={styles.heroNight} pointerEvents="none"><Text style={styles.heroRupee}>₹</Text></View>
                     <View style={styles.heroDot} pointerEvents="none" />
                     <View style={styles.heroTop}>
@@ -188,7 +176,7 @@ export function DashboardScreen() {
 
                 {/* Bento */}
                 <View style={styles.bento}>
-                    <Rise index={2} style={{ flex: 1 }}>
+                    <Rise skip={!firstVisit} index={2} style={{ flex: 1 }}>
                         <TouchableOpacity
                             style={styles.reviewTile}
                             onPress={openNotifyCenter}
@@ -214,7 +202,7 @@ export function DashboardScreen() {
                         </TouchableOpacity>
                     </Rise>
                     <View style={styles.bentoCol}>
-                        <Rise index={3}>
+                        <Rise skip={!firstVisit} index={3}>
                             <View style={[styles.smallTile, { backgroundColor: CATEGORY_PALETTE.fun.bg }]}>
                                 <View style={styles.smallIcon}><Icon name="local-fire-department" size={20} color={CATEGORY_PALETTE.fun.fg} /></View>
                                 <View>
@@ -223,7 +211,7 @@ export function DashboardScreen() {
                                 </View>
                             </View>
                         </Rise>
-                        <Rise index={3}>
+                        <Rise skip={!firstVisit} index={3}>
                             <View style={[styles.smallTile, { backgroundColor: CATEGORY_PALETTE.bills.bg }]}>
                                 <View style={styles.smallIcon}><Icon name="schedule" size={20} color={CATEGORY_PALETTE.bills.fg} /></View>
                                 <View style={{ flexShrink: 1 }}>
@@ -236,7 +224,7 @@ export function DashboardScreen() {
                 </View>
 
                 {/* This week */}
-                <Rise index={4} style={styles.weekCard}>
+                <Rise skip={!firstVisit} index={4} style={styles.weekCard}>
                     <View style={styles.weekHead}>
                         <View>
                             <Text style={styles.weekOver}>THIS WEEK</Text>
@@ -251,7 +239,7 @@ export function DashboardScreen() {
                     </View>
                     <View style={styles.bars} accessibilityLabel="Daily spending this week by category">
                         {week.map((d, i) => (
-                            <Animated.View key={i} entering={growY(i)} style={styles.barCol}>
+                            <Animated.View key={i} entering={firstVisit ? growY(i) : undefined} style={styles.barCol}>
                                 {d.total === 0 ? (
                                     <View style={[styles.barPart, { height: 4, backgroundColor: COLORS.surfaceSunk }]} />
                                 ) : d.isToday ? (
@@ -275,7 +263,7 @@ export function DashboardScreen() {
                 </Rise>
 
                 {showBackupNudge && (
-                    <Rise index={5}>
+                    <Rise skip={!firstVisit} index={5}>
                         <TouchableOpacity style={styles.nudge} onPress={() => openScreen({ name: 'backup' })} accessibilityRole="button" activeOpacity={0.85}>
                             <View style={styles.nudgeIcon}><Icon name="cloud-upload" size={22} color={CATEGORY_PALETTE.transport.fg} /></View>
                             <View style={{ flex: 1 }}>
@@ -294,7 +282,7 @@ export function DashboardScreen() {
                     </Rise>
                 )}
                 {showRecap && (
-                    <Rise index={5}>
+                    <Rise skip={!firstVisit} index={5}>
                         <TouchableOpacity style={[styles.nudge, { backgroundColor: CATEGORY_PALETTE.bills.bg }]} onPress={() => openScreen({ name: 'recap' })} accessibilityRole="button" activeOpacity={0.85}>
                             <View style={styles.nudgeIcon}><Icon name="insights" size={22} color={CATEGORY_PALETTE.bills.fg} /></View>
                             <View style={{ flex: 1 }}>
@@ -309,13 +297,13 @@ export function DashboardScreen() {
                 )}
 
                 {/* Today */}
-                <Rise index={5} style={styles.todayHead}>
+                <Rise skip={!firstVisit} index={5} style={styles.todayHead}>
                     <Text style={styles.todayTitle}>Today</Text>
                     <TouchableOpacity onPress={openAllTransactions} accessibilityRole="button" hitSlop={10}>
                         <Text style={styles.seeAll}>See all</Text>
                     </TouchableOpacity>
                 </Rise>
-                <Rise index={6} style={{ gap: 10 }}>
+                <Rise skip={!firstVisit} index={6} style={{ gap: 10 }}>
                     {todayTransactions.length === 0 ? (
                         <TouchableOpacity style={styles.empty} onPress={() => openAddTransactionModal()} activeOpacity={0.85} accessibilityRole="button">
                             <Sikku size={44} mood="sleepy" />

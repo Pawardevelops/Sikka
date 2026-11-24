@@ -301,15 +301,16 @@ export const SHADOWS = {
 
 // ==================== MOTION ====================
 
+/** Micro, soft-settle motion (Emil Kowalski's values). UI stays under 300 ms; no ease-in. */
 export const MOTION = {
-    durFast: 140,
-    durBase: 240,
-    durSlow: 420,
-    durCelebrate: 900,
+    durFast: 120,   // press feedback
+    durBase: 240,   // small state changes, entrances
+    durSlow: 300,   // the longest UI motion (sheets, progress)
+    durCelebrate: 900, // rare moments only (all clear)
     // cubic-bezier control points, for Easing.bezier(...)
-    easeOut: [0.22, 1, 0.36, 1] as const,
-    easeSpring: [0.34, 1.56, 0.64, 1] as const,
-    easeIn: [0.55, 0, 1, 0.45] as const,
+    easeOut: [0.23, 1, 0.32, 1] as const,      // entering / leaving / press
+    easeInOut: [0.77, 0, 0.175, 1] as const,   // moving on screen
+    easeSheet: [0.32, 0.72, 0, 1] as const,    // iOS sheet curve
 } as const;
 
 

@@ -16,12 +16,12 @@ import {
 } from 'react-native';
 import Animated, {
     interpolateColor,
+    ReduceMotion,
     useAnimatedStyle,
     useSharedValue,
-    withSpring,
     withTiming,
 } from 'react-native-reanimated';
-import { EASE, POP_SPRING, popIn } from '../../motion';
+import { EASE, popIn, haptic } from '../../motion';
 import { Text } from '../Typography';
 import { Icon, IconName } from '../Icon';
 import { COLORS, SIKKA, SHADOWS, SPACING, BORDER_RADIUS, CATEGORY_PALETTE, MOTION, PaletteKey } from '../../constants/theme';
@@ -51,8 +51,9 @@ export function Button({
 }) {
     const scale = useSharedValue(1);
     const scaleStyle = useAnimatedStyle(() => ({ transform: [{ scale: scale.value }] }));
-    const pressIn = () => { scale.value = withTiming(0.97, { duration: MOTION.durFast, easing: EASE.out }); };
-    const pressOut = () => { scale.value = withSpring(1, POP_SPRING); };
+    // Feedback on press-in (120 ms); release returns a touch slower (160 ms), no bounce.
+    const pressIn = () => { scale.value = withTiming(0.97, { duration: MOTION.durFast, easing: EASE.out, reduceMotion: ReduceMotion.System }); };
+    const pressOut = () => { scale.value = withTiming(1, { duration: 160, easing: EASE.out, reduceMotion: ReduceMotion.System }); };
     const isNight = variant === 'night';
     const fg = isNight ? COLORS.onNight : COLORS.text;
     const bg = isNight ? COLORS.night : variant === 'lime' ? COLORS.brand : variant === 'soft' ? COLORS.surface : 'transparent';
@@ -154,7 +155,8 @@ export function Toggle({
 }) {
     const progress = useSharedValue(value ? 1 : 0);
     useEffect(() => {
-        progress.value = withSpring(value ? 1 : 0, POP_SPRING);
+        // The knob moves across the track: ease-in-out, 180 ms, settles without overshoot.
+        progress.value = withTiming(value ? 1 : 0, { duration: 180, easing: EASE.inOut, reduceMotion: ReduceMotion.System });
     }, [value, progress]);
     const trackStyle = useAnimatedStyle(() => ({
         backgroundColor: interpolateColor(progress.value, [0, 1], [SIKKA.line, SIKKA.night]),
@@ -166,7 +168,11 @@ export function Toggle({
 
     return (
         <Pressable
-            onPress={() => !disabled && onValueChange(!value)}
+            onPress={() => {
+                if (disabled) return;
+                haptic.select();
+                onValueChange(!value);
+            }}
             accessibilityRole="switch"
             accessibilityState={{ checked: value, disabled: !!disabled }}
             accessibilityLabel={label}
@@ -215,7 +221,10 @@ export function Segmented<T extends string>({
                         key={o.value}
                         accessibilityRole="radio"
                         accessibilityState={{ checked: on }}
-                        onPress={() => onChange(o.value)}
+                        onPress={() => {
+                            if (o.value !== value) haptic.select();
+                            onChange(o.value);
+                        }}
                         activeOpacity={0.8}
                         style={[styles.segBtn, pills && styles.segPill, on && styles.segBtnOn]}
                     >
@@ -347,7 +356,7 @@ export function ProgressBar({
     const pct = Math.max(0, Math.min(1, value));
     const fill = useSharedValue(0);
     useEffect(() => {
-        fill.value = withTiming(pct, { duration: MOTION.durSlow, easing: EASE.out });
+        fill.value = withTiming(pct, { duration: MOTION.durSlow, easing: EASE.out, reduceMotion: ReduceMotion.System });
     }, [pct, fill]);
     const fillStyle = useAnimatedStyle(() => ({ width: `${fill.value * 100}%` }));
     return (

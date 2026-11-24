@@ -6,8 +6,6 @@
 
 import React, { useEffect } from 'react';
 import { StyleSheet, View, TouchableOpacity } from 'react-native';
-import Animated from 'react-native-reanimated';
-import { Float, PulseHalo, riseIn } from '../motion';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Text } from './Typography';
 import { COLORS, SPACING, SIKKA, CATEGORY_PALETTE } from '../constants/theme';
@@ -41,11 +39,10 @@ export function BiometricLockScreen() {
             <View style={[styles.deco, { left: 40, top: 300, width: 16, height: 16, backgroundColor: CATEGORY_PALETTE.dining.bg }]} />
             <View style={[styles.deco, { right: 60, top: 120, width: 12, height: 12, backgroundColor: CATEGORY_PALETTE.fun.bg }]} />
 
-            <Float>
-                <Sikku size={120} mood="sleepy" outline={SIKKA.ground} />
-            </Float>
+            {/* Seen every unlock: no entrance, no loops. The fingerprint button is the one thing to look at. */}
+            <Sikku size={120} mood="sleepy" outline={SIKKA.ground} />
 
-            <Animated.View entering={riseIn(1)} style={styles.center}>
+            <View style={styles.center}>
                 <Text style={styles.title} accessibilityRole="header">
                     Welcome back{name ? `,\n${name}` : ''}
                 </Text>
@@ -56,11 +53,10 @@ export function BiometricLockScreen() {
                         </Text>
                     </View>
                 )}
-            </Animated.View>
+            </View>
 
             <View style={styles.bottom}>
                 <View style={styles.btnWrap}>
-                    <PulseHalo size={120} color={SIKKA.lime} />
                     <TouchableOpacity
                         style={styles.fingerprint}
                         onPress={() => authenticate()}

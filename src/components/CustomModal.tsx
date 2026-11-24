@@ -1,14 +1,14 @@
 
 import React from 'react';
 import { Modal, View, StyleSheet, TouchableOpacity, Pressable } from 'react-native';
-import Animated, { ZoomIn } from 'react-native-reanimated';
-import { EASE, fadeIn } from '../motion';
+import Animated from 'react-native-reanimated';
+import { fadeIn, modalIn } from '../motion';
 import { Text } from './Typography';
 import { Icon, IconName } from './Icon';
-import { COLORS, SPACING, FONT_SIZE, BORDER_RADIUS, SHADOWS, MOTION } from '../constants/theme';
+import { COLORS, SPACING, FONT_SIZE, BORDER_RADIUS, SHADOWS } from '../constants/theme';
 
 
-const cardIn = ZoomIn.withInitialValues({ transform: [{ scale: 0.95 }] }).duration(MOTION.durBase).easing(EASE.spring);
+const cardIn = modalIn;
 
 export type ModalType = 'default' | 'success' | 'warning' | 'error' | 'info';
 

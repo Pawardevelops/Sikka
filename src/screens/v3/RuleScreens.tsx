@@ -21,6 +21,7 @@ import { saveRule, updateRule, deleteRule, applyRuleToPast, pastMatches, RuleDat
 import { bankName, findLast4, findPayee, prettyName } from '../../services/sms/extract';
 import { getActiveModel } from '../../services/sms/modelManager';
 import { Frame, frameStyles } from './Frame';
+import { haptic } from '../../motion';
 
 const catLabel = (c: string) => CATEGORY_LABELS[c as TransactionCategory] ?? c;
 
@@ -148,6 +149,7 @@ export function RuleSavedScreen({ ruleId, txId }: { ruleId: string; txId?: strin
     const left = transactions.filter((t) => t.status === 'pending' && !t.isDeleted).length;
 
     useEffect(() => {
+        haptic.success();
         getRule(ruleId).then(async (r) => {
             if (!r) return;
             const data = toRuleData(r);

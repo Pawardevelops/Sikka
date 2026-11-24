@@ -5,7 +5,7 @@
 import React, { useEffect } from 'react';
 import { StyleSheet, View } from 'react-native';
 import Animated, { runOnJS, useAnimatedStyle, useSharedValue, withDelay, withSpring, withTiming } from 'react-native-reanimated';
-import { EASE, POP_SPRING } from '../motion';
+import { EASE, SETTLE } from '../motion';
 import { Text } from './Typography';
 import { StatusBar } from 'expo-status-bar';
 import { COLORS, SPACING, FONT_SIZE, BORDER_RADIUS, TYPE } from '../constants/theme';
@@ -23,7 +23,7 @@ export function SplashScreen({ onFinish }: SplashScreenProps) {
     useEffect(() => {
         let timer: ReturnType<typeof setTimeout> | undefined;
         const finish = () => { timer = setTimeout(onFinish, 300); };
-        appear.value = withSpring(1, POP_SPRING);
+        appear.value = withSpring(1, SETTLE);
         progress.value = withDelay(
             300,
             withTiming(1, { duration: 2500, easing: EASE.out }, (done) => {
@@ -35,7 +35,7 @@ export function SplashScreen({ onFinish }: SplashScreenProps) {
 
     const contentStyle = useAnimatedStyle(() => ({
         opacity: Math.min(1, appear.value),
-        transform: [{ scale: 0.8 + 0.2 * appear.value }],
+        transform: [{ scale: 0.94 + 0.06 * appear.value }],
     }));
     const barStyle = useAnimatedStyle(() => ({ width: 120 * progress.value }));
 
