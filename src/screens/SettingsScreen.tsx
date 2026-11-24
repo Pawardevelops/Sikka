@@ -1,690 +1,318 @@
 /**
- * Sikka - Settings Screen
- * App settings including profile, currency, security, and preferences
+ * Sikka - Settings (v3 canvas "22 Settings")
+ * Help "?" in the header; Capture (auto-capture coverage, voice notes, Sikku is
+ * learning, nightly review); Privacy; Data (backup, Google Drive, erase with a
+ * confirm sheet that offers a backup first).
  */
 
 import React, { useCallback, useEffect, useState } from 'react';
-import { StyleSheet, View, ScrollView, TouchableOpacity, Switch, ActivityIndicator, PermissionsAndroid, Platform, Linking, AppState } from 'react-native';
-import { Toggle } from '../components/ui';
-import { SmsModelPicker } from '../components/SmsModelPicker';
+import { StyleSheet, View, ScrollView, TouchableOpacity, Platform } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import DateTimePicker from '@react-native-community/datetimepicker';
 import { Text, TextInput } from '../components/Typography';
-
-import { useCurrency, CURRENCIES } from '../context/CurrencyContext';
+import { Icon, IconName } from '../components/Icon';
+import { Toggle, HelpButton, ConfirmSheet, BottomSheet, Button } from '../components/ui';
+import { CustomModal, ModalAction, ModalType } from '../components/CustomModal';
 import { useSecurity } from '../context/SecurityContext';
 import { useOnboarding } from '../context/OnboardingContext';
 import { useNavigation } from '../context/NavigationContext';
-import { useBackup } from '../hooks/useBackup';
-import { COLORS, SPACING, FONT_SIZE, BORDER_RADIUS } from '../constants/theme';
-import { useSafeTop } from '../components/SafeScreen';
-import { Icon, IconName } from '../components/Icon';
-import { CustomModal, ModalAction, ModalType } from '../components/CustomModal';
-
-import { wipeDatabase } from '../database';
+import { usePrefs } from '../context/PrefsContext';
+import { useTransactions } from '../context/TransactionsContext';
+import { useAccounts } from '../context/AccountsContext';
 import { useAppLifecycle } from '../context/AppLifecycleContext';
+import { useBackup } from '../hooks/useBackup';
+import { useRules } from '../hooks/useRules';
+import { useSafeTop } from '../components/SafeScreen';
+import { COLORS, SPACING, SHADOWS, CATEGORY_PALETTE } from '../constants/theme';
+import { wipeDatabase } from '../database';
+import { coverageThisMonth } from '../services/sms';
+import { SMS_MODELS, deleteModel } from '../services/sms/modelManager';
+import { releaseModel } from '../services/sms/aiParser';
+import { scheduleNightlyReview } from '../services/notify';
+
+const timeLabel = (hhmm: string) => {
+    const [h, m] = hhmm.split(':').map(Number);
+    return new Date(2000, 0, 1, h, m).toLocaleTimeString('en-IN', { hour: 'numeric', minute: '2-digit' });
+};
 
 export function SettingsScreen() {
-    const { currency, setCurrency } = useCurrency();
-    const {
-        biometricEnabled,
-        toggleBiometric,
-        hasBiometricHardware,
-        biometricType
-    } = useSecurity();
-    const { data: onboardingData, updateData, resetPreferences } = useOnboarding();
-    const [isToggling, setIsToggling] = useState(false);
-    const [showCurrencyPicker, setShowCurrencyPicker] = useState(false);
-    const [editingName, setEditingName] = useState(false);
-    const [tempName, setTempName] = useState(onboardingData.userName);
-    const safeTop = useSafeTop();
-    const navigation = useNavigation();
+    const { biometricEnabled, toggleBiometric, hasBiometricHardware, biometricType } = useSecurity();
+    const { data: onboardingData, updateData } = useOnboarding();
+    const { prefs, update } = usePrefs();
+    const { transactions } = useTransactions();
+    const { activeAccounts } = useAccounts();
+    const rules = useRules();
+    const { openScreen, openPrivacyPolicy, openAboutUs } = useNavigation();
     const { resetApp } = useAppLifecycle();
+    const safeTop = useSafeTop();
 
-    // Modal State
-    const [modalVisible, setModalVisible] = useState(false);
-    const [modalConfig, setModalConfig] = useState<{
-        title: string;
-        message: string;
-        icon?: IconName;
-        type?: ModalType;
-        actions: ModalAction[];
-    }>({
-        title: '',
-        message: '',
-        actions: [],
-    });
+    const [modal, setModal] = useState<{ title: string; message: string; type?: ModalType; icon?: IconName; actions: ModalAction[] } | null>(null);
+    const showModal = (title: string, message: string, actions: ModalAction[], type: ModalType = 'default', icon?: IconName) =>
+        setModal({ title, message, actions, type, icon });
+    const { user, autoBackupEnabled, toggleDriveBackup, isSyncing, manualBackup } = useBackup({ showModal });
 
-    const showModal = (
-        title: string,
-        message: string,
-        actions: ModalAction[],
-        type: ModalType = 'default',
-        icon?: IconName
-    ) => {
-        setModalConfig({ title, message, actions, type, icon });
-        setModalVisible(true);
-    };
+    const [coverage, setCoverage] = useState<number | null>(null);
+    const [editingName, setEditingName] = useState(false);
+    const [name, setName] = useState(onboardingData.userName);
+    const [timeOpen, setTimeOpen] = useState(false);
+    const [erase, setErase] = useState(false);
+    const [help, setHelp] = useState(false);
 
-    // Live RECEIVE_SMS state; re-checked when returning from system settings.
-    const [smsAllowed, setSmsAllowed] = useState(false);
-    const refreshSms = useCallback(() => {
-        if (Platform.OS !== 'android') return;
-        PermissionsAndroid.check(PermissionsAndroid.PERMISSIONS.RECEIVE_SMS).then(setSmsAllowed).catch(() => setSmsAllowed(false));
-    }, []);
     useEffect(() => {
-        refreshSms();
-        const sub = AppState.addEventListener('change', (s) => s === 'active' && refreshSms());
-        return () => sub.remove();
-    }, [refreshSms]);
+        coverageThisMonth().then((c) => setCoverage(c.total ? c.pct : null)).catch(() => undefined);
+    }, [transactions.length]);
 
-    const handleSmsSettings = async () => {
-        if (Platform.OS !== 'android') return;
-        if (smsAllowed) {
-            // Android has no API to revoke a permission; send people to app settings.
+    const autoFiled = transactions.filter((t) => t.autoFiled && !t.isDeleted).length;
+    const right = autoFiled ? Math.max(0, Math.round(((autoFiled - prefs.fixes.length) / autoFiled) * 100)) : null;
+    const payments = transactions.filter((t) => !t.isDeleted).length;
+    const initial = (onboardingData.userName.trim()[0] || 'S').toUpperCase();
+
+    const onBiometric = async () => {
+        if (!hasBiometricHardware || biometricType === 'Not Set Up') {
             showModal(
-                'SMS access',
-                'To stop Sikka reading bank SMS, turn off SMS in Settings > Apps > Sikka > Permissions.',
-                [
-                    { text: 'Not now', onPress: () => setModalVisible(false), style: 'cancel' },
-                    { text: 'Open settings', onPress: () => { setModalVisible(false); Linking.openSettings(); }, style: 'primary' },
-                ],
-                'info',
+                'Fingerprint not set up',
+                'Set up a fingerprint or face unlock in your phone settings first.',
+                [{ text: 'OK', onPress: () => setModal(null), style: 'primary' }],
+                'warning',
             );
             return;
         }
-        const result = await PermissionsAndroid.request(PermissionsAndroid.PERMISSIONS.RECEIVE_SMS);
-        if (result === PermissionsAndroid.RESULTS.NEVER_ASK_AGAIN) Linking.openSettings();
-        refreshSms();
+        await toggleBiometric();
     };
 
-    const handleBiometricToggle = async () => {
-        if (isToggling) return;
-
-        if (!hasBiometricHardware) {
-            showModal(
-                'Not Available',
-                'Your device does not support biometric authentication.',
-                [{ text: 'OK', onPress: () => setModalVisible(false), style: 'primary' }],
-                'warning'
-            );
-            return;
+    const eraseAll = useCallback(async () => {
+        setErase(false);
+        try {
+            await releaseModel();
+            for (const m of SMS_MODELS) await deleteModel(m).catch(() => undefined);
+            await AsyncStorage.clear();
+            await wipeDatabase();
+            resetApp();
+        } catch (e) {
+            console.error('Erase failed', e);
+            showModal('Could not erase', 'Something stopped the erase. Restart Sikka and try again.', [{ text: 'OK', onPress: () => setModal(null), style: 'primary' }], 'error');
         }
-
-        if (biometricType === 'Not Set Up') {
-            showModal(
-                'Not Enrolled',
-                'Please set up fingerprint or face recognition in your device settings first.',
-                [{ text: 'OK', onPress: () => setModalVisible(false), style: 'primary' }],
-                'warning'
-            );
-            return;
-        }
-
-        setIsToggling(true);
-        const success = await toggleBiometric();
-        setIsToggling(false);
-
-        if (!success && !biometricEnabled) {
-            showModal(
-                'Authentication Failed',
-                'Could not enable biometric lock. Please try again.',
-                [{ text: 'OK', onPress: () => setModalVisible(false), style: 'primary' }],
-                'error'
-            );
-        }
-    };
-
-    const handleSaveName = () => {
-        updateData({ userName: tempName });
-        setEditingName(false);
-    };
-
-    const handleHideBalancesToggle = (value: boolean) => {
-        updateData({ hideBalances: value });
-    };
-
-    const handleNumberSystemChange = () => {
-        const newSystem = onboardingData.numberSystem === 'lakhs' ? 'millions' : 'lakhs';
-        updateData({ numberSystem: newSystem });
-    };
-
-    const handleResetPreferences = () => {
-        showModal(
-            'Reset Preferences',
-            'This will reset settings like currency, balance visibility, and biometrics. Your data will NOT be deleted.',
-            [
-                { text: 'Cancel', onPress: () => setModalVisible(false), style: 'cancel' },
-                {
-                    text: 'Reset',
-                    style: 'destructive',
-                    onPress: async () => {
-                        await resetPreferences();
-                        setModalVisible(false);
-                        // Brief delay for modal animation
-                        setTimeout(() => {
-                            showModal('Success', 'Preferences have been reset.', [{ text: 'OK', onPress: () => setModalVisible(false), style: 'primary' }], 'success');
-                        }, 300);
-                    }
-                }
-            ],
-            'warning'
-        );
-    };
-
-    const handleNuclearDelete = () => {
-        showModal(
-            'Nuclear Delete',
-            '⚠️ ARE YOU SURE? ⚠️\n\nThis will PERMANENTLY DELETE ALL your transactions, accounts, and settings. This action CANNOT be undone.',
-            [
-                { text: 'Cancel', onPress: () => setModalVisible(false), style: 'cancel' },
-                {
-                    text: 'DELETE EVERYTHING',
-                    style: 'destructive',
-                    onPress: () => {
-                        setModalVisible(false);
-                        setTimeout(() => {
-                            showModal(
-                                'Final Confirmation',
-                                'Type "DELETE" to confirm (just kidding, press Confirm to wipe).',
-                                [
-                                    { text: 'Cancel', onPress: () => setModalVisible(false), style: 'cancel' },
-                                    {
-                                        text: 'Confirm Wipe',
-                                        style: 'destructive',
-                                        onPress: async () => {
-                                            try {
-                                                setModalVisible(false);
-                                                await wipeDatabase();
-                                                resetApp(); // Remount app to clear all state
-                                            } catch (error) {
-                                                setModalVisible(false);
-                                                console.error('Wipe failed:', error);
-                                                setTimeout(() => {
-                                                    showModal('Error', 'Failed to wipe data.', [{ text: 'OK', onPress: () => setModalVisible(false) }], 'error');
-                                                }, 300);
-                                            }
-                                        }
-                                    }
-                                ],
-                                'error'
-                            );
-                        }, 300);
-                    }
-                }
-            ],
-            'error'
-        );
-    };
-
-    const getUserInitials = () => {
-        if (!onboardingData.userName) return <Icon name="person" size={28} color={COLORS.onBrand} />;
-        const names = onboardingData.userName.trim().split(' ');
-        if (names.length >= 2) {
-            return `${names[0][0]}${names[1][0]}`.toUpperCase();
-        }
-        return onboardingData.userName[0].toUpperCase();
-    };
+    }, [resetApp]);
 
     return (
-        <ScrollView
-            style={[styles.scrollView, { backgroundColor: COLORS.background }]}
-            contentContainerStyle={[styles.scrollContent, { paddingTop: safeTop }]}
-            showsVerticalScrollIndicator={false}
-        >
-            <Text style={styles.screenTitle}>Settings</Text>
+        <ScrollView style={{ backgroundColor: COLORS.background }} contentContainerStyle={[styles.scroll, { paddingTop: safeTop + SPACING.sm }]} showsVerticalScrollIndicator={false}>
+            <View style={styles.header}>
+                <Text style={styles.title} accessibilityRole="header">Settings</Text>
+                <HelpButton onPress={() => setHelp(true)} />
+            </View>
 
-            {/* Profile Section */}
-            <TouchableOpacity
-                style={styles.profileCard}
-                onPress={() => setEditingName(true)}
-                activeOpacity={0.7}
-            >
-                <View style={styles.profileAvatar}>
-                    <Text style={styles.profileAvatarText}>{getUserInitials()}</Text>
-                </View>
-                <View style={styles.profileInfo}>
+            <TouchableOpacity style={styles.profile} onPress={() => setEditingName(true)} accessibilityRole="button" accessibilityLabel="Edit your name" activeOpacity={0.85}>
+                <View style={styles.avatar}><Text style={styles.avatarText}>{initial}</Text></View>
+                <View style={{ flex: 1 }}>
                     {editingName ? (
-                        <View style={styles.editNameContainer}>
-                            <TextInput
-                                style={styles.nameInput}
-                                value={tempName}
-                                onChangeText={setTempName}
-                                placeholder="Your name"
-                                placeholderTextColor={COLORS.textMuted}
-                                autoFocus
-                            />
-                            <TouchableOpacity style={styles.saveNameBtn} onPress={handleSaveName}>
-                                <Text style={styles.saveNameBtnText}>Save</Text>
-                            </TouchableOpacity>
-                        </View>
+                        <TextInput
+                            value={name}
+                            onChangeText={setName}
+                            autoFocus
+                            onBlur={() => { updateData({ userName: name.trim() }); setEditingName(false); }}
+                            onSubmitEditing={() => { updateData({ userName: name.trim() }); setEditingName(false); }}
+                            style={styles.nameInput}
+                            accessibilityLabel="Your name"
+                        />
                     ) : (
-                        <>
-                            <Text style={styles.profileName}>
-                                {onboardingData.userName || 'Set your name'}
-                            </Text>
-                            <Text style={styles.profileSubtitle}>Tap to edit profile</Text>
-                        </>
+                        <Text style={styles.name}>{onboardingData.userName || 'Your name'}</Text>
                     )}
+                    <Text style={styles.meta}>{prefs.streak.count}-day review streak</Text>
                 </View>
-                {!editingName && <Icon name="input" size={24} color={COLORS.primary} />}
+                <Icon name="edit" size={20} color={COLORS.textSecondary} />
             </TouchableOpacity>
 
-            <View style={styles.divider} />
+            <Section label="CAPTURE">
+                <Row
+                    icon="sms"
+                    palette="groceries"
+                    title="Auto-capture"
+                    value={prefs.aiMode === 'none' ? 'Off' : coverage !== null ? `${coverage}% read` : 'On'}
+                    onPress={() => openScreen({ name: 'captureSettings' })}
+                />
+                <Row icon="mic" palette="dining" title="Voice notes" value={prefs.voiceNotes ? 'Hinglish' : 'Off'} onPress={() => openScreen({ name: 'voiceSettings' })} />
+                <Row
+                    icon="school"
+                    palette="fun"
+                    title="Sikku is learning"
+                    value={right !== null ? `${right}% right` : `${rules.length} rules`}
+                    onPress={() => openScreen({ name: 'modelHealth' })}
+                />
+                <Row
+                    icon="nightlight"
+                    palette="transport"
+                    title="Nightly review"
+                    value={prefs.remindMode === 'app' ? 'Off' : timeLabel(prefs.nightlyAt)}
+                    onPress={() => setTimeOpen(true)}
+                    last
+                />
+            </Section>
 
-            {/* Accounts/Regional */}
-            <SettingItem
-                icon="attach-money"
-                title="Currency"
-                subtitle={`${currency.name} (${currency.symbol})`}
-                onPress={() => setShowCurrencyPicker(!showCurrencyPicker)}
-                hideBorder={showCurrencyPicker}
-            />
-            {showCurrencyPicker && (
-                <View style={styles.currencyPicker}>
-                    {CURRENCIES.map((curr) => (
-                        <TouchableOpacity
-                            key={curr.code}
-                            style={[
-                                styles.currencyOption,
-                                currency.code === curr.code && styles.currencyOptionActive,
-                            ]}
-                            onPress={() => {
-                                setCurrency(curr);
-                                setShowCurrencyPicker(false);
-                            }}
-                        >
-                            <Text style={styles.currencySymbol}>{curr.symbol}</Text>
-                            <View style={styles.currencyTextContainer}>
-                                <Text style={styles.currencyCode}>{curr.code}</Text>
-                                <Text style={styles.currencyName}>{curr.name}</Text>
-                            </View>
-                            {currency.code === curr.code && (
-                                <Icon name="check" size={20} color={COLORS.primary} />
-                            )}
-                        </TouchableOpacity>
-                    ))}
-                </View>
+            <Section label="PRIVACY">
+                <Row
+                    icon="fingerprint"
+                    palette="groceries"
+                    title="Fingerprint lock"
+                    right={<Toggle label="Fingerprint lock" value={biometricEnabled} onValueChange={onBiometric} />}
+                />
+                <Row
+                    icon="visibility-off"
+                    palette="fun"
+                    title="Hide balances"
+                    right={<Toggle label="Hide balances" value={!!onboardingData.hideBalances} onValueChange={(v) => updateData({ hideBalances: v })} />}
+                    last
+                />
+            </Section>
+
+            <Section label="DATA">
+                <Row
+                    icon="backup"
+                    palette="bills"
+                    title="Backup & restore"
+                    value={autoBackupEnabled ? 'Google Drive' : 'Phone only'}
+                    onPress={() => openScreen({ name: 'backup' })}
+                />
+                {!user && (
+                    <Row
+                        icon="add-to-drive"
+                        palette="transport"
+                        title="Google Drive"
+                        sub="Not connected · keep a copy off the phone"
+                        right={
+                            <TouchableOpacity onPress={() => toggleDriveBackup(true)} style={styles.connect} accessibilityRole="button" disabled={isSyncing}>
+                                <Text style={styles.connectText}>{isSyncing ? '…' : 'Connect'}</Text>
+                            </TouchableOpacity>
+                        }
+                    />
+                )}
+                <TouchableOpacity style={styles.erase} onPress={() => setErase(true)} accessibilityRole="button" accessibilityLabel="Erase all data on this phone. Asks to confirm.">
+                    <Icon name="delete-forever" size={22} color={COLORS.error} />
+                    <Text style={styles.eraseText}>Erase all data on this phone</Text>
+                </TouchableOpacity>
+            </Section>
+
+            <Section label="ABOUT">
+                <Row icon="policy" palette="bills" title="Privacy policy" onPress={openPrivacyPolicy} />
+                <Row icon="info-outline" palette="transport" title="About Sikka" onPress={openAboutUs} last />
+            </Section>
+
+            {timeOpen && Platform.OS !== 'web' && (
+                <DateTimePicker
+                    mode="time"
+                    value={(() => { const [h, m] = prefs.nightlyAt.split(':').map(Number); return new Date(2000, 0, 1, h, m); })()}
+                    onChange={(e, d) => {
+                        setTimeOpen(false);
+                        if (e.type === 'set' && d) {
+                            const nightlyAt = `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+                            update({ nightlyAt });
+                            void scheduleNightlyReview({ ...prefs, nightlyAt });
+                        }
+                    }}
+                />
             )}
 
-            <SettingItem
-                icon="format-list-numbered"
-                title="Number Format"
-                subtitle={onboardingData.numberSystem === 'lakhs' ? '1,00,000 (Lakhs)' : '100,000 (Millions)'}
-                onPress={handleNumberSystemChange}
-                rightElement={
-                    <View style={styles.togglePill}>
-                        <Text style={[styles.togglePillText, onboardingData.numberSystem === 'lakhs' && styles.togglePillTextActive]}>L</Text>
-                        <Text style={[styles.togglePillText, onboardingData.numberSystem === 'millions' && styles.togglePillTextActive]}>M</Text>
-                    </View>
+            <ConfirmSheet
+                visible={erase}
+                destructive
+                title="Erase everything on this phone?"
+                body={`${payments.toLocaleString('en-IN')} payments, ${activeAccounts.length} accounts, ${rules.length} rules and the AI model will be deleted.`}
+                warning={autoBackupEnabled ? "This can't be undone." : "Your last backup is on this phone only, so it goes too. This can't be undone."}
+                secondary={
+                    autoBackupEnabled
+                        ? { label: 'Back up now first', sub: 'Recommended · takes a few seconds', icon: 'cloud-upload', onPress: () => manualBackup() }
+                        : { label: 'Back up to Google Drive first', sub: 'Recommended · takes about 20 s', icon: 'cloud-upload', onPress: () => { setErase(false); openScreen({ name: 'backup' }); } }
                 }
-                hideBorder
+                typeToConfirm="ERASE"
+                confirmLabel="Erase all data"
+                cancelLabel="Keep my data"
+                onConfirm={eraseAll}
+                onCancel={() => setErase(false)}
             />
 
-            <View style={styles.divider} />
+            <BottomSheet visible={help} onClose={() => setHelp(false)} label="Help">
+                <Text style={styles.helpTitle}>How Sikka works</Text>
+                <HelpItem q="Where is my data?" a="Only on this phone, unless you turn on Google Drive backup. Backups are encrypted before they leave." />
+                <HelpItem q="What does the AI read?" a="Only bank SMS with an amount. Personal messages and OTPs are skipped. The AI runs on the phone." />
+                <HelpItem q="What is auto-filing?" a="When you name a sender once, the next similar SMS is filed for you. Change how sure Sikka must be in Sikku is learning." />
+                <HelpItem q="A payment is missing" a="Open Review and tap Sync SMS with AI. If Sikka couldn't read a bank's SMS, teach it once." />
+                <Button label="Got it" icon="check" onPress={() => setHelp(false)} />
+            </BottomSheet>
 
-            {/* Privacy & Security */}
-            <SettingItem
-                icon="lock"
-                title="Fingerprint Lock"
-                subtitle={hasBiometricHardware ? `${biometricType} available` : 'Not available on this device'}
-                onPress={handleBiometricToggle}
-                rightElement={
-                    <Switch
-                        value={biometricEnabled}
-                        onValueChange={handleBiometricToggle}
-                        disabled={!hasBiometricHardware || biometricType === 'Not Set Up' || isToggling}
-                        trackColor={{ false: COLORS.border, true: COLORS.night }}
-                        thumbColor={biometricEnabled ? COLORS.brand : COLORS.white}
-                    />
-                }
-            />
-
-            <SettingItem
-                icon="visibility-off"
-                title="Hide Balances"
-                subtitle="Mask amounts with **** on home screen"
-                onPress={() => handleHideBalancesToggle(!onboardingData.hideBalances)}
-                rightElement={
-                    <Switch
-                        value={onboardingData.hideBalances}
-                        onValueChange={handleHideBalancesToggle}
-                        trackColor={{ false: COLORS.border, true: COLORS.night }}
-                        thumbColor={onboardingData.hideBalances ? COLORS.brand : COLORS.white}
-                    />
-                }
-                hideBorder
-            />
-
-            <View style={styles.divider} />
-
-            {/* Notifications / Auto Track */}
-            <SettingItem
-                icon="sms"
-                title="Auto-Track SMS"
-                subtitle={smsAllowed ? 'Active' : 'Allow reading bank SMS to auto-add'}
-                onPress={handleSmsSettings}
-                rightElement={<Toggle value={smsAllowed} onValueChange={handleSmsSettings} label="Auto-track SMS" />}
-                hideBorder
-            />
-
-            {Platform.OS === 'android' && smsAllowed && <SmsModelPicker />}
-
-            <View style={styles.divider} />
-
-            {/* Backup */}
-            <BackupSection showModal={showModal} />
-
-            <View style={styles.divider} />
-
-            {/* Help / About */}
-            <SettingItem
-                icon="info-outline"
-                title="About Us"
-                subtitle="Version 1.0.0"
-                onPress={() => navigation.openAboutUs()}
-            />
-            <SettingItem
-                icon="gavel"
-                title="Privacy Policy"
-                subtitle="Read our policies"
-                onPress={() => navigation.openPrivacyPolicy()}
-                hideBorder
-            />
-
-            <View style={styles.divider} />
-
-            {/* Danger Zone */}
-            <SettingItem
-                icon="restore"
-                title="Reset App Preferences"
-                subtitle="Restore default settings without losing data"
-                onPress={handleResetPreferences}
-                iconColor={COLORS.secondary}
-                titleColor={COLORS.secondary}
-            />
-            <SettingItem
-                icon="delete-outline"
-                title="Delete Account"
-                subtitle="Permanently erase all your data"
-                onPress={handleNuclearDelete}
-                iconColor={COLORS.error}
-                titleColor={COLORS.error}
-                hideBorder
-            />
-
-            {/* Bottom Spacing */}
-            <View style={styles.bottomSpacer} />
-
-            {/* Custom Modal */}
             <CustomModal
-                visible={modalVisible}
-                title={modalConfig.title}
-                message={modalConfig.message}
-                icon={modalConfig.icon}
-                type={modalConfig.type}
-                actions={modalConfig.actions}
-                onClose={() => setModalVisible(false)}
+                visible={!!modal}
+                title={modal?.title ?? ''}
+                message={modal?.message ?? ''}
+                icon={modal?.icon}
+                type={modal?.type}
+                actions={modal?.actions ?? []}
+                onClose={() => setModal(null)}
             />
         </ScrollView>
     );
 }
 
-// Helpers for WhatsApp style layout
-interface SettingItemProps {
-    icon: IconName;
-    title: string;
-    subtitle?: string;
-    onPress?: () => void;
-    rightElement?: React.ReactNode;
-    iconColor?: string;
-    titleColor?: string;
-    hideBorder?: boolean;
-}
-
-function SettingItem({ icon, title, subtitle, onPress, rightElement, iconColor, titleColor, hideBorder }: SettingItemProps) {
-    const Component = onPress ? TouchableOpacity : View;
+function Section({ label, children }: { label: string; children: React.ReactNode }) {
     return (
-        <Component style={styles.settingRow} onPress={onPress} activeOpacity={0.7}>
-            <View style={styles.iconContainer}>
-                <Icon name={icon} size={28} color={iconColor || COLORS.textMuted} />
-            </View>
-            <View style={[styles.settingContent, !hideBorder && styles.settingBorder]}>
-                <View style={styles.settingTextContainer}>
-                    <Text style={[styles.settingLabel, titleColor && { color: titleColor }]}>{title}</Text>
-                    {subtitle && <Text style={styles.settingSubtitle}>{subtitle}</Text>}
-                </View>
-                {rightElement && <View style={styles.rightElement}>{rightElement}</View>}
-            </View>
-        </Component>
+        <View style={{ gap: SPACING.sm }}>
+            <Text style={styles.section}>{label}</Text>
+            <View style={styles.group}>{children}</View>
+        </View>
     );
 }
 
-function BackupSection({ showModal }: { showModal: (title: string, message: string, actions: ModalAction[], type?: ModalType, icon?: IconName) => void }) {
-    const {
-        isSyncing,
-        lastBackup,
-        user,
-        autoBackupEnabled,
-        toggleDriveBackup,
-        manualBackup,
-        restoreBackup,
-        exportLocalBackup
-    } = useBackup({ showModal });
-
+function Row({
+    icon, palette, title, sub, value, onPress, right, last,
+}: {
+    icon: IconName; palette: keyof typeof CATEGORY_PALETTE; title: string; sub?: string; value?: string; onPress?: () => void; right?: React.ReactNode; last?: boolean;
+}) {
+    const pair = CATEGORY_PALETTE[palette];
+    const Wrap: any = onPress ? TouchableOpacity : View;
     return (
-        <>
-            <SettingItem
-                icon="save-alt"
-                title="Export Local Backup"
-                subtitle="Download your data to a file"
-                onPress={exportLocalBackup}
-            />
+        <Wrap onPress={onPress} accessibilityRole={onPress ? 'button' : undefined} activeOpacity={0.8} style={[styles.row, !last && styles.rowLine]}>
+            <View style={[styles.rowIcon, { backgroundColor: pair.bg }]}><Icon name={icon} size={20} color={pair.fg} /></View>
+            <View style={{ flex: 1 }}>
+                <Text style={styles.rowTitle}>{title}</Text>
+                {!!sub && <Text style={styles.rowSub}>{sub}</Text>}
+            </View>
+            {!!value && <Text style={styles.rowValue}>{value}</Text>}
+            {right}
+            {onPress && !right && <Icon name="chevron-right" size={22} color={COLORS.textSecondary} />}
+        </Wrap>
+    );
+}
 
-            <SettingItem
-                icon="cloud-upload"
-                title="Google Drive Backup"
-                subtitle={user ? `Signed in as ${user.user.name}` : 'Sign in to safely backup data'}
-                onPress={() => {
-                    // Don't toggle if syncing, otherwise do standard toggle
-                    if (!isSyncing) toggleDriveBackup(!autoBackupEnabled);
-                }}
-                rightElement={
-                    isSyncing ? (
-                        <ActivityIndicator size="small" color={COLORS.primary} />
-                    ) : (
-                        <Switch
-                            value={autoBackupEnabled}
-                            onValueChange={toggleDriveBackup}
-                            trackColor={{ false: COLORS.border, true: COLORS.night }}
-                            thumbColor={autoBackupEnabled ? COLORS.brand : COLORS.white}
-                        />
-                    )
-                }
-                hideBorder={!autoBackupEnabled}
-            />
-
-            {autoBackupEnabled && (
-                <>
-                    <SettingItem
-                        icon="backup"
-                        title="Backup Now"
-                        subtitle={`Last backup: ${lastBackup || 'Never'}`}
-                        onPress={() => manualBackup(false)}
-                        iconColor={COLORS.primary}
-                    />
-
-                    <SettingItem
-                        icon="settings-backup-restore"
-                        title="Restore Data from Backup"
-                        subtitle="Overwrite local data with Google Drive version"
-                        onPress={restoreBackup}
-                        iconColor={COLORS.error}
-                        hideBorder
-                    />
-                </>
-            )}
-        </>
+function HelpItem({ q, a }: { q: string; a: string }) {
+    return (
+        <View style={{ gap: 2 }}>
+            <Text style={styles.helpQ}>{q}</Text>
+            <Text style={styles.helpA}>{a}</Text>
+        </View>
     );
 }
 
 const styles = StyleSheet.create({
-    scrollView: { flex: 1, backgroundColor: COLORS.surface },
-    scrollContent: { paddingBottom: 130 }, // clear the floating tab bar
-    screenTitle: { fontSize: 32, fontWeight: '700', color: COLORS.text, marginBottom: SPACING.md, paddingHorizontal: SPACING.xl },
-
-    // Profile Card
-    profileCard: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        paddingHorizontal: SPACING.xl,
-        paddingVertical: SPACING.lg,
-        backgroundColor: COLORS.surface,
-    },
-    profileAvatar: {
-        width: 64,
-        height: 64,
-        borderRadius: 32,
-        backgroundColor: COLORS.brand,
-        alignItems: 'center',
-        justifyContent: 'center',
-        marginRight: SPACING.lg,
-    },
-    profileAvatarText: {
-        fontSize: 28,
-        fontWeight: '700',
-        color: COLORS.onBrand,
-    },
-    profileInfo: {
-        flex: 1,
-    },
-    profileName: {
-        fontSize: FONT_SIZE.xl,
-        fontWeight: '600',
-        color: COLORS.text,
-        marginBottom: 4,
-    },
-    profileSubtitle: {
-        fontSize: FONT_SIZE.md,
-        color: COLORS.textMuted,
-    },
-    editNameContainer: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        paddingRight: SPACING.md,
-    },
-    nameInput: {
-        flex: 1,
-        fontSize: FONT_SIZE.xl,
-        color: COLORS.text,
-        borderBottomWidth: 2,
-        borderBottomColor: COLORS.primary,
-        paddingVertical: SPACING.xs,
-        fontWeight: '600'
-    },
-    saveNameBtn: {
-        marginLeft: SPACING.md,
-        paddingHorizontal: SPACING.lg,
-        paddingVertical: SPACING.sm,
-        backgroundColor: COLORS.brand,
-        borderRadius: BORDER_RADIUS.md,
-    },
-    saveNameBtnText: {
-        color: COLORS.onBrand,
-        fontWeight: '600',
-    },
-
-    // Dividers
-    divider: {
-        height: 10,
-        backgroundColor: COLORS.background, // Creates the distinct section gap like WhatsApp
-        width: '100%',
-    },
-
-    // Setting Row
-    settingRow: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        backgroundColor: COLORS.surface,
-    },
-    iconContainer: {
-        width: 72,
-        alignItems: 'center',
-        justifyContent: 'center',
-    },
-    settingContent: {
-        flex: 1,
-        flexDirection: 'row',
-        alignItems: 'center',
-        justifyContent: 'space-between',
-        paddingVertical: SPACING.lg,
-        paddingRight: SPACING.xl,
-    },
-    settingBorder: {
-        borderBottomWidth: 0.5,
-        borderBottomColor: COLORS.borderLight,
-    },
-    settingTextContainer: {
-        flex: 1,
-        paddingRight: SPACING.md,
-    },
-    settingLabel: { fontSize: FONT_SIZE.lg, color: COLORS.text, marginBottom: 2 },
-    settingSubtitle: { fontSize: 13, color: COLORS.textMuted, lineHeight: 18 },
-    rightElement: {
-        minWidth: 40,
-        alignItems: 'flex-end',
-    },
-
-    // Currency Picker
-    currencyPicker: {
-        backgroundColor: COLORS.surface,
-        paddingLeft: 72, // Align with text
-    },
-    currencyOption: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        paddingVertical: SPACING.md,
-        paddingRight: SPACING.xl,
-        borderBottomWidth: 0.5,
-        borderBottomColor: COLORS.borderLight,
-    },
-    currencyOptionActive: {
-        backgroundColor: COLORS.primaryMuted,
-    },
-    currencySymbol: {
-        fontSize: FONT_SIZE.lg,
-        fontWeight: '700',
-        color: COLORS.text,
-        width: 32,
-    },
-    currencyTextContainer: {
-        flex: 1,
-    },
-    currencyCode: { fontSize: FONT_SIZE.md, color: COLORS.text },
-    currencyName: { fontSize: FONT_SIZE.sm, color: COLORS.textMuted },
-
-    // Toggle Pill
-    togglePill: {
-        flexDirection: 'row',
-        backgroundColor: COLORS.background,
-        borderRadius: BORDER_RADIUS.md,
-        padding: 4,
-    },
-    togglePillText: {
-        paddingHorizontal: SPACING.md,
-        paddingVertical: SPACING.xs,
-        fontSize: FONT_SIZE.sm,
-        fontWeight: '600',
-        color: COLORS.textMuted,
-        borderRadius: BORDER_RADIUS.sm,
-    },
-    togglePillTextActive: {
-        backgroundColor: COLORS.brand,
-        color: COLORS.onBrand,
-    },
-
-    bottomSpacer: {
-        height: 100,
-        backgroundColor: COLORS.background,
-    },
+    scroll: { paddingHorizontal: SPACING.lg, paddingBottom: 140, gap: SPACING.xl },
+    header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+    title: { fontSize: 32, fontWeight: '800', letterSpacing: -0.8, color: COLORS.text },
+    profile: { flexDirection: 'row', alignItems: 'center', gap: SPACING.md, backgroundColor: COLORS.surface, borderRadius: 26, padding: SPACING.lg, ...SHADOWS.sm },
+    avatar: { width: 56, height: 56, borderRadius: 28, backgroundColor: COLORS.brand, borderWidth: 3, borderColor: COLORS.night, alignItems: 'center', justifyContent: 'center' },
+    avatarText: { fontSize: 24, fontWeight: '800', color: COLORS.onBrand },
+    name: { fontSize: 20, fontWeight: '800', color: COLORS.text },
+    nameInput: { fontSize: 20, fontWeight: '800', color: COLORS.text, paddingVertical: 0 },
+    meta: { fontSize: 13, fontWeight: '700', color: COLORS.textSecondary },
+    section: { fontSize: 13, fontWeight: '800', letterSpacing: 0.6, color: COLORS.textSecondary },
+    group: { backgroundColor: COLORS.surface, borderRadius: 26, paddingHorizontal: SPACING.lg, ...SHADOWS.sm },
+    row: { flexDirection: 'row', alignItems: 'center', gap: SPACING.md, minHeight: 64, paddingVertical: 10 },
+    rowLine: { borderBottomWidth: 1, borderBottomColor: COLORS.border },
+    rowIcon: { width: 40, height: 40, borderRadius: 13, alignItems: 'center', justifyContent: 'center' },
+    rowTitle: { fontSize: 16, fontWeight: '800', color: COLORS.text },
+    rowSub: { fontSize: 13, fontWeight: '600', color: COLORS.textSecondary },
+    rowValue: { fontSize: 14, fontWeight: '700', color: COLORS.textSecondary },
+    connect: { backgroundColor: COLORS.night, borderRadius: 18, paddingHorizontal: 14, height: 36, justifyContent: 'center' },
+    connectText: { fontSize: 14, fontWeight: '800', color: COLORS.onNight },
+    erase: { flexDirection: 'row', alignItems: 'center', gap: SPACING.md, minHeight: 60 },
+    eraseText: { fontSize: 16, fontWeight: '800', color: COLORS.error },
+    helpTitle: { fontSize: 24, fontWeight: '800', color: COLORS.text },
+    helpQ: { fontSize: 16, fontWeight: '800', color: COLORS.text },
+    helpA: { fontSize: 15, lineHeight: 21, color: COLORS.textSecondary },
 });
-
-export default SettingsScreen;

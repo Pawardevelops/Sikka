@@ -149,9 +149,13 @@ export async function saveCapturedTransaction(
             t.account.set(account!);
             if (category) t.category.set(category);
         });
-        await account.update((a) => {
-            a.balance += a.type === 'credit' ? -signed : signed;
-        });
+        // Payments older than the account in Sikka are already in the balance the user
+        // entered (First look imports 30 days of history), so only newer ones move it.
+        if (receivedAt >= +account.createdAt) {
+            await account.update((a) => {
+                a.balance += a.type === 'credit' ? -signed : signed;
+            });
+        }
         if (rule) await countMatch(rule);
         if (plan) await plan.update((p) => { p.isPaid = true; });
 

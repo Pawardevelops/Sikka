@@ -5,7 +5,8 @@
  */
 
 import React, { useEffect, useMemo, useState } from 'react';
-import { StyleSheet, ScrollView, View } from 'react-native';
+import { StyleSheet, ScrollView, View, TouchableOpacity } from 'react-native';
+import { useNavigation } from '../context/NavigationContext';
 import { Text } from '../components/Typography';
 import { SentimentHeatmapSection } from '../components/stats/SentimentHeatmapSection';
 import { useSafeTop } from '../components/SafeScreen';
@@ -29,6 +30,7 @@ function periodStart(p: Period) {
 }
 
 export function StatsScreen() {
+    const { openScreen } = useNavigation();
     const safeTop = useSafeTop();
     const { activeTransactions, refreshTransactions } = useTransactions();
     const { formatAmount } = useCurrency();
@@ -89,7 +91,13 @@ export function StatsScreen() {
     return (
         <ScrollView style={styles.container} contentContainerStyle={[styles.scroll, { paddingTop: safeTop + SPACING.sm }]} showsVerticalScrollIndicator={false}>
             <View style={styles.header}>
-                <Text style={styles.title} accessibilityRole="header">Stats</Text>
+                <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+                    <Text style={styles.title} accessibilityRole="header">Stats</Text>
+                    <TouchableOpacity onPress={() => openScreen({ name: 'recap' })} accessibilityRole="button" style={styles.recapBtn}>
+                        <Icon name="insights" size={18} color={COLORS.text} />
+                        <Text style={styles.recapText}>Last month's recap</Text>
+                    </TouchableOpacity>
+                </View>
                 <Segmented
                     label="Period"
                     value={period}
@@ -173,6 +181,8 @@ export function StatsScreen() {
 }
 
 const styles = StyleSheet.create({
+    recapBtn: { flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: COLORS.surface, borderRadius: 20, height: 40, paddingHorizontal: 14 },
+    recapText: { fontSize: 14, fontWeight: '800', color: COLORS.text },
     container: { flex: 1, backgroundColor: COLORS.background },
     scroll: { paddingHorizontal: SPACING.lg, paddingBottom: 130, gap: SPACING.md },
     header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: SPACING.md },

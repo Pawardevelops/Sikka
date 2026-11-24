@@ -36,6 +36,7 @@ import { NavigationContext, useNavigation, Route } from './src/context/Navigatio
 import { PrefsProvider } from './src/context/PrefsContext';
 import { ToastProvider } from './src/components/ui';
 import { RouteScreen } from './src/screens/RouteScreen';
+import { AssetsHub } from './src/screens/v3/PlanScreens';
 import { setUpNotifications, onNotificationAction } from './src/services/notify';
 import { GoogleDriveService } from './src/services/GoogleDriveService';
 import { AppLifecycleProvider } from './src/context/AppLifecycleContext';
@@ -59,7 +60,7 @@ import { BiometricLockScreen } from './src/components/BiometricLockScreen';
 import { useSmsCapture } from './src/hooks/useSmsCapture';
 
 // Screens
-import { DashboardScreen, AssetsScreen, StatsScreen, SettingsScreen, AccountDetailScreen, NotifyActionCenterScreen, PrivacyPolicyScreen, AboutUsScreen } from './src/screens';
+import { DashboardScreen, StatsScreen, SettingsScreen, AccountDetailScreen, NotifyActionCenterScreen, PrivacyPolicyScreen, AboutUsScreen } from './src/screens';
 import { AllTransactionsScreen } from './src/screens/AllTransactionsScreen';
 import {
   WelcomeScreen,
@@ -255,7 +256,7 @@ function MainApp() {
 
   // Data Handlers
   const handleAddAccount = (
-    accountData: { name: string; type: any; icon: string; balance: number; color: string },
+    accountData: { name: string; type: any; icon: string; balance: number; color: string; last4?: string },
     ccDetails?: { creditLimit: number; billingCycleDate: number; dueDate: number },
     holdings?: { ticker: string; quantity: number; avgBuyPrice: number; currentPrice: number }[],
   ) => {
@@ -326,7 +327,7 @@ function MainApp() {
       case 'dash':
         return <DashboardScreen />;
       case 'assets':
-        return <AssetsScreen />;
+        return <AssetsHub />;
       case 'stats':
         return <StatsScreen />;
       case 'settings':

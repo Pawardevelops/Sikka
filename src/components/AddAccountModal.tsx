@@ -24,7 +24,7 @@ interface AddAccountModalProps {
     accountToEdit?: Account | null;
     onClose: () => void;
     onAdd: (
-        account: { name: string; type: AccountType; icon: string; balance: number; color: string },
+        account: { name: string; type: AccountType; icon: string; balance: number; color: string; last4?: string },
         ccDetails?: CreditCardDetails,
         holdings?: Omit<InvestmentHoldingData, 'id'>[],
     ) => void;
@@ -65,6 +65,7 @@ export function AddAccountModal({ visible, accountToEdit, onClose, onAdd, onUpda
     const [creditLimit, setCreditLimit] = useState('');
     const [billingDay, setBillingDay] = useState('');
     const [dueDay, setDueDay] = useState('');
+    const [last4, setLast4] = useState('');
     const [holdings, setHoldings] = useState<Holding[]>([{ ...EMPTY_HOLDING }]);
 
     const isEdit = !!accountToEdit;
@@ -81,6 +82,7 @@ export function AddAccountModal({ visible, accountToEdit, onClose, onAdd, onUpda
             setCreditLimit(accountToEdit.creditCardDetails ? String(accountToEdit.creditCardDetails.creditLimit) : '');
             setBillingDay(accountToEdit.creditCardDetails ? String(accountToEdit.creditCardDetails.billingCycleDate) : '');
             setDueDay(accountToEdit.creditCardDetails ? String(accountToEdit.creditCardDetails.dueDate) : '');
+            setLast4(accountToEdit.last4 ?? '');
             setHoldings(
                 accountToEdit.holdings?.length
                     ? accountToEdit.holdings.map((h) => ({ ticker: h.ticker, quantity: h.quantity, avgBuyPrice: h.avgBuyPrice, currentPrice: h.currentPrice }))
@@ -93,6 +95,7 @@ export function AddAccountModal({ visible, accountToEdit, onClose, onAdd, onUpda
             setCreditLimit('');
             setBillingDay('');
             setDueDay('');
+            setLast4('');
             setHoldings([{ ...EMPTY_HOLDING }]);
         }
     }, [visible, accountToEdit]);
@@ -104,18 +107,19 @@ export function AddAccountModal({ visible, accountToEdit, onClose, onAdd, onUpda
 
     const handleSave = () => {
         if (!name.trim()) return;
-        // Card debt is stored negative, the same way spending on the card moves it.
-        const bal = isCredit ? -Math.abs(num(balance)) : num(balance);
+        // Card debt is stored as a positive amount owed; spending on the card adds to it
+        // (see TransactionsContext), paying the bill takes it down.
+        const bal = isCredit ? Math.abs(num(balance)) : num(balance);
         const cc: CreditCardDetails | undefined = isCredit
             ? { creditLimit: num(creditLimit), billingCycleDate: day(billingDay, 1), dueDate: day(dueDay, 15) }
             : undefined;
         const icon = ACCOUNT_ICONS[type] ?? 'account-balance';
 
         if (accountToEdit && onUpdate) {
-            onUpdate(accountToEdit.id, { name: name.trim(), type, icon, balance: bal, ...(cc ? { creditCardDetails: cc } : {}) });
+            onUpdate(accountToEdit.id, { name: name.trim(), type, icon, balance: bal, last4: last4 || undefined, ...(cc ? { creditCardDetails: cc } : {}) });
         } else {
             onAdd(
-                { name: name.trim(), type, icon, balance: bal, color: getCategoryColors(type).bg },
+                { name: name.trim(), type, icon, balance: bal, color: getCategoryColors(type).bg, last4: last4 || undefined },
                 cc,
                 isInvest ? holdings.filter((h) => h.ticker.trim()) : undefined,
             );
@@ -174,6 +178,23 @@ export function AddAccountModal({ visible, accountToEdit, onClose, onAdd, onUpda
                     <Field label="Name">
                         <TextInput style={styles.input} value={name} onChangeText={setName} placeholder={PLACEHOLDER[type]} accessibilityLabel="Name" />
                     </Field>
+
+                    {(type === 'bank' || type === 'savings' || isCredit) && (
+                        <Field label="Last 4 digits">
+                            <TextInput
+                                style={styles.input}
+                                value={last4}
+                                onChangeText={(t) => setLast4(t.replace(/[^0-9]/g, '').slice(0, 4))}
+                                placeholder="7731"
+                                keyboardType="number-pad"
+                                maxLength={4}
+                                accessibilityLabel="Last 4 digits of the account or card"
+                            />
+                            {last4.length === 4 && (
+                                <Text style={styles.last4Hint}>Bank SMS ending {last4} will land here.</Text>
+                            )}
+                        </Field>
+                    )}
 
                     {!isCredit && !isInvest && (
                         <Field label={isEdit ? 'Balance' : 'Balance today'}>
@@ -277,6 +298,7 @@ function Field({ label, children, style }: { label: string; children: React.Reac
 }
 
 const styles = StyleSheet.create({
+    last4Hint: { fontSize: 13, fontWeight: '700', color: COLORS.primary, marginTop: 6 },
     container: { flex: 1, backgroundColor: COLORS.background, paddingHorizontal: SPACING.lg, gap: SPACING.md },
     header: { flexDirection: 'row', alignItems: 'center', gap: SPACING.md },
     title: { fontSize: 26, fontWeight: '800', color: COLORS.text },

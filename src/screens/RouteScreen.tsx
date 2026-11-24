@@ -9,6 +9,9 @@ import { TeachMessageScreen } from './v3/TeachMessageScreen';
 import { VoiceNoteScreen } from './v3/VoiceNoteScreen';
 import { PaymentStoryScreen } from './v3/PaymentStoryScreen';
 import { ModelPickScreen } from './onboarding/ModelPickScreen';
+import { CaptureSettingsScreen, VoiceSettingsScreen, BackupScreen } from './v3/SettingsScreens';
+import { RecapScreen } from './v3/RecapScreen';
+import { PlanEditScreen, PlanDetailScreen, PlanChangeScreen, DueScreen, IssuesScreen, PlanFoundScreen } from './v3/PlanScreens';
 import { NameSenderScreen, RuleSavedScreen, FixTagScreen, ModelHealthScreen, SavedRulesScreen, RuleDetailScreen } from './v3/RuleScreens';
 
 export function RouteScreen({ route }: { route: Route }): React.ReactElement | null {
@@ -36,6 +39,28 @@ export function RouteScreen({ route }: { route: Route }): React.ReactElement | n
             return <SavedRulesScreen />;
         case 'rule':
             return <RuleDetailScreen id={route.id} />;
+        case 'captureSettings':
+            return <CaptureSettingsScreen />;
+        case 'voiceSettings':
+            return <VoiceSettingsScreen />;
+        case 'backup':
+            return <BackupScreen />;
+        case 'recap':
+            return <RecapScreen month={route.month} year={route.year} />;
+        case 'plan':
+            return <PlanDetailScreen id={route.id} />;
+        case 'planEdit':
+            return <PlanEditScreen id={route.id} kind={route.kind} foundMessageId={route.foundMessageId} linkPast={route.linkPast} />;
+        case 'planChange':
+            return <PlanChangeScreen id={route.id} />;
+        case 'due':
+            return <DueScreen />;
+        case 'issues':
+            return <IssuesScreen />;
+        case 'planFound':
+            return <PlanFoundScreen messageId={route.messageId} />;
+        case 'help':
+            return null;
         default:
             return null;
     }

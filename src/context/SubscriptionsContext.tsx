@@ -45,7 +45,8 @@ interface SubscriptionsContextType {
     isLoading: boolean;
 
     // CRUD
-    addSubscription: (data: NewSubscriptionData) => Promise<void>;
+    /** Resolves with the new plan's id. */
+    addSubscription: (data: NewSubscriptionData) => Promise<string | undefined>;
     updateSubscription: (id: string, updates: Partial<UpdatableFields>) => Promise<void>;
     deleteSubscriptionPermanently: (id: string) => Promise<void>;
 
@@ -72,8 +73,21 @@ type NewSubscriptionData = Omit<SubscriptionType,
 type UpdatableFields = Pick<SubscriptionType,
     'name' | 'icon' | 'iconColor' | 'totalAmount' | 'myShare' |
     'dueDate' | 'billingCycle' | 'category' | 'role' | 'isSplit' |
-    'splitMembers' | 'paymentSourceId' | 'paymentMode' | 'payTo'
+    'splitMembers' | 'paymentSourceId' | 'paymentMode' | 'payTo' | PlanField
 >;
+
+const PLAN_FIELDS = [
+    'kind', 'via', 'mandateLimit', 'amountVaries', 'startDate', 'endDate', 'paymentsLeft',
+    'pausedUntil', 'stoppedAt', 'remind', 'payeeMatch', 'foundInSms',
+] as const;
+type PlanField = (typeof PLAN_FIELDS)[number];
+
+/** Copies plan fields that are present in `src` onto the DB record. */
+function applyPlanFields(rec: any, src: Partial<SubscriptionType>) {
+    for (const f of PLAN_FIELDS) {
+        if (f in src) rec[f] = (src as any)[f] ?? null;
+    }
+}
 
 const SubscriptionsContext = createContext<SubscriptionsContextType | undefined>(undefined);
 
@@ -92,7 +106,7 @@ export function SubscriptionsProvider({ children }: ProviderProps) {
 
         const subscription = subscriptionsCollection
             .query()
-            .observeWithColumns(['status', 'is_paid', 'updated_at'])
+            .observeWithColumns(['status', 'is_paid', 'updated_at', 'paused_until', 'stopped_at', 'total_amount', 'my_share'])
             .subscribe(async (records) => {
                 const mapped = await Promise.all(records.map(async (sub) => {
                     // Fetch relations
@@ -136,6 +150,18 @@ export function SubscriptionsProvider({ children }: ProviderProps) {
                             details: e.details
                         })).sort((a: any, b: any) => b.timestamp - a.timestamp), // Sort desc
                         isDeleted: sub.status === 'archived', // Dependent on status
+                        kind: (sub.kind as any) ?? 'subscription',
+                        via: (sub.via as any) ?? undefined,
+                        mandateLimit: sub.mandateLimit ?? undefined,
+                        amountVaries: !!sub.amountVaries,
+                        startDate: sub.startDate ?? undefined,
+                        endDate: sub.endDate ?? undefined,
+                        paymentsLeft: sub.paymentsLeft ?? undefined,
+                        pausedUntil: sub.pausedUntil ?? undefined,
+                        stoppedAt: sub.stoppedAt ?? undefined,
+                        remind: sub.remind ?? true,
+                        payeeMatch: sub.payeeMatch ?? undefined,
+                        foundInSms: !!sub.foundInSms,
                     } as SubscriptionType;
                 }));
 
@@ -171,9 +197,9 @@ export function SubscriptionsProvider({ children }: ProviderProps) {
 
     // ── CRUD ──────────────────────────────────────────────────────────
 
-    const addSubscription = useCallback(async (data: NewSubscriptionData) => {
+    const addSubscription = useCallback(async (data: NewSubscriptionData): Promise<string | undefined> => {
         try {
-            await database.write(async () => {
+            return await database.write(async () => {
                 const subCollection = database.get<Subscription>('subscriptions');
                 const membersCollection = database.get<SubscriptionMember>('subscription_members');
                 const eventsCollection = database.get<SubscriptionEvent>('subscription_events');
@@ -209,6 +235,7 @@ export function SubscriptionsProvider({ children }: ProviderProps) {
                     sub.isPaid = false;
                     sub.paymentMode = data.paymentMode;
                     sub.payTo = data.payTo || '';
+                    applyPlanFields(sub, data);
                     if (account) sub.account.set(account);
                     if (category) sub.category.set(category);
                 });
@@ -232,9 +259,11 @@ export function SubscriptionsProvider({ children }: ProviderProps) {
                     e.timestamp = Date.now();
                     e.details = '';
                 });
+                return newSub.id;
             });
         } catch (error) {
             console.error('Error adding subscription:', error);
+            return undefined;
         }
     }, []);
 
@@ -270,6 +299,7 @@ export function SubscriptionsProvider({ children }: ProviderProps) {
                     if (updates.isSplit !== undefined) s.isSplit = updates.isSplit;
                     if (updates.paymentMode) s.paymentMode = updates.paymentMode;
                     if (updates.payTo !== undefined) s.payTo = updates.payTo;
+                    applyPlanFields(s, updates);
                     if (account) s.account.set(account);
                     if (category) s.category.set(category);
                 });

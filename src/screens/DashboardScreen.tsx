@@ -16,6 +16,7 @@ import { Text } from '../components/Typography';
 import { useCurrency } from '../context/CurrencyContext';
 import { useAccounts } from '../context/AccountsContext';
 import { useTransactions } from '../context/TransactionsContext';
+import { usePrefs } from '../context/PrefsContext';
 import { useOnboarding } from '../context/OnboardingContext';
 import { useNavigation } from '../context/NavigationContext';
 import { COLORS, SPACING, SHADOWS, CATEGORY_PALETTE, getCategoryColors, MOTION } from '../constants/theme';
@@ -84,7 +85,11 @@ function Sparkline({ values, width = 130, height = 44 }: { values: number[]; wid
 
 export function DashboardScreen() {
     const { formatAmount, balancesVisible, toggleBalancesVisible } = useCurrency();
-    const { activeAccounts, netWorth } = useAccounts();
+    const { activeAccounts } = useAccounts();
+    const { prefs, update } = usePrefs();
+    // v3: the hero shows money in your accounts (same number as Assets); cards are shown as owed.
+    const inAccounts = activeAccounts.filter((a) => a.type !== 'credit').reduce((s, a) => s + a.balance, 0);
+    const cardOwed = activeAccounts.filter((a) => a.type === 'credit').reduce((s, a) => s + Math.abs(a.balance), 0);
     const { todayTransactions, transactions } = useTransactions();
     const { data: onboardingData } = useOnboarding();
     const safeTop = useSafeTop();
@@ -105,7 +110,14 @@ export function DashboardScreen() {
     const daysLeft = daysInMonth - now.getDate() + 1;
     const perDayLeft = Math.max(0, (limit - monthSpent) / daysLeft);
     const overBy = monthSpent - limit;
-    const series = useMemo(() => netWorthSeries(netWorth, live), [netWorth, live]);
+    const series = useMemo(() => netWorthSeries(inAccounts, live.filter((t) => activeAccounts.find((a) => a.id === t.accountId)?.type !== 'credit')), [inAccounts, live, activeAccounts]);
+    const weekBudget = Math.round((limit * 7) / daysInMonth);
+    const pendingAmount = transactions.filter((t) => t.status === 'pending' && !t.isDeleted).reduce((s, t) => s + Math.abs(t.amount), 0);
+    // Day 7 nudge: data only on this phone and no Drive backup yet.
+    const daysSinceStart = Math.floor((Date.now() - prefs.firstOpenedAt) / DAY);
+    const showBackupNudge = daysSinceStart >= 7 && !onboardingData.autoBackupEnabled && !prefs.backupNudgeDismissedAt;
+    // First days of a month: last month's recap is ready.
+    const showRecap = now.getDate() <= 7 && live.some((t) => t.timestamp < monthStart);
 
     // ── This week: 7 days ending today, stacked by category ──
     const week = useMemo(() => {
@@ -148,7 +160,7 @@ export function DashboardScreen() {
                     <View style={styles.heroNight} pointerEvents="none"><Text style={styles.heroRupee}>₹</Text></View>
                     <View style={styles.heroDot} pointerEvents="none" />
                     <View style={styles.heroTop}>
-                        <Text style={styles.heroLabel}>Net worth</Text>
+                        <Text style={styles.heroLabel}>In your accounts</Text>
                     </View>
                     <TouchableOpacity
                         onPress={toggleBalancesVisible}
@@ -156,14 +168,20 @@ export function DashboardScreen() {
                         accessibilityLabel={balancesVisible ? 'Hide balances' : 'Show balances'}
                         activeOpacity={0.8}
                     >
-                        <Text style={styles.heroValue}>{formatAmount(netWorth)}</Text>
+                        <Text style={styles.heroValue} numberOfLines={1} adjustsFontSizeToFit>{formatAmount(inAccounts)}</Text>
                     </TouchableOpacity>
                     <View style={styles.heroBottom}>
-                        <View style={styles.heroChip}>
-                            <Text style={styles.heroChipText}>
-                                {monthNet >= 0 ? '+' : ''}{formatAmount(monthNet)} this month
-                            </Text>
-                        </View>
+                        {cardOwed > 0 ? (
+                            <TouchableOpacity style={styles.heroChip} onPress={() => goToTab('assets')} accessibilityRole="button">
+                                <Text style={styles.heroChipText}>Card owed {formatAmount(cardOwed)}</Text>
+                            </TouchableOpacity>
+                        ) : (
+                            <View style={styles.heroChip}>
+                                <Text style={styles.heroChipText}>
+                                    {monthNet >= 0 ? '+' : ''}{formatAmount(monthNet)} this month
+                                </Text>
+                            </View>
+                        )}
                         {balancesVisible && new Set(series).size > 1 && <Sparkline values={series} />}
                     </View>
                 </Rise>
@@ -183,6 +201,7 @@ export function DashboardScreen() {
                                 <Animated.View key={pending} entering={popIn()}>
                                     <Text style={styles.reviewValue}>{pending ? `${pending} waiting` : 'All clear'}</Text>
                                 </Animated.View>
+                                {pending > 0 && <Text style={[styles.reviewAmount]}>{formatAmount(pendingAmount)}</Text>}
                             </View>
                             <View style={styles.miniDeck} importantForAccessibility="no-hide-descendants">
                                 <View style={styles.miniDeckBack} />
@@ -196,20 +215,13 @@ export function DashboardScreen() {
                     </Rise>
                     <View style={styles.bentoCol}>
                         <Rise index={3}>
-                            <TouchableOpacity
-                                style={[styles.smallTile, { backgroundColor: CATEGORY_PALETTE.fun.bg }]}
-                                onPress={() => goToTab('assets')}
-                                activeOpacity={0.85}
-                                accessibilityRole="button"
-                            >
-                                <View style={styles.smallIcon}><Icon name="account-balance-wallet" size={20} color={CATEGORY_PALETTE.fun.fg} /></View>
+                            <View style={[styles.smallTile, { backgroundColor: CATEGORY_PALETTE.fun.bg }]}>
+                                <View style={styles.smallIcon}><Icon name="local-fire-department" size={20} color={CATEGORY_PALETTE.fun.fg} /></View>
                                 <View>
-                                    <Text style={styles.smallValue}>{activeAccounts.length}</Text>
-                                    <Text style={[styles.smallLabel, { color: CATEGORY_PALETTE.fun.fg }]}>
-                                        {activeAccounts.length === 1 ? 'account' : 'accounts'}
-                                    </Text>
+                                    <Text style={styles.smallValue}>{prefs.streak.count} {prefs.streak.count === 1 ? 'day' : 'days'}</Text>
+                                    <Text style={[styles.smallLabel, { color: CATEGORY_PALETTE.fun.fg }]}>review streak</Text>
                                 </View>
-                            </TouchableOpacity>
+                            </View>
                         </Rise>
                         <Rise index={3}>
                             <View style={[styles.smallTile, { backgroundColor: CATEGORY_PALETTE.bills.bg }]}>
@@ -226,7 +238,13 @@ export function DashboardScreen() {
                 {/* This week */}
                 <Rise index={4} style={styles.weekCard}>
                     <View style={styles.weekHead}>
-                        <Text style={styles.weekTitle}>This week</Text>
+                        <View>
+                            <Text style={styles.weekOver}>THIS WEEK</Text>
+                            <Text style={styles.weekTitle}>
+                                {formatAmount(week.reduce((s2, d) => s2 + d.total, 0))}
+                                <Text style={styles.weekOf}> of {formatAmount(weekBudget)}</Text>
+                            </Text>
+                        </View>
                         <Text style={[styles.pace, overBy > 0 && { color: COLORS.error }]}>
                             {overBy > 0 ? `Over limit by ${formatAmount(overBy)}` : `On pace · ${formatAmount(Math.round(perDayLeft))}/day left`}
                         </Text>
@@ -255,6 +273,40 @@ export function DashboardScreen() {
                         ))}
                     </View>
                 </Rise>
+
+                {showBackupNudge && (
+                    <Rise index={5}>
+                        <TouchableOpacity style={styles.nudge} onPress={() => openScreen({ name: 'backup' })} accessibilityRole="button" activeOpacity={0.85}>
+                            <View style={styles.nudgeIcon}><Icon name="cloud-upload" size={22} color={CATEGORY_PALETTE.transport.fg} /></View>
+                            <View style={{ flex: 1 }}>
+                                <Text style={styles.nudgeTitle}>Day {daysSinceStart}: your data is only on this phone</Text>
+                                <Text style={styles.nudgeBody}>Back up to Google Drive in 1 tap</Text>
+                            </View>
+                            <TouchableOpacity
+                                onPress={() => update({ backupNudgeDismissedAt: Date.now() })}
+                                accessibilityRole="button"
+                                accessibilityLabel="Dismiss backup reminder"
+                                hitSlop={12}
+                            >
+                                <Icon name="close" size={20} color={CATEGORY_PALETTE.transport.fg} />
+                            </TouchableOpacity>
+                        </TouchableOpacity>
+                    </Rise>
+                )}
+                {showRecap && (
+                    <Rise index={5}>
+                        <TouchableOpacity style={[styles.nudge, { backgroundColor: CATEGORY_PALETTE.bills.bg }]} onPress={() => openScreen({ name: 'recap' })} accessibilityRole="button" activeOpacity={0.85}>
+                            <View style={styles.nudgeIcon}><Icon name="insights" size={22} color={CATEGORY_PALETTE.bills.fg} /></View>
+                            <View style={{ flex: 1 }}>
+                                <Text style={styles.nudgeTitle}>
+                                    Your {new Date(now.getFullYear(), now.getMonth() - 1, 1).toLocaleDateString('en-IN', { month: 'long' })} recap is ready
+                                </Text>
+                                <Text style={styles.nudgeBody}>Where it went, what you regret, what to cut</Text>
+                            </View>
+                            <Icon name="chevron-right" size={22} color={COLORS.text} />
+                        </TouchableOpacity>
+                    </Rise>
+                )}
 
                 {/* Today */}
                 <Rise index={5} style={styles.todayHead}>
@@ -285,6 +337,13 @@ export function DashboardScreen() {
 
 const styles = StyleSheet.create({
     container: { flex: 1, backgroundColor: COLORS.background },
+    reviewAmount: { fontSize: 15, fontWeight: '800', color: CATEGORY_PALETTE.dining.fg, marginTop: 2 },
+    weekOver: { fontSize: 12, fontWeight: '800', letterSpacing: 0.6, color: COLORS.textSecondary },
+    weekOf: { fontSize: 15, fontWeight: '700', color: COLORS.textSecondary },
+    nudge: { flexDirection: 'row', alignItems: 'center', gap: SPACING.md, backgroundColor: CATEGORY_PALETTE.transport.bg, borderRadius: 26, padding: SPACING.lg },
+    nudgeIcon: { width: 44, height: 44, borderRadius: 14, backgroundColor: COLORS.surface, alignItems: 'center', justifyContent: 'center' },
+    nudgeTitle: { fontSize: 15, fontWeight: '800', color: COLORS.text },
+    nudgeBody: { fontSize: 13, fontWeight: '600', color: COLORS.textSecondary, marginTop: 2 },
     scroll: { paddingHorizontal: SPACING.lg, paddingBottom: 130, gap: SPACING.md },
 
     header: { flexDirection: 'row', alignItems: 'center', gap: SPACING.md },
@@ -370,7 +429,7 @@ const styles = StyleSheet.create({
 
     weekCard: { backgroundColor: COLORS.surface, borderRadius: 30, paddingVertical: SPACING.lg, paddingHorizontal: 18, gap: 10, ...SHADOWS.md },
     weekHead: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'baseline', gap: SPACING.sm },
-    weekTitle: { fontSize: 16, fontWeight: '800', color: COLORS.text },
+    weekTitle: { fontSize: 22, fontWeight: '800', color: COLORS.text },
     pace: { fontSize: 13, fontWeight: '800', color: COLORS.primary, flexShrink: 1, textAlign: 'right' },
     bars: { flexDirection: 'row', gap: 8, alignItems: 'flex-end', height: 72 },
     barCol: { flex: 1, gap: 3, justifyContent: 'flex-end', transformOrigin: 'bottom' },

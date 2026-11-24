@@ -55,7 +55,9 @@ export function PayBillModal({ visible, ccAccount, onClose }: PayBillModalProps)
         if (!visible) return;
         setMode('full');
         setCustom('');
-        setSourceId(sources[0]?.id ?? '');
+        // Default to an account that can actually cover the full bill (v3: Pay bill source).
+        const fits = [...sources].sort((x, y) => y.balance - x.balance).find((a) => a.balance >= outstanding);
+        setSourceId((fits ?? sources[0])?.id ?? '');
     }, [visible]);
 
     const cycleSource = () => {

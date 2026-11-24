@@ -153,7 +153,25 @@ export interface Subscription {
 
     // ── Legacy ──
     isDeleted?: boolean;       // mapped to status='archived' during migration
+
+    // ── Payment plan (schema v2): SIPs, EMIs, insurance, other autopays ──
+    kind?: PlanKind;
+    via?: PlanVia;
+    mandateLimit?: number;      // bank autopay limit
+    amountVaries?: boolean;
+    startDate?: number;
+    endDate?: number;
+    paymentsLeft?: number;      // EMIs
+    pausedUntil?: number;
+    stoppedAt?: number;
+    remind?: boolean;           // remind 1 day before + check balance
+    payeeMatch?: string;        // SMS text that marks this plan's debits
+    foundInSms?: boolean;
 }
+
+export type PlanKind = 'sip' | 'subscription' | 'emi' | 'insurance' | 'autopay';
+/** How the money leaves: bank autopay (NACH), UPI AutoPay, card autopay, or paid by hand. */
+export type PlanVia = 'nach' | 'upi_autopay' | 'card' | 'manual';
 
 // ==================== STATS ====================
 export interface CategoryStat {

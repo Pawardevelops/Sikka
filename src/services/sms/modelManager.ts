@@ -19,7 +19,8 @@ const MODELS_DIR = `${documentDirectory}models/`;
 export const modelPath = (m: SmsModel) => `${MODELS_DIR}${m.fileName}`;
 
 export async function isDownloaded(m: SmsModel): Promise<boolean> {
-    const info = await getInfoAsync(modelPath(m));
+    const info = await getInfoAsync(modelPath(m)).catch(() => null);
+    if (!info) return false; // e.g. the web preview has no file system
     // Guard against a half-written file from an interrupted download.
     return info.exists && !info.isDirectory && (info.size ?? 0) > m.sizeMb * 1e6 * 0.9;
 }

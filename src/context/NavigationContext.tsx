@@ -25,7 +25,7 @@ export type Route =
     | { name: 'voiceNote'; txId: string }
     | { name: 'paymentStory'; txId: string }
     | { name: 'plan'; id: string }
-    | { name: 'planEdit'; id?: string; kind?: string; foundMessageId?: string }
+    | { name: 'planEdit'; id?: string; kind?: string; foundMessageId?: string; linkPast?: boolean }
     | { name: 'planChange'; id: string }
     | { name: 'due' }
     | { name: 'issues' }
