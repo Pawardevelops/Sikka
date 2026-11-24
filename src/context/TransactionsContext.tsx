@@ -27,6 +27,8 @@ interface TransactionsContextType {
     approveTransaction: (id: string, updates?: Partial<TransactionType>) => Promise<void>;
     ignoreTransaction: (id: string) => Promise<void>;
     restoreTransaction: (id: string) => Promise<void>;
+    /** Puts an approved payment back into Review (undo for approve). */
+    reopenTransaction: (id: string) => Promise<void>;
     unparsedNotifications: string[];
     addUnparsedNotification: (text: string) => Promise<void>;
     refreshTransactions: () => Promise<void>;
@@ -375,6 +377,20 @@ export function TransactionsProvider({ children }: TransactionsProviderProps) {
         }
     }, []);
 
+    const reopenTransaction = useCallback(async (id: string) => {
+        try {
+            await database.write(async () => {
+                const tx = await database.get<Transaction>('transactions').find(id);
+                await tx.update((rec) => {
+                    rec.isAuto = true;
+                    rec.autoFiled = false;
+                });
+            });
+        } catch (error) {
+            console.error('Error reopening transaction:', error);
+        }
+    }, []);
+
     const getTransactionsByAccount = useCallback((accountId: string) => {
         return activeTransactions.filter(tx => tx.accountId === accountId);
     }, [activeTransactions]);
@@ -450,6 +466,7 @@ export function TransactionsProvider({ children }: TransactionsProviderProps) {
             approveTransaction,
             ignoreTransaction,
             restoreTransaction,
+            reopenTransaction,
             unparsedNotifications,
             addUnparsedNotification,
             refreshTransactions,

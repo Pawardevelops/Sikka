@@ -6,7 +6,7 @@ import Account from '../../database/models/Account';
 import Category from '../../database/models/Category';
 import Subscription from '../../database/models/Subscription';
 import { ParsedSms } from './types';
-import { findLast4, findPayee, normalizeSender } from './extract';
+import { findLast4, findPayee, normalizeSender, prettyName } from './extract';
 import { findRule, ruleAutoFiles, countMatch } from './rules';
 import { getPrefs } from '../../context/PrefsContext';
 
@@ -105,8 +105,21 @@ export async function saveCapturedTransaction(
         }
         if (!account) return null;
 
-        const merchant = rule?.name ?? parsed.merchant;
-        const categoryName = rule?.category ?? parsed.category;
+        // "Ask less": a payee approved before is named like last time (it still waits in Review).
+        let known: Transaction | undefined;
+        if (!rule && payee && prefs.sureness === 'less') {
+            [known] = await txCol
+                .query(Q.where('payee', payee), Q.where('is_auto', false), Q.where('is_deleted', Q.notEq(true)), Q.sortBy('timestamp', Q.desc), Q.take(1))
+                .fetch();
+        }
+        // A raw UPI ID ("bluetokai@ybl") reads better as a name ("Bluetokai").
+        const merchant = rule?.name ?? known?.merchant ?? (parsed.merchant.includes('@') ? prettyName(parsed.merchant) : parsed.merchant);
+        let categoryName = rule?.category ?? parsed.category;
+        if (!rule && known) {
+            try {
+                categoryName = (await known.category.fetch())?.name.toLowerCase() ?? categoryName;
+            } catch { /* keep the parsed category */ }
+        }
         const category = await findCategory(categoryName);
         const autoFiled = !!rule && ruleAutoFiles(rule, prefs.sureness);
 

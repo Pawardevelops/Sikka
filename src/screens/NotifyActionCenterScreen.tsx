@@ -32,6 +32,10 @@ import { Button, IconButton, CategoryTile, Sikku, MoodPicker } from '../componen
 import { CATEGORY_LABELS, formatTime } from '../components/TransactionRow';
 import { SPEND_CATEGORIES } from '../components/AddTransactionModal';
 import { useInboxScan } from '../hooks/useInboxScan';
+import { useNavigation as useNavigationCtx } from '../context/NavigationContext';
+import { usePrefs } from '../context/PrefsContext';
+import { useToast } from '../components/ui';
+import { unreadBankSms } from '../services/sms';
 import { ScanRangeSheet } from '../components/ScanRangeSheet';
 
 
@@ -40,7 +44,14 @@ const SWIPE_OUT = 120;
 export default function NotifyActionCenterScreen() {
     const insets = useSafeAreaInsets();
     const { closeNotifyCenter } = useNavigation();
-    const { transactions, todayTransactions, unparsedNotifications, approveTransaction, ignoreTransaction, editTransaction } = useTransactions();
+    const { transactions, todayTransactions, approveTransaction, ignoreTransaction, restoreTransaction, editTransaction } = useTransactions();
+    const { openScreen } = useNavigationCtx();
+    const { prefs, bumpStreak } = usePrefs();
+    const toast = useToast();
+    const [unread, setUnread] = useState<{ id: string; body: string; sender: string }[]>([]);
+    useEffect(() => {
+        unreadBankSms().then((m) => setUnread(m.map((x) => ({ id: x.id, body: x.body, sender: x.sender })))).catch(() => undefined);
+    }, [transactions.length]);
     const { getAccount } = useAccounts();
     const { formatAmount } = useCurrency();
 
@@ -88,11 +99,29 @@ export default function NotifyActionCenterScreen() {
     const notMine = async (tx: Transaction) => {
         await ignoreTransaction(tx.id);
         setReviewedCount((n) => n + 1);
+        toast.show({
+            message: `${tx.merchant === 'UNKNOWN' ? 'Payment' : tx.merchant} ${formatAmount(Math.abs(tx.amount), true)} marked not mine`,
+            action: {
+                label: 'Undo',
+                onPress: () => {
+                    void restoreTransaction(tx.id);
+                    setReviewedCount((n) => Math.max(0, n - 1));
+                },
+            },
+        });
     };
-    const approveAll = async () => {
-        for (const tx of pending) await approveTransaction(tx.id);
-        setReviewedCount((n) => n + pending.length);
+    /** "Sure ones": named by a rule, or read with a known payee. New senders still get a look. */
+    const sure = pending.filter((t) => !!t.ruleId || (t.merchant !== 'UNKNOWN' && !t.merchant.includes('@') && !!t.readBy && t.readBy !== 'you'));
+    const approveSure = async () => {
+        for (const tx of sure) await approveTransaction(tx.id);
+        setReviewedCount((n) => n + sure.length);
+        toast.show({ message: `${sure.length} approved`, icon: 'done-all' });
     };
+
+    // A cleared deck counts toward the daily review streak.
+    useEffect(() => {
+        if (!pending.length && reviewedCount > 0) bumpStreak();
+    }, [pending.length, reviewedCount, bumpStreak]);
 
     // ── Review one ("Who was this?") ──
     if (editing) {
@@ -128,7 +157,9 @@ export default function NotifyActionCenterScreen() {
                 todaySpent={formatAmount(todaySpent)}
                 topCategory={topCat ? CATEGORY_LABELS[topCat] : undefined}
                 topPalette={topCat ? getPaletteKey(topCat) : 'groceries'}
-                unread={unparsedNotifications.length}
+                unread={unread.length}
+                streak={prefs.streak.count}
+                lastSyncAt={prefs.lastSyncAt}
                 needsPermission={Platform.OS === 'android' && !smsAllowed}
                 onPermission={requestSms}
                 onInbox={() => setShowInbox(true)}
@@ -136,7 +167,8 @@ export default function NotifyActionCenterScreen() {
                 scanning={inboxScan.scanning}
                 scanMessage={inboxScan.message}
                 showInbox={showInbox}
-                inbox={unparsedNotifications}
+                inbox={unread}
+                onTeach={(id) => openScreen({ name: 'teach', messageId: id })}
                 onCloseInbox={() => setShowInbox(false)}
                 onHome={closeNotifyCenter}
             />
@@ -159,10 +191,10 @@ export default function NotifyActionCenterScreen() {
                         onPress={inboxScan.start}
                     />
                 )}
-                {pending.length > 1 && (
-                    <TouchableOpacity style={styles.approveAll} onPress={approveAll} accessibilityRole="button" activeOpacity={0.85}>
+                {sure.length > 1 && (
+                    <TouchableOpacity style={styles.approveAll} onPress={approveSure} accessibilityRole="button" activeOpacity={0.85}>
                         <Icon name="done-all" size={16} color={COLORS.brand} />
-                        <Text style={styles.approveAllText}>Approve all {pending.length}</Text>
+                        <Text style={styles.approveAllText}>Approve {sure.length} sure ones</Text>
                     </TouchableOpacity>
                 )}
             </View>
@@ -197,6 +229,7 @@ export default function NotifyActionCenterScreen() {
                 formatAmount={formatAmount}
                 onApprove={() => approve(top)}
                 onNotMine={() => notMine(top)}
+                onTeach={top.smsSender && !top.ruleId ? () => openScreen({ name: 'nameSender', txId: top.id }) : undefined}
             />
 
             <View style={styles.actions}>
@@ -240,7 +273,9 @@ const Deck = forwardRef<DeckHandle, {
     formatAmount: (n: number, force?: boolean) => string;
     onApprove: () => void | Promise<void>;
     onNotMine: () => void | Promise<void>;
-}>(function Deck({ tx, account, seen, formatAmount, onApprove, onNotMine }, ref) {
+    /** New sender: open "Name this sender" (teach once). */
+    onTeach?: () => void;
+}>(function Deck({ tx, account, seen, formatAmount, onApprove, onNotMine, onTeach }, ref) {
     const x = useSharedValue(0);
     const y = useSharedValue(0);
     const enter = useSharedValue(0.96);
@@ -347,7 +382,16 @@ const Deck = forwardRef<DeckHandle, {
                             {new Date(tx.timestamp).toLocaleDateString('en-IN', { weekday: 'short', day: 'numeric', month: 'short' })} · {formatTime(tx.timestamp)}
                         </Text>
                     </View>
-                    {!!tx.notes && <Text style={styles.sms} numberOfLines={3}>{tx.notes}</Text>}
+                    {!!(tx.smsBody || tx.notes) && <Text style={styles.sms} numberOfLines={3}>{tx.smsBody || tx.notes}</Text>}
+                    {onTeach && (
+                        <TouchableOpacity style={styles.teach} onPress={onTeach} accessibilityRole="button" activeOpacity={0.85}>
+                            <View style={{ flex: 1 }}>
+                                <Text style={styles.teachOver}>NEW SENDER · TEACH ONCE</Text>
+                                <Text style={styles.teachText}>Name it, and similar SMS file themselves</Text>
+                            </View>
+                            <Icon name="chevron-right" size={22} color={COLORS.text} />
+                        </TouchableOpacity>
+                    )}
                     <View style={styles.hints}>
                         <Text style={[styles.hint, { color: CATEGORY_PALETTE.shopping.fg }]}>← Not mine</Text>
                         <Wiggle>
@@ -480,6 +524,9 @@ function AllClear(props: {
     topCategory?: string;
     topPalette: keyof typeof CATEGORY_PALETTE;
     unread: number;
+    streak: number;
+    lastSyncAt: number | null;
+    onTeach: (messageId: string) => void;
     onScan: () => void;
     scanning: boolean;
     scanMessage: string | null;
@@ -487,7 +534,7 @@ function AllClear(props: {
     onPermission: () => void;
     onInbox: () => void;
     showInbox: boolean;
-    inbox: string[];
+    inbox: { id: string; body: string; sender: string }[];
     onCloseInbox: () => void;
     onHome: () => void;
 }) {
@@ -501,9 +548,13 @@ function AllClear(props: {
                     <Text style={styles.h2} accessibilityRole="header">Unread messages</Text>
                 </View>
                 <ScrollView contentContainerStyle={{ gap: 10, paddingBottom: SPACING.lg }}>
-                    <Text style={styles.inboxIntro}>Sikka saw these but couldn't read an amount. Teaching messages is coming soon.</Text>
-                    {props.inbox.map((m, i) => (
-                        <View key={i} style={styles.bubble}><Text style={styles.bubbleText}>{m}</Text></View>
+                    <Text style={styles.inboxIntro}>Bank SMS Sikka couldn't read yet. Teach one, and Sikka reads every SMS like it.</Text>
+                    {props.inbox.map((m) => (
+                        <TouchableOpacity key={m.id} style={styles.bubble} onPress={() => props.onTeach(m.id)} accessibilityRole="button" activeOpacity={0.85}>
+                            <Text style={styles.teachOver}>{m.sender}</Text>
+                            <Text style={styles.bubbleText}>{m.body}</Text>
+                            <Text style={styles.teachLink}>Teach this message ›</Text>
+                        </TouchableOpacity>
                     ))}
                 </ScrollView>
             </View>
@@ -532,6 +583,12 @@ function AllClear(props: {
                     <Lottie name="confetti-burst" size={280} style={styles.confettiBurst} />
                 )}
                 <Text style={styles.clearTitle} accessibilityRole="header">All clear!</Text>
+                {props.streak > 1 && (
+                    <View style={styles.streak}>
+                        <Icon name="local-fire-department" size={18} color={SIKKA.signal} />
+                        <Text style={styles.streakText}>{props.streak}-day streak</Text>
+                    </View>
+                )}
                 <Text style={styles.clearBody}>
                     {props.reviewed > 0
                         ? `${props.reviewed} ${props.reviewed === 1 ? 'payment' : 'payments'} sorted. Nothing to remember.`
@@ -575,7 +632,7 @@ function AllClear(props: {
                 </TouchableOpacity>
             )}
 
-            {Platform.OS === 'android' && (
+            {Platform.OS !== 'ios' && (
                 <TouchableOpacity
                     style={styles.unread}
                     onPress={props.onScan}
@@ -585,7 +642,12 @@ function AllClear(props: {
                     activeOpacity={0.85}
                 >
                     {props.scanning ? <ActivityIndicator size="small" color={COLORS.text} /> : <Icon name="sms" size={20} color={COLORS.text} />}
-                    <Text style={styles.unreadText}>{props.scanning ? 'Checking recent SMS…' : 'Missed something? Check recent SMS'}</Text>
+                    <View style={{ flex: 1 }}>
+                        <Text style={styles.unreadText}>{props.scanning ? 'Syncing SMS…' : 'Missed one? Sync SMS with AI'}</Text>
+                        {!!props.lastSyncAt && !props.scanning && (
+                            <Text style={styles.syncedAt}>Last synced {timeAgo(props.lastSyncAt)}</Text>
+                        )}
+                    </View>
                     <Icon name="chevron-right" size={20} color={COLORS.text} />
                 </TouchableOpacity>
             )}
@@ -600,6 +662,13 @@ function AllClear(props: {
     );
 }
 
+function timeAgo(ms: number) {
+    const d = new Date(ms);
+    const today = new Date();
+    const time = d.toLocaleTimeString('en-IN', { hour: 'numeric', minute: '2-digit' });
+    return d.toDateString() === today.toDateString() ? `today, ${time}` : `${d.toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })}, ${time}`;
+}
+
 const CONFETTI = [
     { left: 40, top: 110, width: 14, height: 26, borderRadius: 5, backgroundColor: SIKKA.signal, transform: [{ rotate: '-24deg' }] },
     { left: 300, top: 100, width: 14, height: 26, borderRadius: 5, backgroundColor: CATEGORY_PALETTE.transport.bg, transform: [{ rotate: '30deg' }] },
@@ -611,6 +680,13 @@ const CONFETTI = [
 ] as const;
 
 const styles = StyleSheet.create({
+    teach: { flexDirection: 'row', alignItems: 'center', gap: SPACING.sm, backgroundColor: CATEGORY_PALETTE.bills.bg, borderRadius: 18, padding: 12 },
+    teachOver: { fontSize: 12, fontWeight: '800', letterSpacing: 0.6, color: CATEGORY_PALETTE.bills.fg },
+    teachText: { fontSize: 14, fontWeight: '700', color: COLORS.text },
+    teachLink: { fontSize: 14, fontWeight: '800', color: COLORS.primary, marginTop: 4 },
+    streak: { flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: COLORS.surface, borderRadius: 16, paddingHorizontal: 12, paddingVertical: 6 },
+    streakText: { fontSize: 14, fontWeight: '800', color: COLORS.text },
+    syncedAt: { fontSize: 13, fontWeight: '600', color: COLORS.textSecondary },
     confettiBurst: { position: 'absolute', top: -60, alignSelf: 'center' },
     scanMessage: { fontSize: 14, lineHeight: 20, fontWeight: '600', color: COLORS.textSecondary, textAlign: 'center' },
     container: { flex: 1, backgroundColor: COLORS.background, paddingHorizontal: SPACING.lg, gap: SPACING.md },

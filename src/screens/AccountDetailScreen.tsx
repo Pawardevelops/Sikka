@@ -67,7 +67,7 @@ export function AccountDetailScreen({ account, onBack, onDelete }: AccountDetail
     const { formatAmount } = useCurrency();
     const { getTransactionsByAccount } = useTransactions();
     const { updateAccount } = useAccounts();
-    const { openAddTransactionModal, openAddModal, selectTransaction } = useNavigation();
+    const { openAddTransactionModal, openAddModal, openScreen } = useNavigation();
     const safeTop = useSafeTop();
     const allTransactions = getTransactionsByAccount(account.id);
 
@@ -305,7 +305,7 @@ export function AccountDetailScreen({ account, onBack, onDelete }: AccountDetail
                                 <Text style={styles.emptyText}>Nothing here yet</Text>
                             </View>
                         ) : (
-                            transactions.map((tx) => <TransactionRow key={tx.id} transaction={tx} onPress={() => selectTransaction(tx)} />)
+                            transactions.map((tx) => <TransactionRow key={tx.id} transaction={tx} onPress={() => openScreen({ name: 'paymentStory', txId: tx.id })} />)
                         )}
                     </>
                 )}

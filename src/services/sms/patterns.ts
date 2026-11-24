@@ -86,9 +86,22 @@ export function creditCategory(direction: 'debit' | 'credit', merchant: string):
     return direction === 'credit' && c === 'other' ? 'income' : c;
 }
 
+/** Formats the user taught in "Teach a message" (see learned.ts). Checked before the built-ins. */
+let LEARNED: BankPattern[] = [];
+export function setLearnedPatterns(list: { name: string; source: string; direction: 'debit' | 'credit'; amountGroup?: 1 | 2 }[]) {
+    LEARNED = list.flatMap((l) => {
+        try {
+            const a = l.amountGroup ?? 1;
+            return [{ name: l.name, regex: new RegExp(l.source, 'is'), direction: l.direction, amount: a, merchant: a === 1 ? 2 : 1 }];
+        } catch {
+            return [];
+        }
+    });
+}
+
 export function parseWithPatterns(text: string): ParsedSms | null {
     if (NOT_YET.test(text)) return null;
-    for (const p of BANK_PATTERNS) {
+    for (const p of [...LEARNED, ...BANK_PATTERNS]) {
         const match = text.match(p.regex);
         if (!match) continue;
         const amount = cleanAmount(match[p.amount] ?? '');

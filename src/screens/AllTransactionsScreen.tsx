@@ -35,7 +35,7 @@ function dayLabel(ts: number) {
 export function AllTransactionsScreen({ onBack }: AllTransactionsScreenProps) {
     const { formatAmount } = useCurrency();
     const { activeTransactions } = useTransactions();
-    const { selectTransaction, openAddTransactionModal } = useNavigation();
+    const { openScreen, openAddTransactionModal } = useNavigation();
     const safeTop = useSafeTop();
     const [query, setQuery] = useState('');
     const [filter, setFilter] = useState<TransactionCategory | 'all'>('all');
@@ -120,7 +120,7 @@ export function AllTransactionsScreen({ onBack }: AllTransactionsScreenProps) {
                                 </View>
                             </View>
                             {g.items.map((tx) => (
-                                <TransactionRow key={tx.id} transaction={tx} onPress={() => selectTransaction(tx)} />
+                                <TransactionRow key={tx.id} transaction={tx} onPress={() => openScreen({ name: 'paymentStory', txId: tx.id })} />
                             ))}
                         </View>
                     ))

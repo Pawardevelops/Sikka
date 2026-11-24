@@ -88,7 +88,7 @@ export function DashboardScreen() {
     const { todayTransactions, transactions } = useTransactions();
     const { data: onboardingData } = useOnboarding();
     const safeTop = useSafeTop();
-    const { openAllTransactions, openNotifyCenter, selectTransaction, goToTab, openAddTransactionModal } = useNavigation();
+    const { openAllTransactions, openNotifyCenter, openScreen, goToTab, openAddTransactionModal } = useNavigation();
 
     const live = useMemo(() => transactions.filter((t) => !t.isDeleted && t.status !== 'pending' && t.status !== 'ignored'), [transactions]);
     const pending = transactions.filter((t) => t.status === 'pending' && !t.isDeleted).length;
@@ -274,7 +274,7 @@ export function DashboardScreen() {
                         </TouchableOpacity>
                     ) : (
                         todayTransactions.slice(0, 3).map((tx) => (
-                            <TransactionRow key={tx.id} transaction={tx} onPress={() => selectTransaction(tx)} />
+                            <TransactionRow key={tx.id} transaction={tx} onPress={() => openScreen({ name: 'paymentStory', txId: tx.id })} />
                         ))
                     )}
                 </Rise>

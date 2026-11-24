@@ -21,6 +21,7 @@ import { saveRawSms, saveCapturedTransaction, Captured } from './store';
 import { notifyCaptured } from '../notify';
 import { detectAccounts, DetectedAccount } from './extract';
 import { demoInbox } from './demoInbox';
+import { loadLearnedFormats, ignoredSmsIds } from './learned';
 
 /** Android reads the real inbox; the web preview uses a sample one. */
 async function readInbox(sinceMs: number, max: number): Promise<IncomingSms[] | null> {
@@ -44,6 +45,7 @@ export async function smsHandler({ sender, body, timestamp }: IncomingSms) {
     const receivedAt = timestamp || Date.now();
 
     try {
+        await loadLearnedFormats();
         await saveRawSms(text, from, receivedAt);
         const parsed = parseWithPatterns(text);
         if (parsed) {
@@ -132,6 +134,7 @@ export interface InboxScanResult {
  * that were missed. Needs READ_SMS. Safe to run repeatedly: duplicates are skipped.
  */
 export async function scanInbox(sinceMs: number, untilMs: number, ownerName?: string): Promise<InboxScanResult> {
+    await loadLearnedFormats();
     const all = await readInbox(sinceMs, 2000);
     if (!all) return { scanned: 0, captured: 0, unread: 0, already: 0, bank: 0 };
     const inbox = all.filter((m) => (m.timestamp ?? 0) <= untilMs);
@@ -185,7 +188,11 @@ export async function unreadBankSms(sinceMs = Date.now() - LOOKBACK_MS, limit = 
         .fetch();
     const captured = await database.get<any>('transactions').query(Q.where('timestamp', Q.gt(sinceMs))).fetch();
     const bodies = new Set(captured.map((t: any) => t.smsBody).filter(Boolean));
-    return msgs.filter((m) => looksFinancial(m.body) && !parseWithPatterns(m.body) && !bodies.has(m.body)).slice(0, limit);
+    const ignored = await ignoredSmsIds();
+    await loadLearnedFormats();
+    return msgs
+        .filter((m) => !ignored.has(m.id) && looksFinancial(m.body) && !parseWithPatterns(m.body) && !bodies.has(m.body))
+        .slice(0, limit);
 }
 
 /** Share of bank SMS this month that became payments (Settings → Auto-capture). */
@@ -215,6 +222,7 @@ export interface InboxPreview {
  * them to until the user confirms them).
  */
 export async function previewInbox(days = 30): Promise<InboxPreview> {
+    await loadLearnedFormats();
     const since = Date.now() - days * 86_400_000;
     const inbox = await readInbox(since, 3000);
     if (!inbox) return { payments: [], accounts: [], unread: 0 };

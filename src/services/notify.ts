@@ -153,10 +153,17 @@ export interface NotificationAction {
 }
 
 /** Subscribes to taps on alerts. Returns an unsubscribe function. */
+const handled = new Set<string>();
+
 export function onNotificationAction(cb: (a: NotificationAction) => void): () => void {
     const n = N();
     if (!n) return () => undefined;
     const handle = (r: any) => {
+        // getLastNotificationResponseAsync returns the same tap on every launch; act once.
+        const key = `${r?.notification?.request?.identifier}|${r?.actionIdentifier}`;
+        if (handled.has(key)) return;
+        handled.add(key);
+        n.clearLastNotificationResponseAsync?.().catch(() => undefined);
         const data = r?.notification?.request?.content?.data ?? {};
         cb({ txId: data.txId, kind: data.kind, action: r.actionIdentifier });
     };

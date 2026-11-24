@@ -3,6 +3,8 @@ import { Linking, PermissionsAndroid, Platform } from 'react-native';
 import { useTransactions } from '../context/TransactionsContext';
 import { useOnboarding } from '../context/OnboardingContext';
 import { scanInbox } from '../services/sms';
+import { useNavigation } from '../context/NavigationContext';
+import { usePrefs } from '../context/PrefsContext';
 
 /**
  * "Check recent SMS": `start()` asks for SMS access and opens the range picker;
@@ -14,9 +16,16 @@ export function useInboxScan() {
     const [pickerOpen, setPickerOpen] = useState(false);
     const [scanning, setScanning] = useState(false);
     const [message, setMessage] = useState<string | null>(null);
+    const { openScreen } = useNavigation();
+    const { update } = usePrefs();
 
     const start = useCallback(async () => {
-        if (Platform.OS !== 'android' || scanning) return;
+        if (scanning) return;
+        if (Platform.OS !== 'android') {
+            // Web preview: no permission to ask for.
+            setPickerOpen(true);
+            return;
+        }
         const perm = PermissionsAndroid.PERMISSIONS.READ_SMS;
         if (!(await PermissionsAndroid.check(perm))) {
             const result = await PermissionsAndroid.request(perm, {
@@ -49,6 +58,8 @@ export function useInboxScan() {
             try {
                 const res = await scanInbox(from, to, data.userName);
                 await refreshTransactions();
+                update({ lastSyncAt: Date.now() });
+                openScreen({ name: 'syncResult', from, to, ...res });
                 if (res.captured > 0) {
                     setMessage(`Found ${res.captured} new ${res.captured === 1 ? 'payment' : 'payments'}. They're waiting for review.`);
                 } else if (res.unread > 0) {
@@ -65,7 +76,7 @@ export function useInboxScan() {
                 setScanning(false);
             }
         },
-        [data.userName, refreshTransactions],
+        [data.userName, refreshTransactions, openScreen, update],
     );
 
     return { start, pickerOpen, closePicker, scan, scanning, message };

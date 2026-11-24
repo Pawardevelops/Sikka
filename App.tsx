@@ -36,6 +36,7 @@ import { NavigationContext, useNavigation, Route } from './src/context/Navigatio
 import { PrefsProvider } from './src/context/PrefsContext';
 import { ToastProvider } from './src/components/ui';
 import { RouteScreen } from './src/screens/RouteScreen';
+import { setUpNotifications, onNotificationAction } from './src/services/notify';
 import { GoogleDriveService } from './src/services/GoogleDriveService';
 import { AppLifecycleProvider } from './src/context/AppLifecycleContext';
 
@@ -132,6 +133,30 @@ function MainApp() {
   const pendingReviewCount = transactions.filter(t => t.status === 'pending' && !t.isDeleted).length;
   useSmsCapture();
   const { addSubscription } = useSubscriptions();
+  const { approveTransaction, ignoreTransaction } = useTransactions();
+
+  // Payment alert buttons (see services/notify.ts).
+  useEffect(() => {
+    void setUpNotifications();
+    return onNotificationAction(async ({ txId, kind, action }) => {
+      if (!txId) {
+        if (kind === 'nightly') setShowNotifyCenter(true);
+        return;
+      }
+      if (action.startsWith('cat:')) {
+        await editTransaction(txId, { category: action.slice(4) as TransactionCategory });
+        await approveTransaction(txId);
+      } else if (action === 'notmine') {
+        await ignoreTransaction(txId);
+      } else if (action === 'change') {
+        openScreen({ name: 'fixTag', txId });
+      } else if (action !== 'ok') {
+        // Tapped the alert itself.
+        if (kind === 'autofiled') openScreen({ name: 'paymentStory', txId });
+        else setShowNotifyCenter(true);
+      }
+    });
+  }, [approveTransaction, ignoreTransaction, editTransaction, openScreen]);
 
   // Screen transitions: remounting the container on a screen change replays `sk-rise`.
   const screenKey = [

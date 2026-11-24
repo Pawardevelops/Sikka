@@ -35,6 +35,8 @@ export interface Prefs {
     lastSyncAt: number | null;
     streak: { count: number; lastDay: string | null };
     firstLookSeen: boolean;
+    /** When the user fixed an auto-filed tag (for "Sikku is learning"). */
+    fixes: number[];
 }
 
 export const DEFAULT_PREFS: Prefs = {
@@ -58,6 +60,7 @@ export const DEFAULT_PREFS: Prefs = {
     lastSyncAt: null,
     streak: { count: 0, lastDay: null },
     firstLookSeen: false,
+    fixes: [],
 };
 
 const KEY = 'sikka.prefs.v1';
