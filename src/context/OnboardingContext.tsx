@@ -23,8 +23,23 @@ const DEFAULT_ONBOARDING_DATA: OnboardingData = {
     backupLocation: undefined,
 };
 
-/** Welcome → Profile → Accounts → Security */
-export const ONBOARDING_STEPS = 4;
+/** Welcome → Profile → Use local AI? → Model → First look → Accounts → Security */
+export const ONBOARDING_STEPS = 7;
+
+/** The progress dots show 5 steps; Welcome has none and the AI choice + model share one. */
+export const ONBOARDING_DOTS = 5;
+export function dotFor(step: OnboardingStep): number {
+    return ({ 1: 0, 2: 1, 3: 2, 4: 2, 5: 3, 6: 4, 7: 5 } as const)[step];
+}
+
+/** What First look found in the SMS inbox; Accounts setup confirms it. */
+export interface SmsPreview {
+    payments: number;
+    spent: number;
+    toCheck: number;
+    places: { name: string; count: number; total: number; category: string }[];
+    accounts: import('../services/sms/extract').DetectedAccount[];
+}
 
 // ==================== CONTEXT TYPE ====================
 interface OnboardingContextType {
@@ -41,6 +56,8 @@ interface OnboardingContextType {
 
     // Data updates
     updateData: (updates: Partial<OnboardingData>) => void;
+    preview: SmsPreview | null;
+    setPreview: (p: SmsPreview | null) => void;
 
     // Completion
     completeOnboarding: () => Promise<void>;
@@ -60,6 +77,7 @@ export function OnboardingProvider({ children }: OnboardingProviderProps) {
     const [isLoading, setIsLoading] = useState(true);
     const [currentStep, setCurrentStep] = useState<OnboardingStep>(1);
     const [data, setData] = useState<OnboardingData>(DEFAULT_ONBOARDING_DATA);
+    const [preview, setPreview] = useState<SmsPreview | null>(null);
 
     // Load onboarding status on mount
     useEffect(() => {
@@ -222,6 +240,8 @@ export function OnboardingProvider({ children }: OnboardingProviderProps) {
             goBack,
             goToStep,
             updateData,
+            preview,
+            setPreview,
             completeOnboarding,
             resetOnboarding,
             resetPreferences,

@@ -403,7 +403,7 @@ const styles = StyleSheet.create({
     subMeta: { fontSize: 13, fontWeight: '600', color: COLORS.textSecondary, marginTop: 1 },
     subAmount: { fontSize: 18, fontWeight: '800', color: COLORS.text },
     tag: { backgroundColor: COLORS.background, borderRadius: 999, paddingHorizontal: 8, paddingVertical: 2 },
-    tagText: { fontSize: 11, fontWeight: '800', color: COLORS.textSecondary },
+    tagText: { fontSize: 12, fontWeight: '800', color: COLORS.textSecondary },
 
     dashed: { height: 56, borderRadius: 28, borderWidth: 2, borderStyle: 'dashed', borderColor: '#BDB5A6', flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: SPACING.sm },
     dashedText: { fontSize: 15, fontWeight: '800', color: COLORS.text },

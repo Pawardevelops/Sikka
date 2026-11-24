@@ -32,7 +32,10 @@ import { TransactionsProvider, useTransactions } from './src/context/Transaction
 import { SubscriptionsProvider, useSubscriptions } from './src/context/SubscriptionsContext';
 import { SecurityProvider, useSecurity } from './src/context/SecurityContext';
 import { OnboardingProvider, useOnboarding } from './src/context/OnboardingContext';
-import { NavigationContext, useNavigation } from './src/context/NavigationContext';
+import { NavigationContext, useNavigation, Route } from './src/context/NavigationContext';
+import { PrefsProvider } from './src/context/PrefsContext';
+import { ToastProvider } from './src/components/ui';
+import { RouteScreen } from './src/screens/RouteScreen';
 import { GoogleDriveService } from './src/services/GoogleDriveService';
 import { AppLifecycleProvider } from './src/context/AppLifecycleContext';
 
@@ -63,6 +66,9 @@ import {
   AccountSetupScreen,
   SecuritySetupScreen,
 } from './src/screens/onboarding';
+import { AutoCaptureScreen } from './src/screens/onboarding/AutoCaptureScreen';
+import { ModelPickScreen } from './src/screens/onboarding/ModelPickScreen';
+import { FirstLookScreen } from './src/screens/onboarding/FirstLookScreen';
 
 // ==================== ONBOARDING FLOW ====================
 function OnboardingFlow() {
@@ -74,8 +80,14 @@ function OnboardingFlow() {
     case 2:
       return <ProfileSetupScreen />;
     case 3:
-      return <AccountSetupScreen />;
+      return <AutoCaptureScreen />;
     case 4:
+      return <ModelPickScreen />;
+    case 5:
+      return <FirstLookScreen />;
+    case 6:
+      return <AccountSetupScreen />;
+    case 7:
       return <SecuritySetupScreen />;
     default:
       return <WelcomeScreen />;
@@ -104,6 +116,13 @@ function MainApp() {
   // Transaction Editing
   const [selectedTransaction, setSelectedTransaction] = useState<TransactionType | null>(null);
 
+  // Pushed v3 screens (see NavigationContext Route)
+  const [stack, setStack] = useState<Route[]>([]);
+  const openScreen = useCallback((route: Route) => setStack((s) => [...s, route]), []);
+  const closeScreen = useCallback(() => setStack((s) => s.slice(0, -1)), []);
+  const replaceScreen = useCallback((route: Route) => setStack((s) => [...s.slice(0, -1), route]), []);
+  const topRoute = stack[stack.length - 1];
+
   // Navigation Overlays
   const [showPrivacyPolicy, setShowPrivacyPolicy] = useState(false);
   const [showAboutUs, setShowAboutUs] = useState(false);
@@ -117,6 +136,8 @@ function MainApp() {
   // Screen transitions: remounting the container on a screen change replays `sk-rise`.
   const screenKey = [
     activeTab,
+    stack.length,
+    topRoute?.name ?? '',
     selectedAccount?.id ?? '',
     showAllTransactions,
     showNotifyCenter,
@@ -127,6 +148,10 @@ function MainApp() {
   // Handle Android Back Button
   useEffect(() => {
     const backAction = () => {
+      if (stack.length > 0) {
+        closeScreen();
+        return true;
+      }
       if (showPrivacyPolicy) {
         closePrivacyPolicy();
         return true;
@@ -156,7 +181,7 @@ function MainApp() {
     );
 
     return () => backHandler.remove();
-  }, [showPrivacyPolicy, showAboutUs, showNotifyCenter, showAllTransactions, selectedAccount]);
+  }, [stack.length, closeScreen, showPrivacyPolicy, showAboutUs, showNotifyCenter, showAllTransactions, selectedAccount]);
 
   // Navigation Handlers
   const selectAccount = (account: Account) => setSelectedAccount(account);
@@ -241,6 +266,8 @@ function MainApp() {
 
 
   const renderScreen = () => {
+    if (topRoute) return <RouteScreen route={topRoute} />;
+
     // If showing notify center
     if (showNotifyCenter) {
       return <NotifyActionCenterScreen />;
@@ -284,10 +311,13 @@ function MainApp() {
     }
   };
 
-  const showTabBar = !selectedAccount && !showAllTransactions && !showNotifyCenter && !showPrivacyPolicy && !showAboutUs;
+  const showTabBar = !topRoute && !selectedAccount && !showAllTransactions && !showNotifyCenter && !showPrivacyPolicy && !showAboutUs;
 
   return (
     <NavigationContext.Provider value={{
+      openScreen,
+      closeScreen,
+      replaceScreen,
       goToTab: setActiveTab,
       selectedAccount,
       selectAccount,
@@ -330,6 +360,7 @@ function MainApp() {
       selectTransaction,
       closeTransactionDetail,
     }}>
+      <ToastProvider bottomOffset={showTabBar ? 110 : 24}>
       <View style={styles.container}>
         <StatusBar style="dark" />
         <Animated.View key={screenKey} entering={riseIn()} style={styles.screenContainer}>
@@ -377,6 +408,7 @@ function MainApp() {
           onDelete={deleteTransaction}
         />
       </View>
+      </ToastProvider>
     </NavigationContext.Provider>
   );
 }
@@ -466,6 +498,7 @@ export default function App() {
     <SafeAreaProvider>
       <AppLifecycleProvider onReset={resetApp}>
         <View style={{ flex: 1 }} key={appKey}>
+          <PrefsProvider>
           <OnboardingProvider>
             <CurrencyProvider>
               <AccountsProvider>
@@ -479,6 +512,7 @@ export default function App() {
               </AccountsProvider>
             </CurrencyProvider>
           </OnboardingProvider>
+          </PrefsProvider>
         </View>
       </AppLifecycleProvider>
     </SafeAreaProvider>

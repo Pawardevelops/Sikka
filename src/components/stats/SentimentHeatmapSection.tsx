@@ -248,7 +248,7 @@ const styles = StyleSheet.create({
         color: COLORS.text,
     },
     txCategory: {
-        fontSize: 10,
+        fontSize: 12,
         color: COLORS.textMuted,
         textTransform: 'capitalize',
     },

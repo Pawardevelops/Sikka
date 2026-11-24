@@ -8,10 +8,10 @@ import React, { useState } from 'react';
 import { StyleSheet, View, TouchableOpacity, ScrollView } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Text } from '../../components/Typography';
-import { useOnboarding, ONBOARDING_STEPS } from '../../context/OnboardingContext';
-import { CURRENCIES } from '../../context/CurrencyContext';
+import { useOnboarding } from '../../context/OnboardingContext';
+import { RestoreSheet } from './RestoreSheet';
 import { COLORS, SPACING, CATEGORY_PALETTE } from '../../constants/theme';
-import { Button, Segmented, StepDots, Sikku, Chip } from '../../components/ui';
+import { Button, Segmented, Sikku } from '../../components/ui';
 import { Language } from '../../types';
 
 const LANGUAGE_OPTIONS: { value: Language; label: string }[] = [
@@ -22,16 +22,12 @@ const LANGUAGE_OPTIONS: { value: Language; label: string }[] = [
 
 export function WelcomeScreen() {
     const insets = useSafeAreaInsets();
-    const { currentStep, data, updateData, goNext } = useOnboarding();
-    const [showCurrencies, setShowCurrencies] = useState(false);
-    const currency = CURRENCIES.find((c) => c.code === data.currency) ?? CURRENCIES[0];
-    const isLakhs = data.numberSystem === 'lakhs';
+    const { data, updateData, goNext } = useOnboarding();
+    const [restoring, setRestoring] = useState(false);
 
     return (
         <View style={[styles.container, { paddingTop: insets.top + SPACING.xxl, paddingBottom: insets.bottom + SPACING.xxl }]}>
             <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
-                <StepDots total={ONBOARDING_STEPS} current={currentStep} />
-
                 {/* Hero: Sikku on lilac with coin stack */}
                 <View style={styles.hero} accessibilityElementsHidden importantForAccessibility="no-hide-descendants">
                     <View style={[styles.blob, styles.blobPeach]} />
@@ -56,48 +52,13 @@ export function WelcomeScreen() {
                     tone="pills"
                 />
 
-                <View style={styles.tiles}>
-                    <TouchableOpacity
-                        style={[styles.tile, { backgroundColor: CATEGORY_PALETTE.bills.bg }]}
-                        onPress={() => setShowCurrencies((v) => !v)}
-                        accessibilityRole="button"
-                        accessibilityLabel={`Currency ${currency.name}. Change`}
-                        activeOpacity={0.85}
-                    >
-                        <Text style={[styles.tileOver, { color: CATEGORY_PALETTE.bills.fg }]}>CURRENCY</Text>
-                        <Text style={styles.tileValue}>{currency.symbol} {currency.code}</Text>
-                    </TouchableOpacity>
-                    <TouchableOpacity
-                        style={[styles.tile, { backgroundColor: CATEGORY_PALETTE.transport.bg }]}
-                        onPress={() => updateData({ numberSystem: isLakhs ? 'millions' : 'lakhs' })}
-                        accessibilityRole="button"
-                        accessibilityLabel={`Number format ${isLakhs ? 'lakhs' : 'millions'}. Switch`}
-                        activeOpacity={0.85}
-                    >
-                        <Text style={[styles.tileOver, { color: CATEGORY_PALETTE.transport.fg }]}>NUMBERS</Text>
-                        <Text style={styles.tileValue}>{isLakhs ? '1,00,000' : '100,000'}</Text>
-                    </TouchableOpacity>
-                </View>
-
-                {showCurrencies && (
-                    <View style={styles.currencyList}>
-                        {CURRENCIES.map((c) => (
-                            <Chip
-                                key={c.code}
-                                label={`${c.symbol} ${c.code}`}
-                                selected={c.code === currency.code}
-                                tone={c.code === currency.code ? 'night' : 'surface'}
-                                onPress={() => {
-                                    updateData({ currency: c.code });
-                                    setShowCurrencies(false);
-                                }}
-                            />
-                        ))}
-                    </View>
-                )}
             </ScrollView>
 
             <Button label="Let's start" onPress={goNext} style={styles.cta} />
+            <TouchableOpacity onPress={() => setRestoring(true)} accessibilityRole="button" style={styles.restore} hitSlop={8}>
+                <Text style={styles.restoreText}>New phone? <Text style={styles.restoreLink}>Restore from a backup</Text></Text>
+            </TouchableOpacity>
+            <RestoreSheet visible={restoring} onClose={() => setRestoring(false)} />
         </View>
     );
 }
@@ -105,6 +66,9 @@ export function WelcomeScreen() {
 const styles = StyleSheet.create({
     container: { flex: 1, backgroundColor: COLORS.background, paddingHorizontal: SPACING.lg },
     scroll: { gap: SPACING.lg, paddingBottom: SPACING.lg },
+    restore: { alignItems: 'center', paddingTop: SPACING.md, minHeight: 44, justifyContent: 'center' },
+    restoreText: { fontSize: 15, fontWeight: '600', color: COLORS.textSecondary },
+    restoreLink: { fontSize: 15, fontWeight: '800', color: COLORS.text, textDecorationLine: 'underline' },
 
     hero: { height: 300, borderRadius: 36, backgroundColor: CATEGORY_PALETTE.fun.bg, overflow: 'hidden' },
     blob: { position: 'absolute', borderRadius: 999 },

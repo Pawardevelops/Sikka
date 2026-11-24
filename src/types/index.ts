@@ -39,6 +39,10 @@ export interface Account {
     color: string;
     lastUpdated?: string;
     isDeleted?: boolean;
+    /** Last 4 digits the bank uses in SMS ("A/c XX7731"). */
+    last4?: string;
+    /** Bank SMS sender code, e.g. HDFCBK. */
+    smsSender?: string;
 
     // ── Credit Card (populated when type='credit') ──
     creditCardDetails?: import('./accountTypes').CreditCardDetails;
@@ -77,6 +81,16 @@ export interface Transaction {
     isImpulse?: boolean; // Deprecated: use 'impulse' sentiment instead
     sentimentIds?: string[]; // Array of Sentiment IDs (e.g. ['regret', 'impulse'])
     isDeleted?: boolean;
+
+    // ── Captured from SMS (schema v2) ──
+    smsSender?: string;      // bank sender code, e.g. HDFCBK
+    smsBody?: string;        // original message
+    payee?: string;          // raw counterparty, e.g. blinkit.payu@hdfcbank
+    ruleId?: string;         // rule that named it
+    autoFiled?: boolean;     // filed by a rule, skipped review
+    planId?: string;         // SIP / EMI / subscription it pays
+    readBy?: string;         // pattern name, model id, 'rule' or 'you'
+    tags?: string[];         // #rahul, #work
 }
 
 // ==================== SUBSCRIPTIONS ====================
@@ -177,7 +191,8 @@ export interface DashboardData {
 }
 
 // ==================== ONBOARDING ====================
-export type OnboardingStep = 1 | 2 | 3 | 4;
+/** 1 Welcome · 2 Profile · 3 Use local AI? · 4 Model · 5 First look · 6 Accounts · 7 Security */
+export type OnboardingStep = 1 | 2 | 3 | 4 | 5 | 6 | 7;
 
 export type Language = 'en' | 'hi' | 'hinglish';
 

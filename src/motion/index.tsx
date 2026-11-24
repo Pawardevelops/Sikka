@@ -13,6 +13,7 @@ import Animated, {
     FadeIn,
     FadeInDown,
     FadeOut,
+    FadeOutDown,
     ReduceMotion,
     SlideInDown,
     SlideOutDown,
@@ -61,6 +62,12 @@ export const popIn = (index = 0) =>
 export const fadeIn = FadeIn.duration(MOTION.durBase).easing(EASE.out).reduceMotion(ReduceMotion.System);
 export const fadeOut = FadeOut.duration(MOTION.durFast).easing(EASE.in).reduceMotion(ReduceMotion.System);
 export const sheetIn = SlideInDown.duration(MOTION.durBase).easing(EASE.out).reduceMotion(ReduceMotion.System);
+/** Toasts: rise 12px + fade in, leave the same way ~20% faster. */
+export const toastIn = FadeInDown.withInitialValues({ opacity: 0, transform: [{ translateY: 12 }] })
+    .duration(220)
+    .easing(EASE.out)
+    .reduceMotion(ReduceMotion.System);
+export const toastOut = FadeOutDown.duration(180).easing(EASE.out).reduceMotion(ReduceMotion.System);
 export const sheetOut = SlideOutDown.duration(MOTION.durFast).easing(EASE.in).reduceMotion(ReduceMotion.System);
 
 /**

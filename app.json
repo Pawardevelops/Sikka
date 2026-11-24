@@ -34,7 +34,24 @@
           "disableJsi": true
         }
       ],
-      "expo-font"
+      "expo-font",
+      [
+        "expo-speech-recognition",
+        {
+          "microphonePermission": "Sikka uses the microphone for voice notes about a payment.",
+          "speechRecognitionPermission": "Sikka turns your voice note into text on this phone.",
+          "androidSpeechServicePackages": [
+            "com.google.android.as",
+            "com.google.android.googlequicksearchbox"
+          ]
+        }
+      ],
+      [
+        "expo-notifications",
+        {
+          "color": "#C6E26B"
+        }
+      ]
     ],
     "extra": {
       "eas": {

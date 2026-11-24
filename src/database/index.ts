@@ -16,6 +16,7 @@ import Setting from './models/Setting';
 import User from './models/User';
 import CreditCardDetail from './models/CreditCardDetail';
 import InvestmentHolding from './models/InvestmentHolding';
+import SmsRule from './models/SmsRule';
 
 // Then, make a Database instance
 const database = new Database({
@@ -36,6 +37,7 @@ const database = new Database({
         User,
         CreditCardDetail,
         InvestmentHolding,
+        SmsRule,
     ],
 });
 

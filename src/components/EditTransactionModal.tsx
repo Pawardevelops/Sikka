@@ -348,7 +348,7 @@ const styles = StyleSheet.create({
     facts: { flexDirection: 'row', gap: SPACING.sm },
     fact: { flex: 1, borderRadius: 20, padding: 10, alignItems: 'center', gap: 6, minHeight: 74 },
     factWhite: { backgroundColor: COLORS.surface, ...SHADOWS.sm },
-    factOver: { fontSize: 11, fontWeight: '800', color: COLORS.textSecondary, letterSpacing: 0.4 },
+    factOver: { fontSize: 12, fontWeight: '800', color: COLORS.textSecondary, letterSpacing: 0.4 },
     factValue: { fontSize: 14, fontWeight: '800', color: COLORS.text, marginTop: 2, textAlign: 'center' },
     factSmall: { fontSize: 12, lineHeight: 15 },
 

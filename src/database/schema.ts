@@ -1,7 +1,69 @@
-import { appSchema, tableSchema } from '@nozbe/watermelondb';
+import { appSchema, tableSchema, ColumnSchema } from '@nozbe/watermelondb';
+import type { TableSchemaSpec } from '@nozbe/watermelondb/Schema';
+
+// ==================== v2 (Sikka v3 design) ====================
+// Columns added in schema v2. Listed once so the schema and the migration agree.
+
+/** Which SMS an account belongs to: "··7731" from "A/c XX7731", sender "HDFCBK". */
+export const ACCOUNT_V2: ColumnSchema[] = [
+    { name: 'last4', type: 'string', isOptional: true },
+    { name: 'sms_sender', type: 'string', isOptional: true },
+];
+
+export const TRANSACTION_V2: ColumnSchema[] = [
+    /** Bank sender code, e.g. HDFCBK. */
+    { name: 'sms_sender', type: 'string', isOptional: true },
+    /** Original SMS text, shown in review and used to teach rules. */
+    { name: 'sms_body', type: 'string', isOptional: true },
+    /** Raw counterparty from the SMS (UPI ID or shop), e.g. blinkit.payu@hdfcbank. */
+    { name: 'payee', type: 'string', isOptional: true },
+    /** Rule that named this payment, if any. */
+    { name: 'rule_id', type: 'string', isOptional: true, isIndexed: true },
+    /** Filed by a rule without review. */
+    { name: 'auto_filed', type: 'boolean', isOptional: true },
+    /** Payment plan (SIP, EMI, subscription) this debit belongs to. */
+    { name: 'plan_id', type: 'string', isOptional: true, isIndexed: true },
+    /** Who read it: a pattern name, a model id, 'rule' or 'you'. */
+    { name: 'read_by', type: 'string', isOptional: true },
+    { name: 'tags', type: 'string', isOptional: true },
+];
+
+/** Subscriptions grow into payment plans: SIPs, EMIs, insurance and other autopays. */
+export const PLAN_V2: ColumnSchema[] = [
+    { name: 'kind', type: 'string', isOptional: true },          // sip | subscription | emi | insurance | autopay
+    { name: 'via', type: 'string', isOptional: true },           // nach | upi_autopay | card | manual
+    { name: 'mandate_limit', type: 'number', isOptional: true },
+    { name: 'amount_varies', type: 'boolean', isOptional: true },
+    { name: 'start_date', type: 'number', isOptional: true },
+    { name: 'end_date', type: 'number', isOptional: true },
+    { name: 'payments_left', type: 'number', isOptional: true },
+    { name: 'paused_until', type: 'number', isOptional: true },
+    { name: 'stopped_at', type: 'number', isOptional: true },
+    { name: 'remind', type: 'boolean', isOptional: true },
+    { name: 'payee_match', type: 'string', isOptional: true },   // SMS text that identifies its debits
+    { name: 'found_in_sms', type: 'boolean', isOptional: true },
+];
+
+/** "Teach once": how a sender's SMS should be named and filed from now on. */
+export const SMS_RULES: TableSchemaSpec = {
+    name: 'sms_rules',
+    columns: [
+        { name: 'sender', type: 'string', isIndexed: true },     // bank sender code, e.g. HDFCBK
+        { name: 'payee_match', type: 'string' },                 // lower-case text the SMS must contain
+        { name: 'name', type: 'string' },                        // what to call it, e.g. Blinkit
+        { name: 'category', type: 'string' },
+        { name: 'account_id', type: 'string', isOptional: true },
+        { name: 'mode', type: 'string' },                        // auto | ask
+        { name: 'match_count', type: 'number' },
+        { name: 'last_matched_at', type: 'number', isOptional: true },
+        { name: 'created_at', type: 'number' },
+        { name: 'updated_at', type: 'number' },
+    ],
+};
+
 
 export const mySchema = appSchema({
-    version: 1,
+    version: 2,
     tables: [
         // ==================== CORE FINANCIALS ====================
         tableSchema({
@@ -13,6 +75,7 @@ export const mySchema = appSchema({
                 { name: 'icon', type: 'string' },
                 { name: 'color', type: 'string' },
                 { name: 'is_deleted', type: 'boolean' },
+                ...ACCOUNT_V2,
                 { name: 'created_at', type: 'number' },
                 { name: 'updated_at', type: 'number' },
             ],
@@ -65,6 +128,7 @@ export const mySchema = appSchema({
                 { name: 'account_id', type: 'string', isIndexed: true },
                 { name: 'category_id', type: 'string', isIndexed: true },
                 { name: 'is_deleted', type: 'boolean' },
+                ...TRANSACTION_V2,
                 { name: 'created_at', type: 'number' },
                 { name: 'updated_at', type: 'number' },
             ],
@@ -122,6 +186,7 @@ export const mySchema = appSchema({
                 { name: 'pay_to', type: 'string', isOptional: true },
                 { name: 'account_id', type: 'string', isIndexed: true, isOptional: true }, // Payment source
                 { name: 'category_id', type: 'string', isIndexed: true },
+                ...PLAN_V2,
                 { name: 'created_at', type: 'number' },
                 { name: 'updated_at', type: 'number' },
             ],
@@ -163,6 +228,7 @@ export const mySchema = appSchema({
                 { name: 'updated_at', type: 'number' },
             ],
         }),
+        tableSchema(SMS_RULES),
         tableSchema({
             name: 'users',
             columns: [

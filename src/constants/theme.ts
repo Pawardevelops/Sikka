@@ -196,7 +196,7 @@ export const FONT_FAMILY = {
 } as const;
 
 export const FONT_SIZE = {
-    xs: 11,
+    xs: 12,
     sm: 13,    // caption
     md: 15,
     lg: 16,    // body / label

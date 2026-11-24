@@ -19,6 +19,8 @@ export default class Account extends Model {
     @field('color') color!: string;
     @field('is_included') isIncluded!: boolean; // Included in net worth?
     @field('is_deleted') isDeleted!: boolean;
+    @field('last4') last4!: string | null;
+    @field('sms_sender') smsSender!: string | null;
 
     @readonly @date('created_at') createdAt!: number;
     @readonly @date('updated_at') updatedAt!: number;

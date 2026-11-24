@@ -32,6 +32,20 @@ export default class Subscription extends Model {
     @field('payment_mode') paymentMode!: string;
     @text('pay_to') payTo!: string; // Optional
 
+    // ── Plan fields (schema v2) ──
+    @field('kind') kind!: string | null;
+    @field('via') via!: string | null;
+    @field('mandate_limit') mandateLimit!: number | null;
+    @field('amount_varies') amountVaries!: boolean | null;
+    @field('start_date') startDate!: number | null;
+    @field('end_date') endDate!: number | null;
+    @field('payments_left') paymentsLeft!: number | null;
+    @field('paused_until') pausedUntil!: number | null;
+    @field('stopped_at') stoppedAt!: number | null;
+    @field('remind') remind!: boolean | null;
+    @text('payee_match') payeeMatch!: string | null;
+    @field('found_in_sms') foundInSms!: boolean | null;
+
     @relation('accounts', 'account_id') account!: Relation<Account>; // Payment source
     @relation('categories', 'category_id') category!: Relation<Category>;
 

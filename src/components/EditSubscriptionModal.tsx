@@ -298,7 +298,7 @@ const styles = StyleSheet.create({
     dotDone: { backgroundColor: COLORS.night },
     dotNow: { backgroundColor: SIKKA.signal, borderWidth: 5, borderColor: '#FFE3D4', width: 40, height: 40, borderRadius: 20, marginTop: -4, marginBottom: -4 },
     dotTodo: { borderWidth: 2, borderStyle: 'dashed', borderColor: '#BDB5A6' },
-    stepLabel: { fontSize: 11, fontWeight: '800', color: COLORS.text },
+    stepLabel: { fontSize: 12, fontWeight: '800', color: COLORS.text },
     link: { width: 14, height: 3, borderRadius: 2, marginTop: 15 },
 
     tiles: { flexDirection: 'row', gap: 10 },

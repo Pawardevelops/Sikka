@@ -17,7 +17,17 @@ import database from '../../database';
 import UnparsedMessage from '../../database/models/UnparsedMessage';
 import { IncomingSms } from './types';
 import { parseWithPatterns, looksFinancial } from './patterns';
-import { saveRawSms, saveCapturedTransaction } from './store';
+import { saveRawSms, saveCapturedTransaction, Captured } from './store';
+import { notifyCaptured } from '../notify';
+import { detectAccounts, DetectedAccount } from './extract';
+import { demoInbox } from './demoInbox';
+
+/** Android reads the real inbox; the web preview uses a sample one. */
+async function readInbox(sinceMs: number, max: number): Promise<IncomingSms[] | null> {
+    if (Platform.OS === 'web') return demoInbox(sinceMs);
+    if (Platform.OS !== 'android' || !NativeModules.SikkaSmsInbox) return null;
+    return NativeModules.SikkaSmsInbox.readSince(sinceMs, max);
+}
 import { getActiveModel } from './modelManager';
 import { parseWithModel } from './aiParser';
 
@@ -36,7 +46,10 @@ export async function smsHandler({ sender, body, timestamp }: IncomingSms) {
     try {
         await saveRawSms(text, from, receivedAt);
         const parsed = parseWithPatterns(text);
-        if (parsed) await saveCapturedTransaction(parsed, from, receivedAt);
+        if (parsed) {
+            const out = await saveCapturedTransaction(parsed, from, receivedAt, text);
+            if (out && out !== 'duplicate') await notifyCaptured(out);
+        }
     } catch (e) {
         console.error('[Sikka] SMS capture failed:', e);
     }
@@ -85,7 +98,10 @@ async function run(ownerName?: string, fromMs?: number, untilMs?: number): Promi
         if (looksFinancial(text) && !parseWithPatterns(text)) {
             try {
                 const out = await parseWithModel(model, { body: text, sender: msg.sender, ownerName });
-                if (out && out !== 'skip' && (await saveCapturedTransaction(out, msg.sender, msg.timestamp))) captured++;
+                if (out && out !== 'skip') {
+                    const saved = await saveCapturedTransaction(out, msg.sender, msg.timestamp, text);
+                    if (isNew(saved)) captured++;
+                }
             } catch (e) {
                 console.warn('[Sikka] Model could not read SMS:', e);
                 break; // Leave the rest queued; retry on next open.
@@ -96,6 +112,8 @@ async function run(ownerName?: string, fromMs?: number, untilMs?: number): Promi
     return captured;
 }
 
+const isNew = (o: Awaited<ReturnType<typeof saveCapturedTransaction>>): o is Captured => !!o && o !== 'duplicate';
+
 export interface InboxScanResult {
     /** SMS found in the inbox for the window. */
     scanned: number;
@@ -103,6 +121,10 @@ export interface InboxScanResult {
     captured: number;
     /** Bank-looking SMS nobody could read (no model, or the model passed). */
     unread: number;
+    /** Payments that were already in Sikka. */
+    already: number;
+    /** Bank SMS in the window (the ones worth reading). */
+    bank: number;
 }
 
 /**
@@ -110,11 +132,13 @@ export interface InboxScanResult {
  * that were missed. Needs READ_SMS. Safe to run repeatedly: duplicates are skipped.
  */
 export async function scanInbox(sinceMs: number, untilMs: number, ownerName?: string): Promise<InboxScanResult> {
-    if (Platform.OS !== 'android' || !NativeModules.SikkaSmsInbox) return { scanned: 0, captured: 0, unread: 0 };
-    const all: IncomingSms[] = await NativeModules.SikkaSmsInbox.readSince(sinceMs, 2000);
+    const all = await readInbox(sinceMs, 2000);
+    if (!all) return { scanned: 0, captured: 0, unread: 0, already: 0, bank: 0 };
     const inbox = all.filter((m) => (m.timestamp ?? 0) <= untilMs);
 
     let captured = 0;
+    let already = 0;
+    let bank = 0;
     let leftForModel = 0;
     for (const sms of inbox) {
         const text = sms.body?.trim();
@@ -123,8 +147,11 @@ export async function scanInbox(sinceMs: number, untilMs: number, ownerName?: st
         const at = sms.timestamp || Date.now();
         await saveRawSms(text, from, at);
         const parsed = parseWithPatterns(text);
+        if (parsed || looksFinancial(text)) bank++;
         if (parsed) {
-            if (await saveCapturedTransaction(parsed, from, at)) captured++;
+            const saved = await saveCapturedTransaction(parsed, from, at, text);
+            if (saved === 'duplicate') already++;
+            else if (saved) captured++;
         } else if (looksFinancial(text)) {
             leftForModel++;
         }
@@ -137,6 +164,8 @@ export async function scanInbox(sinceMs: number, untilMs: number, ownerName?: st
         scanned: inbox.length,
         captured: captured + byModel,
         unread: hasModel ? Math.max(0, leftForModel - byModel) : leftForModel,
+        already,
+        bank,
     };
 }
 
@@ -146,4 +175,62 @@ export async function countQueuedSms(): Promise<number> {
     const since = Math.max(cursor, Date.now() - LOOKBACK_MS);
     const msgs = await database.get<UnparsedMessage>('unparsed_messages').query(Q.where('timestamp', Q.gt(since))).fetch();
     return msgs.filter((m) => looksFinancial(m.body) && !parseWithPatterns(m.body)).length;
+}
+
+/** Bank SMS in the window that no pattern reads (for "Teach this message"). */
+export async function unreadBankSms(sinceMs = Date.now() - LOOKBACK_MS, limit = 20): Promise<UnparsedMessage[]> {
+    const msgs = await database
+        .get<UnparsedMessage>('unparsed_messages')
+        .query(Q.where('timestamp', Q.gt(sinceMs)), Q.sortBy('timestamp', Q.desc))
+        .fetch();
+    const captured = await database.get<any>('transactions').query(Q.where('timestamp', Q.gt(sinceMs))).fetch();
+    const bodies = new Set(captured.map((t: any) => t.smsBody).filter(Boolean));
+    return msgs.filter((m) => looksFinancial(m.body) && !parseWithPatterns(m.body) && !bodies.has(m.body)).slice(0, limit);
+}
+
+/** Share of bank SMS this month that became payments (Settings → Auto-capture). */
+export async function coverageThisMonth(): Promise<{ read: number; total: number; pct: number }> {
+    const start = new Date();
+    start.setDate(1);
+    start.setHours(0, 0, 0, 0);
+    const msgs = await database.get<UnparsedMessage>('unparsed_messages').query(Q.where('timestamp', Q.gt(start.getTime()))).fetch();
+    const bank = msgs.filter((m) => looksFinancial(m.body));
+    const unread = (await unreadBankSms(start.getTime(), 1000)).length;
+    const total = bank.length;
+    const read = Math.max(0, total - unread);
+    return { read, total, pct: total ? Math.round((read / total) * 100) : 100 };
+}
+
+export interface InboxPreview {
+    /** Bank payments the patterns could read. */
+    payments: { amount: number; direction: 'debit' | 'credit'; merchant: string; category: string; at: number; sender: string; body: string }[];
+    accounts: DetectedAccount[];
+    /** Bank SMS nobody could read yet (the model will try once it's ready). */
+    unread: number;
+}
+
+/**
+ * First look: reads the last `days` of SMS, keeps the raw messages and works out
+ * what they say, without saving payments yet (there are no accounts to attach
+ * them to until the user confirms them).
+ */
+export async function previewInbox(days = 30): Promise<InboxPreview> {
+    const since = Date.now() - days * 86_400_000;
+    const inbox = await readInbox(since, 3000);
+    if (!inbox) return { payments: [], accounts: [], unread: 0 };
+    const payments: InboxPreview['payments'] = [];
+    const raw: { body: string; sender: string; timestamp: number }[] = [];
+    let unread = 0;
+    for (const sms of inbox) {
+        const body = sms.body?.trim();
+        if (!body) continue;
+        const sender = sms.sender || 'Unknown';
+        const at = sms.timestamp || Date.now();
+        await saveRawSms(body, sender, at);
+        raw.push({ body, sender, timestamp: at });
+        const p = parseWithPatterns(body);
+        if (p) payments.push({ amount: p.amount, direction: p.direction, merchant: p.merchant, category: p.category, at, sender, body });
+        else if (looksFinancial(body)) unread++;
+    }
+    return { payments, accounts: detectAccounts(raw), unread };
 }

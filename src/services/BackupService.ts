@@ -20,25 +20,55 @@ const serializeCollection = async (collectionName: string) => {
     }
 };
 
+/** Every table, so a restore on a new phone brings back payments, rules and plans too. */
+const BACKUP_TABLES = [
+    'accounts',
+    'credit_card_details',
+    'investment_holdings',
+    'categories',
+    'tags',
+    'sentiments',
+    'transactions',
+    'transaction_tags',
+    'transaction_sentiments',
+    'subscriptions',
+    'subscription_members',
+    'subscription_events',
+    'sms_rules',
+    'users',
+    'settings',
+] as const;
+
+/**
+ * Replaces local data with the backup. Records keep their ids, so payments stay
+ * linked to their accounts, categories and feelings.
+ */
+export async function restoreTables(data: Record<string, any[] | undefined>) {
+    await database.write(async () => {
+        const ops: any[] = [];
+        for (const table of BACKUP_TABLES) {
+            const records = data[table];
+            if (!records) continue; // older backups don't have every table
+            const collection = database.get(table);
+            const existing = await collection.query().fetch();
+            existing.forEach((rec) => ops.push(rec.prepareDestroyPermanently()));
+            records.forEach((raw) => {
+                const { _status, _changed, ...clean } = raw;
+                ops.push((collection as any).prepareCreateFromDirtyRaw(clean));
+            });
+        }
+        await database.batch(...ops);
+    });
+}
+
 export class BackupService {
     /**
      * Helper to serialize all WatermelonDB data.
      */
     static async _serializeDatabaseData() {
-        return {
-            accounts: await serializeCollection('accounts'),
-            categories: await serializeCollection('categories'),
-            tags: await serializeCollection('tags'),
-            sentiments: await serializeCollection('sentiments'),
-            transactions: await serializeCollection('transactions'),
-            transaction_tags: await serializeCollection('transaction_tags'),
-            transaction_sentiments: await serializeCollection('transaction_sentiments'),
-            subscriptions: await serializeCollection('subscriptions'),
-            subscription_members: await serializeCollection('subscription_members'),
-            subscription_events: await serializeCollection('subscription_events'),
-            users: await serializeCollection('users'),
-            settings: await serializeCollection('settings'),
-        };
+        const out: Record<string, any[]> = {};
+        for (const table of BACKUP_TABLES) out[table] = await serializeCollection(table);
+        return out;
     }
 
     /**
@@ -170,38 +200,7 @@ export class BackupService {
 
             const { data } = payload;
 
-            await database.write(async () => {
-                const restoreTable = async (tableName: string, records: any[]) => {
-                    if (!records) return;
-                    const collection = database.get(tableName);
-                    const existing = await collection.query().fetch();
-
-                    for (const rec of existing) {
-                        await rec.destroyPermanently();
-                    }
-
-                    for (const raw of records) {
-                        await collection.create(rec => {
-                            Object.keys(raw).forEach(key => {
-                                if (key !== 'id' && key !== '_status' && key !== '_changed') {
-                                    // @ts-ignore
-                                    rec[key] = raw[key];
-                                }
-                            });
-                        });
-                    }
-                };
-
-                await restoreTable('accounts', data.accounts);
-                await restoreTable('categories', data.categories);
-                await restoreTable('tags', data.tags);
-                await restoreTable('sentiments', data.sentiments);
-                await restoreTable('subscriptions', data.subscriptions);
-                await restoreTable('subscription_members', data.subscription_members);
-                await restoreTable('subscription_events', data.subscription_events);
-                await restoreTable('users', data.users);
-                await restoreTable('settings', data.settings);
-            });
+            await restoreTables(data);
 
             return true;
         } catch (error) {

@@ -8,17 +8,20 @@ import React, { useState } from 'react';
 import { StyleSheet, View, TouchableOpacity, ScrollView, Alert, ActivityIndicator } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Text } from '../../components/Typography';
-import { useOnboarding, ONBOARDING_STEPS } from '../../context/OnboardingContext';
+import { useOnboarding, ONBOARDING_DOTS, dotFor } from '../../context/OnboardingContext';
 import { useSecurity } from '../../context/SecurityContext';
 import { Icon, IconName } from '../../components/Icon';
 import { COLORS, SPACING, CATEGORY_PALETTE } from '../../constants/theme';
 import { useBackup } from '../../hooks/useBackup';
 import { CustomModal, ModalAction, ModalType } from '../../components/CustomModal';
-import { Button, IconButton, StepDots, Toggle } from '../../components/ui';
+import { Button, IconButton, StepDots, Toggle, Segmented } from '../../components/ui';
+import { usePrefs } from '../../context/PrefsContext';
+import { scheduleNightlyReview } from '../../services/notify';
 
 export function SecuritySetupScreen() {
     const insets = useSafeAreaInsets();
-    const { currentStep, data, updateData, goBack, completeOnboarding } = useOnboarding();
+    const { currentStep, data, updateData, goToStep, completeOnboarding } = useOnboarding();
+    const { prefs, update } = usePrefs();
     const { hasBiometricHardware, biometricType, setBiometricEnabled } = useSecurity();
     const [sealing, setSealing] = useState(false);
 
@@ -47,6 +50,7 @@ export function SecuritySetupScreen() {
         setSealing(true);
         try {
             await completeOnboarding();
+            void scheduleNightlyReview(prefs);
         } catch {
             Alert.alert('Could not finish setup', 'Please try again.');
             setSealing(false);
@@ -58,8 +62,8 @@ export function SecuritySetupScreen() {
     return (
         <View style={[styles.container, { paddingTop: insets.top + SPACING.xxl, paddingBottom: insets.bottom + SPACING.xxl }]}>
             <View style={styles.header}>
-                <IconButton icon="chevron-left" label="Back" onPress={goBack} iconSize={26} />
-                <View style={{ flex: 1 }}><StepDots total={ONBOARDING_STEPS} current={currentStep} /></View>
+                <IconButton icon="chevron-left" label="Back" onPress={() => goToStep(6)} iconSize={26} />
+                <View style={{ flex: 1 }}><StepDots total={ONBOARDING_DOTS} current={dotFor(currentStep)} /></View>
             </View>
 
             <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
@@ -91,6 +95,22 @@ export function SecuritySetupScreen() {
                         disabled={!hasBiometricHardware}
                     />
                 </View>
+
+                {data.biometricEnabled && (
+                    <View style={{ gap: SPACING.sm }}>
+                        <Text style={styles.lockLabel}>LOCK AFTER</Text>
+                        <Segmented
+                            label="Lock after"
+                            options={[
+                                { value: '0', label: 'Instantly' },
+                                { value: '60', label: '1 min' },
+                                { value: '300', label: '5 min' },
+                            ]}
+                            value={String(prefs.lockAfter)}
+                            onChange={(v) => update({ lockAfter: Number(v) })}
+                        />
+                    </View>
+                )}
 
                 <TouchableOpacity
                     style={[styles.row, { backgroundColor: CATEGORY_PALETTE.transport.bg }]}
@@ -130,6 +150,7 @@ export function SecuritySetupScreen() {
 }
 
 const styles = StyleSheet.create({
+    lockLabel: { fontSize: 13, fontWeight: '800', letterSpacing: 0.6, color: COLORS.textSecondary },
     container: { flex: 1, backgroundColor: COLORS.background, paddingHorizontal: SPACING.lg, gap: SPACING.lg },
     header: { flexDirection: 'row', alignItems: 'center', gap: SPACING.md },
     scroll: { gap: 14, paddingBottom: SPACING.lg },

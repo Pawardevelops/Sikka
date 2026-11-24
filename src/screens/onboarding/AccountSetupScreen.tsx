@@ -1,21 +1,27 @@
 /**
- * Sikka - Accounts setup (Onboarding 3 of 4)
- * Design: design-system/screens/Accounts-setup-v2.html
- * Lime total-balance hero, stacked pastel account cards, dashed "add another".
+ * Sikka - Confirm accounts (Onboarding step 4 of 5)
+ * Design: Sikka v3 canvas "06 Confirm accounts" — "Found in your SMS".
+ *
+ * Accounts come pre-filled from the bank SMS First look read (bank + last 4
+ * digits + balance when the SMS has it). Only what SMS can't know is typed:
+ * cash, and a balance the bank never sent. Continue saves them and files the
+ * last 30 days of payments into Review.
  */
 
-import React, { useState } from 'react';
-import { StyleSheet, View, TouchableOpacity, ScrollView } from 'react-native';
+import React, { useEffect, useMemo, useState } from 'react';
+import { StyleSheet, View, TouchableOpacity, ScrollView, KeyboardAvoidingView, Platform } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { Text } from '../../components/Typography';
-import { useOnboarding, ONBOARDING_STEPS } from '../../context/OnboardingContext';
+import { Text, TextInput } from '../../components/Typography';
+import { useOnboarding, ONBOARDING_DOTS, dotFor } from '../../context/OnboardingContext';
+import { usePrefs } from '../../context/PrefsContext';
 import { useAccounts } from '../../context/AccountsContext';
 import { useCurrency } from '../../context/CurrencyContext';
 import { Icon } from '../../components/Icon';
-import { COLORS, SPACING, SHADOWS, CATEGORY_PALETTE, getCategoryColors, ACCOUNT_ICONS } from '../../constants/theme';
+import { COLORS, SPACING, CATEGORY_PALETTE, getCategoryColors, ACCOUNT_ICONS } from '../../constants/theme';
 import { Account } from '../../types';
 import { AddAccountModal } from '../../components/AddAccountModal';
-import { Button, IconButton, StepDots, HeroCard, Sikku } from '../../components/ui';
+import { Button, IconButton, StepDots, HeroCard } from '../../components/ui';
+import { scanInbox } from '../../services/sms';
 
 export const ACCOUNT_TYPE_LABELS: Record<string, string> = {
     bank: 'Bank account',
@@ -27,115 +33,219 @@ export const ACCOUNT_TYPE_LABELS: Record<string, string> = {
     bitcoin: 'Crypto',
 };
 
+interface Draft {
+    key: string;
+    name: string;
+    type: 'bank' | 'credit' | 'cash';
+    last4?: string;
+    sender?: string;
+    /** Rupees; for a card this is the amount owed. */
+    amount: string;
+    fromSms: boolean;
+    include: boolean;
+}
+
+const num = (s: string) => {
+    const n = parseFloat(s.replace(/[^0-9.]/g, ''));
+    return Number.isFinite(n) ? n : 0;
+};
+
 export function AccountSetupScreen() {
     const insets = useSafeAreaInsets();
-    const { currentStep, goNext, goBack } = useOnboarding();
-    const { activeAccounts, netWorth, addAccount, updateAccount, deleteAccount } = useAccounts();
+    const { currentStep, goToStep, preview, data } = useOnboarding();
+    const { prefs } = usePrefs();
+    const { activeAccounts, addAccount, updateAccount, deleteAccount } = useAccounts();
     const { formatAmount } = useCurrency();
     const [showAddModal, setShowAddModal] = useState(false);
     const [accountToEdit, setAccountToEdit] = useState<Account | null>(null);
+    const [saving, setSaving] = useState(false);
 
-    const openAddModal = (account?: Account) => {
-        setAccountToEdit(account || null);
-        setShowAddModal(true);
+    const initial = useMemo<Draft[]>(() => {
+        const found: Draft[] = (preview?.accounts ?? []).map((a) => ({
+            key: `${a.sender}|${a.last4}`,
+            name: a.kind === 'credit' ? `${a.bank} card` : `${a.bank} Savings`,
+            type: a.kind === 'credit' ? 'credit' : 'bank',
+            last4: a.last4,
+            sender: a.sender,
+            amount: a.kind === 'credit' ? '' : a.balance !== undefined ? String(Math.round(a.balance)) : '',
+            fromSms: true,
+            include: true,
+        }));
+        return [...found, { key: 'cash', name: 'Cash', type: 'cash', amount: '', fromSms: false, include: true }];
+    }, [preview]);
+    const [drafts, setDrafts] = useState<Draft[]>(initial);
+    useEffect(() => setDrafts(initial), [initial]);
+
+    const patch = (key: string, d: Partial<Draft>) => setDrafts((all) => all.map((x) => (x.key === key ? { ...x, ...d } : x)));
+
+    const included = drafts.filter((d) => d.include && (d.type !== 'cash' || num(d.amount) > 0));
+    const inAccounts =
+        included.filter((d) => d.type !== 'credit').reduce((s, d) => s + num(d.amount), 0) +
+        activeAccounts.filter((a) => a.type !== 'credit').reduce((s, a) => s + a.balance, 0);
+    const owed =
+        included.filter((d) => d.type === 'credit').reduce((s, d) => s + num(d.amount), 0) +
+        activeAccounts.filter((a) => a.type === 'credit').reduce((s, a) => s + a.balance, 0);
+    const canContinue = included.length > 0 || activeAccounts.length > 0;
+
+    const save = async () => {
+        setSaving(true);
+        try {
+            for (const d of included) {
+                const pair = getCategoryColors(d.type);
+                await addAccount({
+                    name: d.name.trim() || (d.type === 'cash' ? 'Cash' : 'Account'),
+                    type: d.type,
+                    balance: num(d.amount),
+                    icon: ACCOUNT_ICONS[d.type] || 'account-balance',
+                    color: pair.bg,
+                    last4: d.last4,
+                    smsSender: d.sender,
+                });
+            }
+            // Accounts exist now, so the last 30 days of payments can be filed into Review.
+            if (prefs.aiMode === 'local') {
+                void scanInbox(Date.now() - 30 * 86_400_000, Date.now(), data.userName).catch(() => undefined);
+            }
+            goToStep(7);
+        } finally {
+            setSaving(false);
+        }
     };
-    const closeAddModal = () => {
-        setShowAddModal(false);
-        setAccountToEdit(null);
-    };
-    const canContinue = activeAccounts.length > 0;
 
     return (
-        <View style={[styles.container, { paddingTop: insets.top + SPACING.xxl, paddingBottom: insets.bottom + SPACING.xxl }]}>
+        <KeyboardAvoidingView
+            style={[styles.container, { paddingTop: insets.top + SPACING.xxl, paddingBottom: insets.bottom + SPACING.xxl }]}
+            behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        >
             <View style={styles.header}>
-                <IconButton icon="chevron-left" label="Back" onPress={goBack} iconSize={26} />
-                <View style={{ flex: 1 }}><StepDots total={ONBOARDING_STEPS} current={currentStep} /></View>
+                <IconButton
+                    icon="chevron-left"
+                    label="Back"
+                    onPress={() => goToStep(prefs.aiMode === 'local' ? 5 : 3)}
+                    iconSize={26}
+                />
+                <View style={{ flex: 1 }}><StepDots total={ONBOARDING_DOTS} current={dotFor(currentStep)} /></View>
             </View>
 
-            <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
-                <Text style={styles.title} accessibilityRole="header">Where does your money live?</Text>
+            <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
+                <Text style={styles.title} accessibilityRole="header">
+                    {preview?.accounts.length ? 'Found in your SMS' : 'Where does your money live?'}
+                </Text>
 
-                {canContinue ? (
-                    <HeroCard style={styles.hero}>
-                        <View>
-                            <Text style={styles.heroOver}>TOTAL BALANCE</Text>
-                            <Text style={styles.heroValue}>{formatAmount(netWorth, true)}</Text>
-                        </View>
-                        <View style={styles.countChip}>
-                            <Text style={styles.countChipText}>
-                                {activeAccounts.length} {activeAccounts.length === 1 ? 'account' : 'accounts'}
-                            </Text>
-                        </View>
-                    </HeroCard>
-                ) : (
-                    <View style={styles.empty}>
-                        <Sikku size={72} mood="thinking" />
-                        <Text style={styles.emptyText}>
-                            Add a bank account, cash or a card. Sikka keeps every balance on this phone.
-                        </Text>
+                <HeroCard style={styles.hero}>
+                    <View style={{ flex: 1 }}>
+                        <Text style={styles.heroOver}>IN YOUR ACCOUNTS</Text>
+                        <Text style={styles.heroValue} adjustsFontSizeToFit numberOfLines={1}>{formatAmount(inAccounts, true)}</Text>
                     </View>
-                )}
+                    {owed > 0 && (
+                        <View style={styles.countChip}><Text style={styles.countChipText}>card owed {formatAmount(owed, true)}</Text></View>
+                    )}
+                </HeroCard>
 
-                {/* Stacked account cards */}
-                <View>
-                    {activeAccounts.map((account, i) => {
-                        const pair = getCategoryColors(account.type);
-                        const isLast = i === activeAccounts.length - 1;
+                <View style={{ gap: SPACING.sm }}>
+                    {drafts.map((d) => {
+                        const pair = getCategoryColors(d.type);
+                        const missing = d.include && d.type === 'bank' && d.amount === '';
                         return (
-                            <View
-                                key={account.id}
-                                style={[
-                                    styles.stackCard,
-                                    { backgroundColor: pair.bg, paddingBottom: isLast ? SPACING.lg : 34 },
-                                    i > 0 && styles.stackOverlap,
-                                ]}
-                            >
-                                <TouchableOpacity
-                                    onPress={() => openAddModal(account)}
-                                    activeOpacity={0.8}
-                                    accessibilityRole="button"
-                                    accessibilityLabel={`${account.name}, ${formatAmount(account.balance, true)}. Edit`}
-                                    style={styles.stackMain}
-                                >
-                                    <View style={styles.stackIcon}>
-                                        <Icon name={(ACCOUNT_ICONS[account.type] || account.icon || 'account-balance') as any} size={22} color={pair.fg} />
-                                    </View>
-                                    <View style={{ flex: 1 }}>
-                                        <Text style={styles.stackName} numberOfLines={1}>{account.name}</Text>
-                                        <Text style={[styles.stackMeta, { color: pair.fg }]}>{ACCOUNT_TYPE_LABELS[account.type] ?? account.type}</Text>
-                                    </View>
-                                    <Text style={styles.stackBalance}>{formatAmount(account.balance, true)}</Text>
-                                </TouchableOpacity>
-                                <TouchableOpacity
-                                    onPress={() => deleteAccount(account.id)}
-                                    hitSlop={10}
-                                    accessibilityRole="button"
-                                    accessibilityLabel={`Remove ${account.name}`}
-                                    style={styles.removeBtn}
-                                >
-                                    <Icon name="close" size={16} color={pair.fg} />
-                                </TouchableOpacity>
+                            <View key={d.key} style={[styles.row, { backgroundColor: pair.bg }, !d.include && { opacity: 0.5 }]}>
+                                <View style={styles.rowIcon}>
+                                    <Icon name={(ACCOUNT_ICONS[d.type] || 'account-balance') as any} size={22} color={pair.fg} />
+                                </View>
+                                <View style={{ flex: 1, minWidth: 0 }}>
+                                    <TextInput
+                                        value={d.name}
+                                        onChangeText={(name) => patch(d.key, { name })}
+                                        style={styles.rowName}
+                                        accessibilityLabel="Account name"
+                                    />
+                                    <Text style={[styles.rowMeta, { color: pair.fg }]} numberOfLines={1}>
+                                        {d.fromSms ? `··${d.last4} · found in SMS` : 'Not in SMS · type it once'}
+                                    </Text>
+                                </View>
+                                <View style={[styles.amountBox, missing && styles.amountMissing]}>
+                                    <Text style={styles.amountSign}>{d.type === 'credit' ? '−₹' : '₹'}</Text>
+                                    <TextInput
+                                        value={d.amount ? Number(d.amount).toLocaleString('en-IN') : ''}
+                                        onChangeText={(t) => patch(d.key, { amount: t.replace(/[^0-9.]/g, '') })}
+                                        placeholder="0"
+                                        keyboardType="decimal-pad"
+                                        style={styles.amountInput}
+                                        accessibilityLabel={`${d.name} ${d.type === 'credit' ? 'amount owed' : 'balance'}`}
+                                    />
+                                </View>
+                                {d.fromSms && (
+                                    <TouchableOpacity
+                                        onPress={() => patch(d.key, { include: !d.include })}
+                                        accessibilityRole="checkbox"
+                                        accessibilityState={{ checked: d.include }}
+                                        accessibilityLabel={`Include ${d.name}`}
+                                        hitSlop={10}
+                                        style={[styles.check, d.include && styles.checkOn]}
+                                    >
+                                        {d.include && <Icon name="check" size={16} color={COLORS.brand} />}
+                                    </TouchableOpacity>
+                                )}
                             </View>
+                        );
+                    })}
+
+                    {activeAccounts.map((account) => {
+                        const pair = getCategoryColors(account.type);
+                        return (
+                            <TouchableOpacity
+                                key={account.id}
+                                onPress={() => {
+                                    setAccountToEdit(account);
+                                    setShowAddModal(true);
+                                }}
+                                activeOpacity={0.85}
+                                accessibilityRole="button"
+                                accessibilityLabel={`${account.name}, ${formatAmount(account.balance, true)}. Edit`}
+                                style={[styles.row, { backgroundColor: pair.bg }]}
+                            >
+                                <View style={styles.rowIcon}>
+                                    <Icon name={(ACCOUNT_ICONS[account.type] || 'account-balance') as any} size={22} color={pair.fg} />
+                                </View>
+                                <View style={{ flex: 1 }}>
+                                    <Text style={styles.rowName}>{account.name}</Text>
+                                    <Text style={[styles.rowMeta, { color: pair.fg }]}>{ACCOUNT_TYPE_LABELS[account.type] ?? account.type}</Text>
+                                </View>
+                                <Text style={styles.rowBalance}>{formatAmount(account.balance, true)}</Text>
+                                <TouchableOpacity onPress={() => deleteAccount(account.id)} hitSlop={10} accessibilityRole="button" accessibilityLabel={`Remove ${account.name}`}>
+                                    <Icon name="close" size={18} color={pair.fg} />
+                                </TouchableOpacity>
+                            </TouchableOpacity>
                         );
                     })}
                 </View>
 
-                <TouchableOpacity style={styles.addBtn} onPress={() => openAddModal()} activeOpacity={0.75} accessibilityRole="button">
+                <TouchableOpacity
+                    style={styles.addBtn}
+                    onPress={() => {
+                        setAccountToEdit(null);
+                        setShowAddModal(true);
+                    }}
+                    activeOpacity={0.75}
+                    accessibilityRole="button"
+                >
                     <Icon name="add" size={20} color={COLORS.text} />
-                    <Text style={styles.addText}>{canContinue ? 'Add another account' : 'Add your first account'}</Text>
+                    <Text style={styles.addText}>Add another account</Text>
                 </TouchableOpacity>
             </ScrollView>
 
             <AddAccountModal
                 visible={showAddModal}
                 accountToEdit={accountToEdit}
-                onClose={closeAddModal}
+                onClose={() => {
+                    setShowAddModal(false);
+                    setAccountToEdit(null);
+                }}
                 onAdd={addAccount}
                 onUpdate={updateAccount}
             />
 
-            <Button label="Continue" onPress={goNext} disabled={!canContinue} />
-        </View>
+            <Button label="Continue" onPress={save} disabled={!canContinue} loading={saving} />
+        </KeyboardAvoidingView>
     );
 }
 
@@ -145,23 +255,23 @@ const styles = StyleSheet.create({
     scroll: { gap: SPACING.lg, paddingBottom: SPACING.lg },
     title: { fontSize: 32, lineHeight: 34, fontWeight: '800', letterSpacing: -0.8, color: COLORS.text },
 
-    hero: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', borderRadius: 30, paddingVertical: 18 },
-    heroOver: { fontSize: 13, fontWeight: '800', color: CATEGORY_PALETTE.groceries.fg, letterSpacing: 0.4 },
+    hero: { flexDirection: 'row', alignItems: 'center', gap: SPACING.md, borderRadius: 30, paddingVertical: 18 },
+    heroOver: { fontSize: 13, fontWeight: '800', color: CATEGORY_PALETTE.groceries.fg, letterSpacing: 0.6 },
     heroValue: { fontSize: 38, lineHeight: 42, fontWeight: '800', letterSpacing: -1, color: COLORS.onBrand, marginTop: 2 },
     countChip: { backgroundColor: COLORS.night, borderRadius: 999, paddingVertical: 7, paddingHorizontal: 12 },
     countChipText: { fontSize: 13, fontWeight: '800', color: COLORS.brand },
 
-    empty: { flexDirection: 'row', alignItems: 'center', gap: SPACING.lg, backgroundColor: COLORS.surface, borderRadius: 26, padding: SPACING.lg, ...SHADOWS.md },
-    emptyText: { flex: 1, fontSize: 15, lineHeight: 21, color: COLORS.textSecondary },
-
-    stackCard: { borderRadius: 28, padding: SPACING.lg, flexDirection: 'row', alignItems: 'center', gap: SPACING.md },
-    stackOverlap: { marginTop: -22, ...SHADOWS.sm },
-    stackMain: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: SPACING.md },
-    stackIcon: { width: 48, height: 48, borderRadius: 16, backgroundColor: COLORS.surface, alignItems: 'center', justifyContent: 'center' },
-    stackName: { fontSize: 16, fontWeight: '800', color: COLORS.text },
-    stackMeta: { fontSize: 13, fontWeight: '600' },
-    stackBalance: { fontSize: 20, fontWeight: '800', color: COLORS.text },
-    removeBtn: { width: 28, height: 28, borderRadius: 14, alignItems: 'center', justifyContent: 'center', backgroundColor: 'rgba(255,255,255,0.6)' },
+    row: { borderRadius: 26, padding: 12, flexDirection: 'row', alignItems: 'center', gap: 10 },
+    rowIcon: { width: 44, height: 44, borderRadius: 14, backgroundColor: COLORS.surface, alignItems: 'center', justifyContent: 'center' },
+    rowName: { fontSize: 16, fontWeight: '800', color: COLORS.text, paddingVertical: 0, width: '100%' },
+    rowMeta: { fontSize: 13, fontWeight: '700' },
+    rowBalance: { fontSize: 18, fontWeight: '800', color: COLORS.text },
+    amountBox: { flexDirection: 'row', alignItems: 'center', backgroundColor: 'rgba(255,255,255,0.75)', borderRadius: 14, paddingHorizontal: 10, height: 44, width: 116 },
+    amountMissing: { borderWidth: 2, borderColor: COLORS.night },
+    amountSign: { fontSize: 16, fontWeight: '800', color: COLORS.text },
+    amountInput: { flex: 1, minWidth: 0, width: '100%', fontSize: 18, fontWeight: '800', color: COLORS.text, paddingVertical: 0, textAlign: 'right' },
+    check: { width: 28, height: 28, borderRadius: 14, borderWidth: 2, borderColor: COLORS.night, alignItems: 'center', justifyContent: 'center' },
+    checkOn: { backgroundColor: COLORS.night },
 
     addBtn: {
         height: 60,

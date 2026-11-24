@@ -71,4 +71,61 @@ export async function deleteModel(m: SmsModel) {
     await deleteAsync(modelPath(m), { idempotent: true });
 }
 
+/**
+ * Background downloads started during onboarding keep going while the user
+ * sets up. Screens subscribe to see progress; the model becomes active when done.
+ */
+export type DownloadState = { modelId: string; progress: number; status: 'running' | 'done' | 'failed'; error?: string };
+let bg: DownloadState | null = null;
+const listeners = new Set<(s: DownloadState | null) => void>();
+const emit = () => listeners.forEach((l) => l(bg));
+
+export function backgroundDownload(): DownloadState | null {
+    return bg;
+}
+
+export function onBackgroundDownload(cb: (s: DownloadState | null) => void): () => void {
+    listeners.add(cb);
+    cb(bg);
+    return () => { listeners.delete(cb); };
+}
+
+export function startBackgroundDownload(m: SmsModel, onDone?: () => void) {
+    if (bg?.status === 'running' && bg.modelId === m.id) return;
+    bg = { modelId: m.id, progress: 0, status: 'running' };
+    emit();
+    let last = 0;
+    downloadModel(m, (p) => {
+        // Throttle: a re-render per percent is plenty.
+        if (p - last >= 0.01 || p === 1) {
+            last = p;
+            bg = { modelId: m.id, progress: p, status: 'running' };
+            emit();
+        }
+    })
+        .then(async () => {
+            await setActiveModel(m.id);
+            bg = { modelId: m.id, progress: 1, status: 'done' };
+            emit();
+            onDone?.();
+        })
+        .catch((e: any) => {
+            bg = { modelId: m.id, progress: 0, status: 'failed', error: e?.message };
+            emit();
+        });
+}
+
+/** Which model fits a phone with this much RAM (bytes). */
+export function recommendModel(totalMemory?: number | null): SmsModel {
+    const gb = (totalMemory ?? 0) / 1024 ** 3;
+    const id = gb >= 7.5 ? 'qwen-1.5b-sms-txn' : gb >= 3.5 || !gb ? 'qwen-0.5b-sms-txn' : 'functiongemma-270m-sms';
+    return getSmsModel(id) ?? SMS_MODELS[0];
+}
+
+/** A model fits when it needs at most a quarter of the phone's RAM (or RAM is unknown). */
+export function modelFits(m: SmsModel, totalMemory?: number | null): boolean {
+    if (!totalMemory) return true;
+    return m.sizeMb * 1e6 * 2.5 <= totalMemory * 0.6;
+}
+
 export { SMS_MODELS };

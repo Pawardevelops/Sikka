@@ -61,6 +61,8 @@ async function hydrateAccount(acc: Account): Promise<AccountType> {
         balance: acc.balance,
         icon: acc.icon,
         color: acc.color,
+        last4: acc.last4 ?? undefined,
+        smsSender: acc.smsSender ?? undefined,
         isDeleted: acc.isDeleted,
         lastUpdated: new Date(acc.updatedAt).toLocaleDateString(),
     };
@@ -183,6 +185,8 @@ export function AccountsProvider({ children }: AccountsProviderProps) {
                     account.icon = accountData.icon;
                     account.color = accountData.color;
                     account.isDeleted = false;
+                    account.last4 = accountData.last4 ?? null;
+                    account.smsSender = accountData.smsSender ?? null;
                 });
 
                 // Create CC detail record if credit card
@@ -254,6 +258,8 @@ export function AccountsProvider({ children }: AccountsProviderProps) {
                     if (updates.balance !== undefined) rec.balance = updates.balance;
                     if (updates.icon !== undefined) rec.icon = updates.icon;
                     if (updates.color !== undefined) rec.color = updates.color;
+                    if (updates.last4 !== undefined) rec.last4 = updates.last4 || null;
+                    if (updates.smsSender !== undefined) rec.smsSender = updates.smsSender || null;
                     if (updates.isDeleted !== undefined) rec.isDeleted = updates.isDeleted;
                 });
 

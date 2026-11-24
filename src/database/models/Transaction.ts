@@ -21,6 +21,14 @@ export default class Transaction extends Model {
     @field('type') type!: 'credit' | 'debit';
     @field('is_auto') isAuto!: boolean;
     @field('is_deleted') isDeleted!: boolean;
+    @text('sms_sender') smsSender!: string | null;
+    @text('sms_body') smsBody!: string | null;
+    @text('payee') payee!: string | null;
+    @field('rule_id') ruleId!: string | null;
+    @field('auto_filed') autoFiled!: boolean | null;
+    @field('plan_id') planId!: string | null;
+    @field('read_by') readBy!: string | null;
+    @text('tags') tags!: string | null;
 
     @relation('accounts', 'account_id') account!: Relation<Account>;
     @relation('categories', 'category_id') category!: Relation<Category>;

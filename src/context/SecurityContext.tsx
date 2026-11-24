@@ -8,6 +8,8 @@ import * as LocalAuthentication from 'expo-local-authentication';
 import database from '../database';
 import Setting from '../database/models/Setting';
 import { Q } from '@nozbe/watermelondb';
+import { AppState } from 'react-native';
+import { getPrefs } from './PrefsContext';
 
 const SECURITY_KEY = 'security_settings';
 
@@ -41,6 +43,20 @@ export function SecurityProvider({ children }: { children: React.ReactNode }) {
     const [biometricType, setBiometricType] = useState('None');
     const [isAuthenticated, setIsAuthenticated] = useState(false);
     const [isLoading, setIsLoading] = useState(true);
+
+    // Lock again after the app has been away longer than Settings → "Lock after".
+    useEffect(() => {
+        let leftAt = 0;
+        const sub = AppState.addEventListener('change', async (state) => {
+            if (state === 'background') leftAt = Date.now();
+            if (state === 'active' && leftAt && biometricEnabled) {
+                const { lockAfter } = await getPrefs();
+                if (Date.now() - leftAt >= lockAfter * 1000) setIsAuthenticated(false);
+                leftAt = 0;
+            }
+        });
+        return () => sub.remove();
+    }, [biometricEnabled]);
 
     // Helper to get/set settings
     const getSettings = async (): Promise<SecuritySettings | null> => {

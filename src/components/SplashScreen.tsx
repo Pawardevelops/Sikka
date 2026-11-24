@@ -121,7 +121,7 @@ const styles = StyleSheet.create({
         borderColor: COLORS.border,
     },
     badgeText: {
-        fontSize: 11,
+        fontSize: 12,
         color: COLORS.textMuted,
         fontWeight: '600',
         letterSpacing: 1,

@@ -20,3 +20,4 @@ export {
 export { Slider } from './Slider';
 export { Keypad, applyKey } from './Keypad';
 export { MoodFace, MoodPicker, MOODS } from './MoodFace';
+export { ToastProvider, useToast, BottomSheet, ConfirmSheet, HelpButton } from './feedback';

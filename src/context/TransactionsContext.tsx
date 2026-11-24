@@ -26,6 +26,7 @@ interface TransactionsContextType {
     getTransactionsByDate: (date: Date) => TransactionType[];
     approveTransaction: (id: string, updates?: Partial<TransactionType>) => Promise<void>;
     ignoreTransaction: (id: string) => Promise<void>;
+    restoreTransaction: (id: string) => Promise<void>;
     unparsedNotifications: string[];
     addUnparsedNotification: (text: string) => Promise<void>;
     refreshTransactions: () => Promise<void>;
@@ -59,6 +60,41 @@ export const formatTimeAgo = (timestamp: number): string => {
     return new Date(timestamp).toLocaleDateString();
 };
 
+/** DB record → plain transaction for the UI. */
+async function mapTransaction(tx: Transaction): Promise<TransactionType> {
+    let categoryName: TransactionCategory = 'other';
+    try {
+        const cat = await tx.category.fetch();
+        if (cat) categoryName = cat.name.toLowerCase() as TransactionCategory;
+    } catch (e) { /* a missing category stays 'other' */ }
+    const sentiments = await tx.transactionSentiments.fetch();
+    return {
+        id: tx.id,
+        accountId: tx.account.id,
+        merchant: tx.merchant,
+        category: categoryName,
+        type: tx.type,
+        status: tx.isAuto ? 'pending' : 'approved', // SMS captures wait for review
+        amount: tx.amount,
+        notes: tx.note,
+        timestamp: tx.timestamp,
+        isAuto: tx.isAuto,
+        isDeleted: tx.isDeleted,
+        sentimentIds: sentiments.map((ts: TransactionSentiment) => ts.sentiment.id),
+        smsSender: tx.smsSender ?? undefined,
+        smsBody: tx.smsBody ?? undefined,
+        payee: tx.payee ?? undefined,
+        ruleId: tx.ruleId ?? undefined,
+        autoFiled: !!tx.autoFiled,
+        planId: tx.planId ?? undefined,
+        readBy: tx.readBy ?? undefined,
+        tags: tx.tags ? tx.tags.split(' ').filter(Boolean) : [],
+    };
+}
+
+/** Balance change a transaction makes on its account (credit cards count owed money). */
+const balanceDelta = (accountType: string, amount: number) => (accountType === 'credit' ? -amount : amount);
+
 // ==================== PROVIDER ====================
 interface TransactionsProviderProps {
     children: ReactNode;
@@ -85,41 +121,11 @@ export function TransactionsProvider({ children }: TransactionsProviderProps) {
             // updated_at changes on every write, so this catches any update to a row.
             .observeWithColumns([
                 'amount', 'merchant', 'note', 'timestamp', 'type', 'is_auto',
-                'account_id', 'category_id', 'is_deleted', 'updated_at',
+                'account_id', 'category_id', 'is_deleted', 'updated_at', 'auto_filed', 'rule_id', 'plan_id', 'tags',
             ])
             .subscribe(async (records) => {
                 // Mapping allows us to keep the UI decoupled from DB models for now
-                const mappedTransactions = await Promise.all(records.map(async (tx) => {
-                    // Fetch category
-                    let categoryName: TransactionCategory = 'other';
-                    try {
-                        const cat = await tx.category.fetch();
-                        if (cat) {
-                            // Map DB category name to Enum if possible, else 'other'
-                            categoryName = cat.name.toLowerCase() as TransactionCategory;
-                        }
-                    } catch (e) { /* existing cateogry might be null */ }
-
-                    // Fetch sentiments (IDs)
-                    const sentiments = await tx.transactionSentiments.fetch();
-                    const sentimentIds = sentiments.map((ts: TransactionSentiment) => ts.sentiment.id);
-
-                    // IMPROVED MAPPING:
-                    return {
-                        id: tx.id,
-                        accountId: tx.account.id, // accessing ID of relation is synchronous
-                        merchant: tx.merchant,
-                        category: categoryName,
-                        type: tx.type,
-                        status: tx.isAuto ? ('pending' as const) : ('approved' as const), // SMS captures wait for review
-                        amount: tx.amount,
-                        notes: tx.note,
-                        timestamp: tx.timestamp,
-                        isAuto: tx.isAuto,
-                        isDeleted: tx.isDeleted,
-                        sentimentIds: sentimentIds,
-                    };
-                }));
+                const mappedTransactions = await Promise.all(records.map(mapTransaction));
 
                 setTransactions(mappedTransactions);
                 setIsLoading(false);
@@ -167,7 +173,10 @@ export function TransactionsProvider({ children }: TransactionsProviderProps) {
                     tx.timestamp = transactionData.timestamp || Date.now();
                     tx.type = transactionData.type;
                     tx.isAuto = transactionData.isAuto;
-                    tx.isDeleted = false; // Transaction model has 'isDeleted' field? Need to check. Default false.
+                    tx.isDeleted = false;
+                    tx.tags = (transactionData.tags ?? []).join(' ');
+                    tx.readBy = transactionData.readBy ?? 'you';
+                    if (transactionData.planId) tx.planId = transactionData.planId;
                     // Set Relations
                     tx.account.set(account);
                     if (category) tx.category.set(category);
@@ -272,6 +281,10 @@ export function TransactionsProvider({ children }: TransactionsProviderProps) {
                     if (updates.notes !== undefined) rec.note = updates.notes || '';
                     if (updates.timestamp !== undefined) rec.timestamp = updates.timestamp;
                     if (updates.type !== undefined) rec.type = updates.type;
+                    if (updates.tags !== undefined) rec.tags = updates.tags.join(' ');
+                    if (updates.ruleId !== undefined) rec.ruleId = updates.ruleId || null;
+                    if (updates.autoFiled !== undefined) rec.autoFiled = updates.autoFiled;
+                    if (updates.planId !== undefined) rec.planId = updates.planId || null;
                     if (newCategoryRecord) rec.category.set(newCategoryRecord);
                     if (updates.accountId && updates.accountId !== oldAccountId) {
                         rec.account.set(newAccount);
@@ -347,6 +360,21 @@ export function TransactionsProvider({ children }: TransactionsProviderProps) {
         }
     }, []);
 
+    /** Undo for "Not mine" and delete: brings the payment back and re-applies its balance. */
+    const restoreTransaction = useCallback(async (transactionId: string) => {
+        try {
+            await database.write(async () => {
+                const tx = await database.get<Transaction>('transactions').find(transactionId);
+                if (!tx.isDeleted) return;
+                await tx.update((rec) => { rec.isDeleted = false; });
+                const account = await database.get<Account>('accounts').find(tx.account.id);
+                await account.update((acc) => { acc.balance += balanceDelta(account.type, tx.amount); });
+            });
+        } catch (error) {
+            console.error('Error restoring transaction:', error);
+        }
+    }, []);
+
     const getTransactionsByAccount = useCallback((accountId: string) => {
         return activeTransactions.filter(tx => tx.accountId === accountId);
     }, [activeTransactions]);
@@ -369,35 +397,7 @@ export function TransactionsProvider({ children }: TransactionsProviderProps) {
                 Q.sortBy('timestamp', Q.desc)
             ).fetch();
 
-            const mappedTransactions = await Promise.all(records.map(async (tx) => {
-                // Fetch category
-                let categoryName: TransactionCategory = 'other';
-                try {
-                    const cat = await tx.category.fetch();
-                    if (cat) {
-                        categoryName = cat.name.toLowerCase() as TransactionCategory;
-                    }
-                } catch (e) { }
-
-                // Fetch sentiments
-                const sentiments = await tx.transactionSentiments.fetch();
-                const sentimentIds = sentiments.map((ts: TransactionSentiment) => ts.sentiment.id);
-
-                return {
-                    id: tx.id,
-                    accountId: tx.account.id,
-                    merchant: tx.merchant,
-                    category: categoryName,
-                    type: tx.type,
-                    status: tx.isAuto ? ('pending' as const) : ('approved' as const),
-                    amount: tx.amount,
-                    notes: tx.note,
-                    timestamp: tx.timestamp,
-                    isAuto: tx.isAuto,
-                    isDeleted: tx.isDeleted,
-                    sentimentIds: sentimentIds,
-                };
-            }));
+            const mappedTransactions = await Promise.all(records.map(mapTransaction));
 
             setTransactions(mappedTransactions);
         } catch (error) {
@@ -405,7 +405,7 @@ export function TransactionsProvider({ children }: TransactionsProviderProps) {
         }
     }, []);
 
-    const approveTransaction = useCallback(async (id: string, updates?: Partial<TransactionType>) => {
+    const approveTransaction = useCallback(async (id: string, _updates?: Partial<TransactionType>) => {
         // Since we don't have a 'pending' state in DB yet, this is mostly for the SMS parsing flow.
         // If we want to support pending, we need to add 'status' to DB.
         // For now, we'll treat 'approve' as just updating the transaction if it exists, or doing nothing.
@@ -416,13 +416,8 @@ export function TransactionsProvider({ children }: TransactionsProviderProps) {
             await database.write(async () => {
                 const tx = await database.get<Transaction>('transactions').find(id);
                 await tx.update(rec => {
-                    // Apply updates
-                    if (updates?.merchant) rec.merchant = updates.merchant;
-                    if (updates?.amount) rec.amount = updates.amount;
-                    // ... other updates
-                    rec.isAuto = false; // Manually approved
+                    rec.isAuto = false; // approved; field edits go through editTransaction first
                 });
-                // TODO: Handle balance update if amount changed
             });
         } catch (error) {
             console.error('Error approving transaction:', error);
@@ -454,6 +449,7 @@ export function TransactionsProvider({ children }: TransactionsProviderProps) {
             getTransactionsByDate,
             approveTransaction,
             ignoreTransaction,
+            restoreTransaction,
             unparsedNotifications,
             addUnparsedNotification,
             refreshTransactions,

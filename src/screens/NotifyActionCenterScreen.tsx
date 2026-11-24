@@ -682,7 +682,7 @@ const styles = StyleSheet.create({
     stepDone: { backgroundColor: COLORS.night },
     stepNow: { backgroundColor: SIKKA.signal, borderWidth: 5, borderColor: '#FFE3D4', width: 40, height: 40, borderRadius: 20, marginTop: -4, marginBottom: -4 },
     stepTodo: { borderWidth: 2, borderStyle: 'dashed', borderColor: '#BDB5A6' },
-    stepLabel: { fontSize: 11, fontWeight: '800', color: COLORS.text },
+    stepLabel: { fontSize: 12, fontWeight: '800', color: COLORS.text },
     stepLink: { width: 16, height: 3, borderRadius: 2, marginTop: 15 },
 
     payee: { height: 56, borderRadius: 28, backgroundColor: COLORS.surface, paddingHorizontal: 20, fontSize: 17, fontWeight: '700', color: COLORS.text, ...SHADOWS.sm },

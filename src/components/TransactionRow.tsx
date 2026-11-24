@@ -88,7 +88,7 @@ const styles = StyleSheet.create({
     titleRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
     title: { fontSize: 16, fontWeight: '800', color: COLORS.text, flexShrink: 1 },
     auto: { backgroundColor: CATEGORY_PALETTE.groceries.bg, borderRadius: 999, paddingHorizontal: 6, paddingVertical: 1 },
-    autoText: { fontSize: 10, fontWeight: '800', color: CATEGORY_PALETTE.groceries.fg, letterSpacing: 0.4 },
+    autoText: { fontSize: 12, fontWeight: '800', color: CATEGORY_PALETTE.groceries.fg, letterSpacing: 0.4 },
     meta: { fontSize: 13, fontWeight: '600', color: COLORS.textSecondary, marginTop: 1 },
     amount: { fontSize: 19, fontWeight: '800', color: COLORS.text },
     amountIn: { color: COLORS.primary },
